@@ -122,11 +122,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
                 new ScrFunctionOverload()
                 {
                     Parameters = GetParametersAsRecord(parameters)!,
-                    CalledOn = new ScrFunctionArg()
-                    {
-                        Name = "unk",
-                        Mandatory = false
-                    },
+                    CalledOn = null, // Class methods don't need CalledOn - it's implicit
                     Returns = null!,
                     Vararg = functionDefn.Parameters.Vararg
                 }
@@ -695,41 +691,15 @@ internal record ScrMethodSymbol(Token NameToken, ScrFunction Source, ScrClass Cl
 
     public override Hover GetHover()
     {
-        // Prefer user doc comment, if present
-        if (!string.IsNullOrWhiteSpace(Source.DocComment))
-        {
-            return new()
-            {
-                Range = Range,
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = Source.DocComment
-                })
-            };
-        }
-
-        StringBuilder builder = new();
-
-        builder.AppendLine("```gsc");
-        builder.Append($"{ClassSource.Name}::{Source.Name}(");
-
-        bool first = true;
-        foreach (ScrFunctionArg parameter in Source.Overloads.First().Parameters)
-        {
-            AppendParameter(builder, parameter, ref first);
-        }
-        builder.AppendLine(")");
-        builder.AppendLine("```");
-
-
+        // Use the function's Documentation property which handles both DocComment
+        // and generated documentation consistently
         return new()
         {
             Range = Range,
             Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
             {
                 Kind = MarkupKind.Markdown,
-                Value = builder.ToString()
+                Value = Source.Documentation
             })
         };
     }

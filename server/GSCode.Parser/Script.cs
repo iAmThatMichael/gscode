@@ -591,35 +591,12 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     {
         await WaitUntilAnalysedAsync(cancellationToken);
 
-        // Check if position is on a namespace qualifier (followed by :: and identifier)
-        // If so, forward to the function token for hover resolution
-        Token? initialToken = Sense.Tokens.Get(position);
-        if (initialToken is not null && initialToken.Type == TokenType.Identifier)
+        // Priority 0: Check HoverLibrary first for special cases (preprocessor macros, directives, etc.)
+        // These might not have regular tokens but still need hover support
+        IHoverable? hoverable = Sense.HoverLibrary.Get(position);
+        if (hoverable is not null)
         {
-            Token? nextNonWsCheck = initialToken.Next;
-            while (nextNonWsCheck is not null && nextNonWsCheck.IsWhitespacey())
-            {
-                nextNonWsCheck = nextNonWsCheck.Next;
-            }
-            if (nextNonWsCheck is not null && nextNonWsCheck.Type == TokenType.ScopeResolution)
-            {
-                Token? afterScopeCheck = nextNonWsCheck.Next;
-                while (afterScopeCheck is not null && afterScopeCheck.IsWhitespacey())
-                {
-                    afterScopeCheck = afterScopeCheck.Next;
-                }
-                if (afterScopeCheck is not null && afterScopeCheck.Type == TokenType.Identifier)
-                {
-                    // Forward position to the function token for hover lookup
-                    position = afterScopeCheck.Range.Start;
-                }
-            }
-        }
-
-        IHoverable? result = Sense.HoverLibrary.Get(position);
-        if (result is not null)
-        {
-            return result.GetHover();
+            return hoverable.GetHover();
         }
 
         Token? token = Sense.Tokens.Get(position);
@@ -628,76 +605,142 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             return null;
         }
 
-        // If cursor is inside a call's argument list, synthesize a signature-like hover with current parameter highlighted
-        if (TryGetCallInfo(token, out Token idToken, out int activeParam))
+        // Priority 1: If inside a function call's parentheses, show signature with highlighted parameter
+        // But NOT if we're hovering on the function name itself - that should show the normal hover
+        if (TryGetCallInfo(token, out Token? callIdToken, out int activeParam))
         {
-            var (q, funcName) = ParseNamespaceQualifiedIdentifier(idToken);
-            string? md = BuildSignatureMarkdown(funcName, q, activeParam);
-            if (md is not null)
+            // Check if we're hovering on the function identifier itself (not inside parentheses)
+            bool isOnFunctionIdentifier = token == callIdToken;
+
+            if (!isOnFunctionIdentifier)
             {
-                return new Hover
-                {
-                    Range = idToken.Range,
-                    Contents = new MarkedStringsOrMarkupContent(new MarkupContent
-                    {
-                        Kind = MarkupKind.Markdown,
-                        Value = md
-                    })
-                };
+                return BuildCallSignatureHover(callIdToken, activeParam);
             }
         }
 
-        // No precomputed hover — try to synthesize one for local/external (non-builtin) function identifiers
-        // Only for identifiers (namespace::name or plain name)
-        if (token.Type != TokenType.Identifier)
+        // Priority 2: If hovering on namespace qualifier, forward to the actual function
+        if (token.Type == TokenType.Identifier && TryGetQualifiedFunctionToken(token, out Token? functionToken))
+        {
+            token = functionToken;
+        }
+
+        // Priority 3: Check HoverLibrary again for the resolved token
+        // (might be different from Priority 0 if we forwarded from namespace qualifier)
+        hoverable = Sense.HoverLibrary.Get(token.Range.Start);
+        if (hoverable is not null)
+        {
+            return hoverable.GetHover();
+        }
+
+        // Priority 4: Fallback - try to synthesize basic hover for script functions without SenseDefinition
+        // This handles edge cases where analysis might have missed something
+        if (token.Type == TokenType.Identifier && !IsBuiltinFunction(token.Lexeme))
+        {
+            return TryBuildFallbackFunctionHover(token);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Checks if token is a namespace qualifier (e.g., "utility" in "utility::function")
+    /// and returns the actual function token after the ::
+    /// </summary>
+    private bool TryGetQualifiedFunctionToken(Token token, out Token? functionToken)
+    {
+        functionToken = null;
+
+        Token? next = token.Next;
+        while (next is not null && next.IsWhitespacey())
+        {
+            next = next.Next;
+        }
+
+        if (next is null || next.Type != TokenType.ScopeResolution)
+        {
+            return false;
+        }
+
+        Token? afterScope = next.Next;
+        while (afterScope is not null && afterScope.IsWhitespacey())
+        {
+            afterScope = afterScope.Next;
+        }
+
+        if (afterScope is not null && afterScope.Type == TokenType.Identifier)
+        {
+            functionToken = afterScope;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Builds hover showing function signature with current parameter highlighted
+    /// </summary>
+    private Hover? BuildCallSignatureHover(Token functionToken, int activeParam)
+    {
+        var (qualifier, funcName) = ParseNamespaceQualifiedIdentifier(functionToken);
+        string? markdown = BuildSignatureMarkdown(funcName, qualifier, activeParam);
+
+        if (markdown is null)
         {
             return null;
         }
 
+        return new Hover
+        {
+            Range = functionToken.Range,
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+            {
+                Kind = MarkupKind.Markdown,
+                Value = markdown
+            })
+        };
+    }
+
+    /// <summary>
+    /// Last resort: build basic hover for script functions that don't have proper SenseDefinition
+    /// </summary>
+    private Hover? TryBuildFallbackFunctionHover(Token token)
+    {
         var (qualifier, name) = ParseNamespaceQualifiedIdentifier(token);
 
-        // Exclude builtin API functions
-        if (IsBuiltinFunction(name))
-        {
-            return null; // let existing hover (if any) handle API
-        }
-
-        // Find function/method in current script tables
+        // Try to get doc/params from definitions table
         string ns = qualifier ?? GetEffectiveNamespace();
         string? doc = DefinitionsTable?.GetFunctionDoc(ns, name);
         string[]? parameters = DefinitionsTable?.GetFunctionParameters(ns, name);
 
+        // If we don't even know it exists, give up
         if (doc is null && parameters is null)
         {
-            // Try any namespace in this file
-            var any = DefinitionsTable?.GetFunctionLocationAnyNamespace(name);
-            if (any is not null)
+            var anyLoc = DefinitionsTable?.GetFunctionLocationAnyNamespace(name);
+            if (anyLoc is null)
             {
-                // unknown params/doc; still show a basic prototype
-                string proto = $"function {name}()";
-                return new Hover
-                {
-                    Range = token.Range,
-                    Contents = new MarkedStringsOrMarkupContent(new MarkupContent
-                    {
-                        Kind = MarkupKind.Markdown,
-                        Value = $"{s_gscCodeBlockStart}{proto}{s_codeBlockEnd}"
-                    })
-                };
+                return null;
             }
-            return null;
+            // Known to exist but no metadata - show minimal info
+            return new Hover
+            {
+                Range = token.Range,
+                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+                {
+                    Kind = MarkupKind.Markdown,
+                    Value = $"{s_gscCodeBlockStart}function {name}(){s_codeBlockEnd}"
+                })
+            };
         }
 
-        string[] cleanParams = parameters is null ? Array.Empty<string>() : parameters.Select(StripDefault).ToArray();
-        string protoWithParams = cleanParams.Length == 0
+        // Build hover from available metadata
+        string[] cleanParams = parameters?.Select(StripDefault).ToArray() ?? Array.Empty<string>();
+        string signature = cleanParams.Length == 0
             ? $"function {name}()"
             : $"function {name}({string.Join(", ", cleanParams)})";
 
-        // Doc comment is already formatted by SanitizeDocForMarkdown, don't sanitize again
-        string formattedDoc = doc ?? string.Empty;
-        string value = string.IsNullOrEmpty(formattedDoc)
-            ? $"{s_gscCodeBlockStart}{protoWithParams}{s_codeBlockEnd}"
-            : $"{s_gscCodeBlockStart}{protoWithParams}{s_codeBlockEnd}{s_markdownSeparator}{formattedDoc}";
+        string content = string.IsNullOrWhiteSpace(doc)
+            ? $"{s_gscCodeBlockStart}{signature}{s_codeBlockEnd}"
+            : $"{s_gscCodeBlockStart}{signature}{s_codeBlockEnd}{s_markdownSeparator}{doc}";
 
         return new Hover
         {
@@ -705,7 +748,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             Contents = new MarkedStringsOrMarkupContent(new MarkupContent
             {
                 Kind = MarkupKind.Markdown,
-                Value = value
+                Value = content
             })
         };
     }

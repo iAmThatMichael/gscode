@@ -106,14 +106,21 @@ public record class ScrFunction : IExportedSymbol
             p => p.Mandatory);
     }
 
-    private string GetParametersString() =>
-        FunctionDocumentationFormatter.FormatParametersSection(
+    private string GetParametersString()
+    {
+        // Built-in API functions show CalledOn in the signature, so don't repeat it in parameters section
+        // Script functions don't show CalledOn in signature, so include it in parameters section
+        bool isBuiltInApi = !string.IsNullOrWhiteSpace(Description);
+        var calledOn = isBuiltInApi ? null : Overloads.First().CalledOn;
+
+        return FunctionDocumentationFormatter.FormatParametersSection(
             Overloads.First().Parameters,
-            Overloads.First().CalledOn,
+            calledOn,
             p => p.Name,
             p => p.Mandatory,
             p => p.Description,
             c => c.Name);
+    }
 
     private string GetExampleString() => FunctionDocumentationFormatter.FormatExample(Example);
 

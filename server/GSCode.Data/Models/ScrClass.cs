@@ -25,4 +25,5 @@ public record class ScrMember
 {
     public string Name { get; set; } = default!;
     public string? Description { get; set; } = default!;
+    public string? DocComment { get; set; } = default!;
 }

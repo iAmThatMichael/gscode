@@ -693,7 +693,8 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             ? $"function {name}()"
             : $"function {name}({string.Join(", ", cleanParams)})";
 
-        string formattedDoc = doc is not null ? DocCommentHelper.Sanitize(doc) : string.Empty;
+        // Doc comment is already formatted by SanitizeDocForMarkdown, don't sanitize again
+        string formattedDoc = doc ?? string.Empty;
         string value = string.IsNullOrEmpty(formattedDoc)
             ? $"{s_gscCodeBlockStart}{protoWithParams}{s_codeBlockEnd}"
             : $"{s_gscCodeBlockStart}{protoWithParams}{s_codeBlockEnd}{s_markdownSeparator}{formattedDoc}";
@@ -738,7 +739,8 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         if (parms is not null)
         {
             string sig = FormatSignature(name, parms.Select(StripDefault).ToArray(), activeParam, qualifier);
-            string formattedDoc = doc is not null ? DocCommentHelper.Sanitize(doc) : string.Empty;
+            // Doc comment is already formatted by SanitizeDocForMarkdown, don't sanitize again
+            string formattedDoc = doc ?? string.Empty;
             return string.IsNullOrEmpty(formattedDoc) ? sig : $"{sig}{s_markdownSeparator}{formattedDoc}";
         }
 

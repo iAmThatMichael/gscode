@@ -109,11 +109,15 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         // Analyze the parameter list
         IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters);
 
+        // Extract doc comment if present
+        string? doc = ExtractDocCommentBefore(nameToken);
+
         // TODO: Probably needs to be a ScrMethod instead.
         ScrFunction function = new()
         {
             Name = name,
-            Description = null, // TODO: Check the DOC COMMENT
+            Description = null,
+            DocComment = doc,
             Overloads = [
                 new ScrFunctionOverload()
                 {
@@ -122,7 +126,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
                     {
                         Name = "unk",
                         Mandatory = false
-                    }, // TODO: Check the DOC COMMENT
+                    },
                     Returns = null!,
                     Vararg = functionDefn.Parameters.Vararg
                 }
@@ -146,7 +150,6 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         DefinitionsTable.RecordFunctionFlags(DefinitionsTable.CurrentNamespace, name, flags);
 
         // Record doc comment if present
-        string? doc = ExtractDocCommentBefore(nameToken);
         DefinitionsTable.RecordFunctionDoc(DefinitionsTable.CurrentNamespace, name, doc);
 
         // NEW: Also record under the class name as its own qualifier so ClassName::Method() resolves
@@ -174,10 +177,13 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
             return;
         }
 
+        string? doc = ExtractDocCommentBefore(nameToken);
+
         ScrMember member = new()
         {
             Name = memberDecl.NameToken?.Lexeme ?? "",
-            Description = null // TODO: Check the DOC COMMENT
+            Description = null,
+            DocComment = doc
         };
 
         scrClass.Members.Add(member);
@@ -453,37 +459,32 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         if (!string.IsNullOrWhiteSpace(summary))
         {
-            sb.AppendLine($"### _{summary}_");
+            sb.AppendLine(summary);
+            sb.AppendLine();
             sb.AppendLine("---");
         }
 
         if (!string.IsNullOrWhiteSpace(module) || !string.IsNullOrWhiteSpace(callOn) || !string.IsNullOrWhiteSpace(spmp))
         {
-            if (!string.IsNullOrWhiteSpace(module)) sb.AppendLine($"- Module: ```{module}```");
-            if (!string.IsNullOrWhiteSpace(callOn)) sb.AppendLine($"- CallOn: ```{callOn}```");
-            if (!string.IsNullOrWhiteSpace(spmp)) sb.AppendLine($"- SPMP: ```{spmp}```");
+            if (!string.IsNullOrWhiteSpace(callOn)) sb.AppendLine($"Called on: `<{callOn}>`");
+            if (!string.IsNullOrWhiteSpace(spmp)) sb.AppendLine($"* SPMP: {spmp}");
+            if (!string.IsNullOrWhiteSpace(module)) sb.AppendLine($"* Module: {module}");
+            sb.AppendLine();
             sb.AppendLine("---");
         }
 
         if (mandatory.Count > 0 || optional.Count > 0)
         {
-            sb.AppendLine("### Parameters");
-            if (mandatory.Count > 0)
+            sb.AppendLine("Parameters:");
+            foreach (var (a, d) in mandatory)
             {
-                sb.AppendLine("- Mandatory");
-                foreach (var (a, d) in mandatory)
-                {
-                    sb.AppendLine($"  - `<{a}>` — {d}");
-                }
+                sb.AppendLine($"* `<{a}>` {d}");
             }
-            if (optional.Count > 0)
+            foreach (var (a, d) in optional)
             {
-                sb.AppendLine("- Optional");
-                foreach (var (a, d) in optional)
-                {
-                    sb.AppendLine($"  - `[{a}]` — {d}");
-                }
+                sb.AppendLine($"* `[{a}]` {d}");
             }
+            sb.AppendLine();
             sb.AppendLine("---");
         }
 
@@ -658,6 +659,20 @@ internal record ScrClassMemberSymbol(Token NameToken, ScrMember Source, ScrClass
 
     public Hover GetHover()
     {
+        // Prefer user doc comment, if present
+        if (!string.IsNullOrWhiteSpace(Source.DocComment))
+        {
+            return new()
+            {
+                Range = Range,
+                Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
+                {
+                    Kind = MarkupKind.Markdown,
+                    Value = Source.DocComment
+                })
+            };
+        }
+
         return new()
         {
             Range = Range,
@@ -680,6 +695,20 @@ internal record ScrMethodSymbol(Token NameToken, ScrFunction Source, ScrClass Cl
 
     public override Hover GetHover()
     {
+        // Prefer user doc comment, if present
+        if (!string.IsNullOrWhiteSpace(Source.DocComment))
+        {
+            return new()
+            {
+                Range = Range,
+                Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
+                {
+                    Kind = MarkupKind.Markdown,
+                    Value = Source.DocComment
+                })
+            };
+        }
+
         StringBuilder builder = new();
 
         builder.AppendLine("```gsc");

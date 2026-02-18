@@ -78,18 +78,8 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
         // This will be replaced later, but will suffice as a temporary completions solution.
 
-        // Add GSC/CSC keywords
-        string[] keywords = {
-            "class", "return", "wait", "thread", "classes", "if", "else", "do", "while",
-            "for", "foreach", "in", "new", "waittill", "waittillmatch", "waittillframeend",
-            "switch", "case", "default", "break", "continue", "notify", "endon",
-            "waitrealtime", "profilestart", "profilestop", "isdefined", "vectorscale",
-            // Additional keywords
-            "true", "false", "undefined", "self", "level", "game", "world", "vararg", "anim",
-            "var", "const", "function", "private", "autoexec", "constructor", "destructor"
-        };
-
-        foreach (string keyword in keywords)
+        // Add GSC/CSC keywords from shared definition
+        foreach (string keyword in ScriptKeywords.All)
         {
             if (!seenIdentifiers.Contains(keyword))
             {

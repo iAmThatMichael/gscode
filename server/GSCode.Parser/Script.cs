@@ -19,6 +19,7 @@ using System.Text.RegularExpressions;
 using GSCode.Parser.DFA;
 using System.Runtime.CompilerServices;
 using Serilog;
+using GSCode.Parser.Util;
 
 namespace GSCode.Parser;
 
@@ -78,18 +79,6 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         var api = TryGetApi();
         return api is not null && api.GetApiFunction(name) is not null;
     }
-
-    // Keywords list duplicated from DocumentCompletionsLibrary.cs for SPA filtering purposes
-    private static readonly HashSet<string> s_completionKeywords = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "class", "return", "wait", "thread", "classes", "if", "else", "do", "while",
-        "for", "foreach", "in", "new", "waittill", "waittillmatch", "waittillframeend",
-        "switch", "case", "default", "break", "continue", "notify", "endon",
-        "waitrealtime", "profilestart", "profilestop", "isdefined", "vectorscale",
-        // Additional keywords
-        "true", "false", "undefined", "self", "level", "game", "world", "vararg", "anim",
-        "var", "const", "function", "private", "autoexec", "constructor", "destructor"
-    };
 
     public async Task ParseAsync(string documentText)
     {
@@ -247,46 +236,6 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         Token? next3 = NextNonTrivia(next2);
         if (next3?.Type != TokenType.OpenParen) return false;
         return true;
-    }
-
-    private static string NormalizeDocComment(string raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
-        string s = raw.Trim();
-        // Strip block wrappers /@ @/ or /* */
-        if (s.StartsWith("/@"))
-        {
-            if (s.EndsWith("@/")) s = s.Substring(2, s.Length - 4);
-            else s = s.Substring(2);
-        }
-        else if (s.StartsWith("/*"))
-        {
-            if (s.EndsWith("*/")) s = s.Substring(2, s.Length - 4);
-            else s = s.Substring(2);
-        }
-        // Normalize lines: remove leading * and surrounding quotes
-        var lines = s.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-        if (lines.Length == 1)
-        {
-            string l = lines[0].Trim();
-            if (l.StartsWith("*")) l = l.TrimStart('*').TrimStart();
-            if (l.Length >= 2 && l[0] == '"' && l[^1] == '"') l = l.Substring(1, l.Length - 2);
-            return l.Length == 0 ? string.Empty : l;
-        }
-        List<string> cleaned = new();
-        foreach (var line in lines)
-        {
-            string l = line.Trim();
-            if (l.StartsWith("*")) l = l.TrimStart('*').TrimStart();
-            // Remove starting and ending quotes if present
-            if (l.Length >= 2 && l[0] == '"' && l[^1] == '"')
-            {
-                l = l.Substring(1, l.Length - 2);
-            }
-            if (l.Length == 0) continue;
-            cleaned.Add(l);
-        }
-        return string.Join("\n", cleaned);
     }
 
     private void BuildReferenceIndex()
@@ -744,7 +693,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             ? $"function {name}()"
             : $"function {name}({string.Join(", ", cleanParams)})";
 
-        string formattedDoc = doc is not null ? NormalizeDocComment(doc) : string.Empty;
+        string formattedDoc = doc is not null ? DocCommentHelper.Sanitize(doc) : string.Empty;
         string value = string.IsNullOrEmpty(formattedDoc)
             ? $"{s_gscCodeBlockStart}{protoWithParams}{s_codeBlockEnd}"
             : $"{s_gscCodeBlockStart}{protoWithParams}{s_codeBlockEnd}{s_markdownSeparator}{formattedDoc}";
@@ -789,7 +738,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         if (parms is not null)
         {
             string sig = FormatSignature(name, parms.Select(StripDefault).ToArray(), activeParam, qualifier);
-            string formattedDoc = doc is not null ? NormalizeDocComment(doc) : string.Empty;
+            string formattedDoc = doc is not null ? DocCommentHelper.Sanitize(doc) : string.Empty;
             return string.IsNullOrEmpty(formattedDoc) ? sig : $"{sig}{s_markdownSeparator}{formattedDoc}";
         }
 
@@ -830,57 +779,8 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     private static bool TryGetCallInfo(Token token, out Token idToken, out int activeParam)
     {
-        idToken = default!;
-        activeParam = 0;
-
-        // Find the nearest '(' that starts the current argument list
-        Token? cursor = token;
-        int parenDepth = 0;
-        while (cursor is not null)
-        {
-            if (cursor.Type == TokenType.CloseParen) parenDepth++;
-            if (cursor.Type == TokenType.OpenParen)
-            {
-                if (parenDepth == 0) break;
-                parenDepth--;
-            }
-            cursor = cursor.Previous;
-        }
-        if (cursor is null)
-            return false; // not in a call
-
-        // The identifier before this '('
-        Token? id = cursor.Previous;
-        while (id is not null && (id.IsWhitespacey() || id.IsComment())) id = id.Previous;
-        if (id is null || id.Type != TokenType.Identifier)
-            return false;
-
-        idToken = id;
-
-        // Count commas to determine parameter index; ignore nested parens/brackets/braces
-        Token? walker = cursor.Next;
-        int depthParen = 0, depthBracket = 0, depthBrace = 0;
-        int index = 0;
-        while (walker is not null && walker != token.Next)
-        {
-            if (walker.Type == TokenType.OpenParen) depthParen++;
-            else if (walker.Type == TokenType.CloseParen)
-            {
-                if (depthParen == 0) break;
-                depthParen--;
-            }
-            else if (walker.Type == TokenType.OpenBracket) depthBracket++;
-            else if (walker.Type == TokenType.CloseBracket && depthBracket > 0) depthBracket--;
-            else if (walker.Type == TokenType.OpenBrace) depthBrace++;
-            else if (walker.Type == TokenType.CloseBrace && depthBrace > 0) depthBrace--;
-            else if (walker.Type == TokenType.Comma && depthParen == 0 && depthBracket == 0 && depthBrace == 0)
-            {
-                index++;
-            }
-            walker = walker.Next;
-        }
-        activeParam = index;
-        return true;
+        // Delegate to shared call context finder
+        return TryFindCallContext(token, out idToken, out activeParam) && idToken is not null;
     }
 
     public async Task<CompletionList?> GetCompletionAsync(Position position, CancellationToken cancellationToken)
@@ -943,6 +843,84 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         }
         // Otherwise, no qualifier
         return (null, token.Lexeme);
+    }
+
+    /// <summary>
+    /// Finds the call context from a given position in the token stream.
+    /// Scans backwards to find the opening '(' of a function call, identifies the function name,
+    /// and counts the active parameter index based on commas.
+    /// </summary>
+    /// <param name="token">Starting token (typically at cursor position)</param>
+    /// <param name="idToken">Output: the identifier token of the function being called</param>
+    /// <param name="activeParam">Output: the 0-based parameter index at the cursor position</param>
+    /// <returns>True if a valid call context was found, false otherwise</returns>
+    private static bool TryFindCallContext(Token token, out Token? idToken, out int activeParam)
+    {
+        idToken = null;
+        activeParam = 0;
+
+        // Scan left to find the nearest '(' that starts the current argument list
+        Token? cursor = token;
+        int parenDepth = 0;
+        while (cursor is not null)
+        {
+            if (cursor.Type == TokenType.CloseParen) parenDepth++;
+            if (cursor.Type == TokenType.OpenParen)
+            {
+                if (parenDepth == 0) break;
+                parenDepth--;
+            }
+            if (cursor.Type == TokenType.Identifier && cursor.Next?.Type == TokenType.OpenParen && parenDepth == 0)
+            {
+                cursor = cursor.Next;
+                break;
+            }
+            if (cursor.Type == TokenType.Semicolon || cursor.Type == TokenType.LineBreak)
+            {
+                return false; // Hit end of statement without finding '('
+            }
+            cursor = cursor.Previous;
+        }
+
+        if (cursor is null)
+            return false; // not in a call
+
+        // Find the identifier before this '('
+        Token? id = cursor.Previous;
+        while (id is not null && (id.IsWhitespacey() || id.IsComment())) 
+            id = id.Previous;
+
+        if (id is null || id.Type != TokenType.Identifier)
+            return false;
+
+        idToken = id;
+
+        // Count parameter index by scanning commas from cursor to current position
+        // without nesting into inner parens/brackets/braces
+        Token? walker = cursor.Next;
+        int depthParen = 0, depthBracket = 0, depthBrace = 0;
+        int index = 0;
+        while (walker is not null && walker != token.Next)
+        {
+            if (walker.Type == TokenType.OpenParen) depthParen++;
+            else if (walker.Type == TokenType.CloseParen)
+            {
+                if (depthParen == 0) break; // end of this call
+                depthParen--;
+            }
+            else if (walker.Type == TokenType.OpenBracket) depthBracket++;
+            else if (walker.Type == TokenType.CloseBracket && depthBracket > 0) depthBracket--;
+            else if (walker.Type == TokenType.OpenBrace) depthBrace++;
+            else if (walker.Type == TokenType.CloseBrace && depthBrace > 0) depthBrace--;
+            else if (walker.Type == TokenType.Comma && depthParen == 0 && depthBracket == 0 && depthBrace == 0)
+            {
+                index++;
+            }
+            walker = walker.Next;
+        }
+
+        activeParam = index;
+        return true;
     }
 
     private static string NormalizeFilePathForUri(string filePath)
@@ -1258,64 +1236,11 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         if (token is null)
             return null;
 
-        // Determine if we're inside a call: find identifier before '(' and count comma-separated args
-        // Scan left to find the nearest '(' that starts the current argument list
-        Token? cursor = token;
-        int parenDepth = 0;
-        while (cursor is not null)
-        {
-            if (cursor.Type == TokenType.CloseParen) parenDepth++;
-            if (cursor.Type == TokenType.OpenParen)
-            {
-                if (parenDepth == 0) break;
-                parenDepth--;
-            }
-            if (cursor.Type == TokenType.Identifier && cursor.Next.Type == TokenType.OpenParen && parenDepth == 0)
-            {
-                cursor = cursor.Next;
-                break;
-            }
-            if (cursor.Type == TokenType.Semicolon || cursor.Type == TokenType.LineBreak)
-            {
-                // Hit end of statement without finding '('
-                cursor = null;
-                break;
-            }
-            cursor = cursor.Previous;
-        }
-        if (cursor is null)
-            return null; // not in a call
-
-        // Find the identifier before this '('
-        Token? id = cursor.Previous;
-        while (id is not null && (id.IsWhitespacey() || id.IsComment())) id = id.Previous;
-        if (id is null || id.Type != TokenType.Identifier)
+        // Use shared call context finder
+        if (!TryFindCallContext(token, out Token? id, out int activeParam) || id is null)
             return null;
 
         var (qualifier, name) = ParseNamespaceQualifiedIdentifier(id);
-
-        // Count arguments index by scanning commas from cursor to current position, without nesting into inner parens/brackets/braces
-        int activeParam = 0;
-        Token? walker = cursor.Next;
-        int depthParen = 0, depthBracket = 0, depthBrace = 0;
-        while (walker is not null && walker != token.Next)
-        {
-            if (walker.Type == TokenType.OpenParen) depthParen++;
-            else if (walker.Type == TokenType.CloseParen)
-            {
-                if (depthParen == 0) break; // end of this call
-                depthParen--;
-            }
-            else if (walker.Type == TokenType.OpenBracket) depthBracket++;
-            else if (walker.Type == TokenType.CloseBracket && depthBracket > 0) depthBracket--;
-            else if (walker.Type == TokenType.OpenBrace) depthBrace++;
-            else if (walker.Type == TokenType.CloseBrace && depthBrace > 0) depthBrace--;
-            else if (walker.Type == TokenType.Comma && depthParen == 0 && depthBracket == 0 && depthBrace == 0)
-            {
-                activeParam++;
-            }
-            walker = walker.Next;
-        }
 
         // Try builtin API first
         List<SignatureInformation> signatures = new();
@@ -1657,140 +1582,10 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     private void EmitSwitchCaseDiagnostics()
     {
-        if (RootNode is null) return;
-        foreach (var sw in EnumerateSwitches(RootNode))
-        {
-            HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
-            // bool defaultSeen = false;
-            var list = sw.Cases.Cases;
-            for (var node = list.First; node is not null; node = node.Next)
-            {
-                var cs = node.Value;
-                bool isLast = node.Next is null;
-                // Handle labels
-                foreach (var label in cs.Labels)
-                {
-                    // Now handled in CFA
-                    // if (label.NodeType == AstNodeType.DefaultLabel)
-                    // {
-                    //     if (defaultSeen)
-                    //     {
-                    //         // Multiple default labels
-                    //         Range r = GetCaseLabelOrBodyRange(cs, sw);
-                    //         Sense.AddSpaDiagnostic(r, GSCErrorCodes.MultipleDefaultLabels);
-                    //         // Also mark as unreachable
-                    //         Sense.AddSpaDiagnostic(r, GSCErrorCodes.UnreachableCase);
-                    //     }
-                    //     else
-                    //     {
-                    //         defaultSeen = true;
-                    //     }
-                    // }
-                    // else 
-                    // if (label.NodeType == AstNodeType.CaseLabel && label.Value is not null)
-                    // {
-                    //     if (TryEvaluateCaseLabelConstant(label.Value, out string key))
-                    //     {
-                    //         if (!seen.Add(key))
-                    //         {
-                    //             // Duplicate label value in the same switch
-                    //             Sense.AddSpaDiagnostic(label.Value.Range, GSCErrorCodes.DuplicateCaseLabel);
-                    //             Sense.AddSpaDiagnostic(label.Value.Range, GSCErrorCodes.UnreachableCase);
-                    //         }
-                    //     }
-                    // }
-                }
-
-                // Fallthrough detection: if not the last case and body does not terminate with break/return
-                // Needs to account for control flow, will be handled elsewhere.
-                // if (!isLast)
-                // {
-                //     if (!HasTerminatingBreakOrReturn(cs.Body))
-                //     {
-                //         Range r = GetCaseLabelOrBodyRange(cs, sw);
-                //         Sense.AddSpaDiagnostic(r, GSCErrorCodes.FallthroughCase);
-                //     }
-                // }
-            }
-        }
-    }
-
-    private static bool TryEvaluateCaseLabelConstant(ExprNode expr, out string key)
-    {
-        key = string.Empty;
-        if (expr is DataExprNode den)
-        {
-            // Encode type in key to avoid collisions between e.g., string "1" and int 1
-            key = den.Type switch
-            {
-                ScrDataTypes.Int => $"int:{den.Value}",
-                ScrDataTypes.Float => $"float:{den.Value}",
-                ScrDataTypes.String => $"str:{den.Value}",
-                ScrDataTypes.IString => $"istr:{den.Value}",
-                ScrDataTypes.Hash => $"hash:{den.Value}",
-                ScrDataTypes.Bool => $"bool:{den.Value}",
-                _ => string.Empty
-            };
-            return key.Length > 0;
-        }
-        return false;
-    }
-
-    private static bool HasTerminatingBreakOrReturn(StmtListNode body)
-    {
-        // First, check top-level statements in the case body
-        if (HasTopLevelTerminator(body))
-        {
-            return true;
-        }
-
-        // If the body is just a scoped brace block (e.g., case X: { ... })
-        // then recurse one level into that block and check its top-level statements
-        if (body.Statements.Count == 1 && body.Statements.First!.Value is StmtListNode inner)
-        {
-            return HasTopLevelTerminator(inner);
-        }
-
-        return false;
-    }
-
-    private static bool HasTopLevelTerminator(StmtListNode block)
-    {
-        if (block.Statements.Count == 0) return false;
-        foreach (var st in block.Statements)
-        {
-            if (st is ControlFlowActionNode cfan && cfan.NodeType == AstNodeType.BreakStmt)
-            {
-                return true;
-            }
-            if (st is ReturnStmtNode)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static Range GetCaseLabelOrBodyRange(CaseStmtNode cs, SwitchStmtNode sw)
-    {
-        // Prefer the first label's value range if available
-        var firstLabel = cs.Labels.FirstOrDefault();
-        if (firstLabel is not null && firstLabel.Value is not null)
-        {
-            return firstLabel.Value.Range;
-        }
-        // Next, try first statement ranges
-        var firstStmt = cs.Body.Statements.FirstOrDefault();
-        if (firstStmt is ExprStmtNode es && es.Expr is not null)
-        {
-            return es.Expr.Range;
-        }
-        if (firstStmt is ControlFlowActionNode cfan)
-        {
-            return cfan.Range;
-        }
-        // Fallback to the switch expression range
-        return sw.Expression?.Range ?? RangeHelper.From(0, 0, 0, 1);
+        // Switch case diagnostics (duplicate labels, fallthrough, multiple defaults)
+        // are now handled in ControlFlowAnalyser (CFA).
+        // This method is kept as a placeholder for any future switch-specific diagnostics
+        // that don't fit in CFA.
     }
 
     private static IEnumerable<SwitchStmtNode> EnumerateSwitches(AstNode node)

@@ -53,17 +53,17 @@ public record class ScrFunction : IExportedSymbol
     {
         get
         {
+            // If DocComment is present (from user-defined script doc), use it directly
+            // It's already fully formatted by SanitizeDocForMarkdown, no need to cache
+            if (!string.IsNullOrWhiteSpace(DocComment))
+            {
+                return DocComment;
+            }
+
+            // Check if we've already generated and cached documentation
             if (_cachedDocumentation is string documentation)
             {
                 return documentation;
-            }
-
-            // If DocComment is present (from user-defined script doc), use it directly
-            // as it's already fully formatted by SanitizeDocForMarkdown
-            if (!string.IsNullOrWhiteSpace(DocComment))
-            {
-                _cachedDocumentation = DocComment;
-                return _cachedDocumentation;
             }
 
             // Otherwise, generate documentation from API-defined properties

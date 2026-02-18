@@ -62,17 +62,24 @@ public static class FunctionDocumentationFormatter
         Func<TCalledOn, string> getCalledOnName)
         where TCalledOn : class
     {
-        string calledOnString = calledOn is not null ? $"Called on: `<{getCalledOnName(calledOn)}>`\n" : string.Empty;
-
         var paramList = parameters.ToList();
-        if (paramList.Count == 0 && string.IsNullOrEmpty(calledOnString))
+
+        // If no parameters and no calledOn, return empty
+        if (paramList.Count == 0 && calledOn is null)
         {
             return string.Empty;
         }
 
         var sb = new StringBuilder();
-        sb.Append(calledOnString);
 
+        // Add "Called on:" if present
+        if (calledOn is not null)
+        {
+            sb.AppendLine($"Called on: `<{getCalledOnName(calledOn)}>`");
+            sb.AppendLine(); // Blank line for proper Markdown spacing
+        }
+
+        // Add parameters list if present
         if (paramList.Count > 0)
         {
             sb.AppendLine("Parameters:");
@@ -123,5 +130,23 @@ public static class FunctionDocumentationFormatter
         }
 
         return string.Join('\n', flagLabels);
+    }
+
+    /// <summary>
+    /// Formats an example code snippet for display.
+    /// </summary>
+    public static string FormatExample(string? example)
+    {
+        if (string.IsNullOrWhiteSpace(example))
+        {
+            return string.Empty;
+        }
+
+        return $"""
+            Example:
+            ```gsc
+            {example.Trim()}
+            ```
+            """;
     }
 }

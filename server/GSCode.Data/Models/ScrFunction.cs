@@ -69,14 +69,21 @@ public record class ScrFunction : IExportedSymbol
             // Otherwise, generate documentation from API-defined properties
             string calledOnString = Overloads.First().CalledOn is ScrFunctionArg calledOn ? $"{calledOn.Name} " : string.Empty;
 
+            // Built-in API functions have Description populated from JSON and don't show "function" keyword
+            // Script functions either use DocComment (already handled above) or have minimal metadata
+            // If we're here generating docs AND have Description, it's a built-in API
+            bool isBuiltInApi = !string.IsNullOrWhiteSpace(Description);
+            string functionKeyword = isBuiltInApi ? string.Empty : "function ";
+
             _cachedDocumentation =
                 $"""
                 ```gsc
-                {calledOnString}function {Name}({GetCodedParameterList()})
+                {calledOnString}{functionKeyword}{Name}({GetCodedParameterList()})
                 ```
                 ---
                 {GetDescriptionString()}
                 {GetParametersString()}
+                {GetExampleString()}
                 {GetFlagsString()}
                 """;
 
@@ -107,6 +114,8 @@ public record class ScrFunction : IExportedSymbol
             p => p.Mandatory,
             p => p.Description,
             c => c.Name);
+
+    private string GetExampleString() => FunctionDocumentationFormatter.FormatExample(Example);
 
     private string GetFlagsString() => FunctionDocumentationFormatter.FormatFlags(Flags);
 

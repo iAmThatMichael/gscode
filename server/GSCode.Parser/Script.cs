@@ -677,13 +677,51 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     }
 
     /// <summary>
-    /// Builds hover showing function signature with current parameter highlighted
+    /// Builds hover showing full function documentation when inside a call
     /// </summary>
     private Hover? BuildCallSignatureHover(Token functionToken, int activeParam)
     {
         var (qualifier, funcName) = ParseNamespaceQualifiedIdentifier(functionToken);
-        string? markdown = BuildSignatureMarkdown(funcName, qualifier, activeParam);
 
+        // Try to get the function definition to show its full documentation
+        ScrFunction? function = null;
+
+        // First, check if the function token has a SenseDefinition with the function
+        if (functionToken.SenseDefinition is ScrFunctionSymbol funcSymbol)
+        {
+            function = funcSymbol.Source;
+        }
+        else if (functionToken.SenseDefinition is ScrMethodSymbol methodSymbol)
+        {
+            function = methodSymbol.Source;
+        }
+
+        // If not in sense, check if it's a built-in API function
+        if (function is null)
+        {
+            var api = TryGetApi();
+            if (api is not null)
+            {
+                function = api.GetApiFunction(funcName);
+            }
+        }
+
+        // If we found the function, use its full Documentation
+        if (function is not null)
+        {
+            return new Hover
+            {
+                Range = functionToken.Range,
+                Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+                {
+                    Kind = MarkupKind.Markdown,
+                    Value = function.Documentation
+                })
+            };
+        }
+
+        // Fallback: use simplified signature if function not found
+        string? markdown = BuildSignatureMarkdown(funcName, qualifier, activeParam);
         if (markdown is null)
         {
             return null;

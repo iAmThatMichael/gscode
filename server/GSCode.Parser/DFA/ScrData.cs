@@ -93,6 +93,7 @@ internal record class ScrDataObjectInstanceType : IScrDataSubType
 {
     public ScrDataSubTypeKind Kind => ScrDataSubTypeKind.ObjectInstance;
     public int ClassId { get; init; }
+    public string? ClassName { get; init; }
 }
 
 internal record class ScrDataEntityType : IScrDataSubType
@@ -324,6 +325,21 @@ internal record struct ScrData
     {
         return new(ScrDataTypes.FunctionPointer,
             [new ScrDataFunctionReferenceType { Function = function }]);
+    }
+
+    /// <summary>
+    /// Creates an Object type instance with class name information.
+    /// Used for tracking the concrete class type of an object for method resolution.
+    /// </summary>
+    /// <param name="className">The name of the class</param>
+    /// <returns>A ScrData instance representing an object of the specified class</returns>
+    public static ScrData ObjectOfClass(string className)
+    {
+        // Store both ClassId (hash) and ClassName for lookup
+        int classId = className.GetHashCode();
+        return new(ScrDataTypes.Object, 
+            [new ScrDataObjectInstanceType { ClassId = classId, ClassName = className }],
+            booleanValue: true); // Objects are truthy
     }
 
     /// <summary>
@@ -832,6 +848,29 @@ internal record struct ScrData
     public readonly bool TypeUnknown()
     {
         return IsAny();
+    }
+
+    /// <summary>
+    /// Gets the class name if this ScrData represents an Object with known class type.
+    /// </summary>
+    /// <returns>The class name, or null if not an object or class unknown</returns>
+    public readonly string? GetObjectClassName()
+    {
+        if (!HasType(ScrDataTypes.Object) || SubTypes is null)
+        {
+            return null;
+        }
+
+        // Find the first ObjectInstance subtype and return its ClassName
+        foreach (var subType in SubTypes)
+        {
+            if (subType is ScrDataObjectInstanceType objType)
+            {
+                return objType.ClassName;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

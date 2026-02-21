@@ -21,7 +21,7 @@ internal class SwitchAnalysisContext
     public bool HasDefault { get; set; } = false;
 }
 
-internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, ControlFlowGraph>> functionGraphs, List<Tuple<ScrClass, ControlFlowGraph>> classGraphs, ParserIntelliSense sense, Dictionary<string, IExportedSymbol> exportedSymbolTable, ScriptAnalyserData? apiData = null, string? currentNamespace = null, HashSet<string>? knownNamespaces = null, string? fileName = null)
+internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, ControlFlowGraph>> functionGraphs, List<Tuple<ScrClass, ControlFlowGraph>> classGraphs, ParserIntelliSense sense, Dictionary<string, IExportedSymbol> exportedSymbolTable, ScriptAnalyserData? apiData = null, string? currentNamespace = null, HashSet<string>? knownNamespaces = null, string? fileName = null, DefinitionsTable? definitionsTable = null)
 {
     public List<Tuple<ScrFunction, ControlFlowGraph>> FunctionGraphs { get; } = functionGraphs;
     public List<Tuple<ScrClass, ControlFlowGraph>> ClassGraphs { get; } = classGraphs;
@@ -31,6 +31,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
     public string? CurrentNamespace { get; } = currentNamespace;
     public HashSet<string>? KnownNamespaces { get; } = knownNamespaces;
     public string? FileName { get; } = fileName;
+    public DefinitionsTable? DefinitionsTable { get; } = definitionsTable;
 
     public Dictionary<CfgNode, Dictionary<string, ScrVariable>> InSets { get; } = new();
     public Dictionary<CfgNode, Dictionary<string, ScrVariable>> OutSets { get; } = new();
@@ -451,7 +452,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             else if (node.Type == CfgNodeType.BasicBlock)
             {
                 ScrClass? currentClass = NodeToClassMap.GetValueOrDefault(node);
-                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass);
+                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass, CurrentNamespace, KnownNamespaces, currentFunction: null, DefinitionsTable);
 
                 AnalyseBasicBlock((BasicBlock)node, symbolTable);
                 OutSets[node] = symbolTable.VariableSymbols;
@@ -459,7 +460,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             else if (node.Type == CfgNodeType.ClassMembersBlock)
             {
                 ScrClass? currentClass = NodeToClassMap.GetValueOrDefault(node);
-                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass);
+                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass, CurrentNamespace, KnownNamespaces, currentFunction: null, DefinitionsTable);
 
                 AnalyseClassMembersBlock((ClassMembersBlock)node, symbolTable);
                 OutSets[node] = symbolTable.VariableSymbols;
@@ -467,7 +468,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             else if (node.Type == CfgNodeType.EnumerationNode)
             {
                 ScrClass? currentClass = NodeToClassMap.GetValueOrDefault(node);
-                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass);
+                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass, CurrentNamespace, KnownNamespaces, currentFunction: null, DefinitionsTable);
 
                 AnalyseEnumeration((EnumerationNode)node, symbolTable);
                 OutSets[node] = symbolTable.VariableSymbols;
@@ -475,7 +476,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             else if (node.Type == CfgNodeType.IterationNode)
             {
                 ScrClass? currentClass = NodeToClassMap.GetValueOrDefault(node);
-                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass);
+                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass, CurrentNamespace, KnownNamespaces, currentFunction: null, DefinitionsTable);
 
                 iterationCondition = AnalyseIterationInternal((IterationNode)node, symbolTable);
                 OutSets[node] = symbolTable.VariableSymbols;
@@ -483,7 +484,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             else if (node.Type == CfgNodeType.DecisionNode)
             {
                 ScrClass? currentClass = NodeToClassMap.GetValueOrDefault(node);
-                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass);
+                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass, CurrentNamespace, KnownNamespaces, currentFunction: null, DefinitionsTable);
 
                 decisionCondition = AnalyseDecisionConditionInternal((DecisionNode)node, symbolTable);
                 OutSets[node] = symbolTable.VariableSymbols;
@@ -491,7 +492,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             else if (node.Type == CfgNodeType.SwitchNode)
             {
                 ScrClass? currentClass = NodeToClassMap.GetValueOrDefault(node);
-                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass);
+                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass, CurrentNamespace, KnownNamespaces, currentFunction: null, DefinitionsTable);
 
                 AnalyseSwitch((SwitchNode)node, symbolTable);
                 OutSets[node] = symbolTable.VariableSymbols;
@@ -499,7 +500,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             else if (node.Type == CfgNodeType.SwitchCaseDecisionNode)
             {
                 ScrClass? currentClass = NodeToClassMap.GetValueOrDefault(node);
-                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass);
+                SymbolTable symbolTable = new(ExportedSymbolTable, inSet, node.Scope, ApiData, currentClass, CurrentNamespace, KnownNamespaces, currentFunction: null, DefinitionsTable);
 
                 AnalyseSwitchCaseDecision((SwitchCaseDecisionNode)node, symbolTable);
                 OutSets[node] = symbolTable.VariableSymbols;
@@ -1252,7 +1253,8 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             exportedSymbol is ScrClass scrClass)
         {
             Sense.AddSenseToken(classIdentifier, new ScrClassSymbol(classIdentifier, scrClass));
-            return ScrData.Default;
+            // Return an Object type with class information for method resolution
+            return ScrData.ObjectOfClass(className);
         }
 
         AddDiagnostic(classIdentifier.Range, GSCErrorCodes.NotDefined, className);
@@ -1308,16 +1310,26 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             : new ScrData(ScrDataTypes.Entity); // Assuming 'self' is an entity/object
 
         // 2. Validate target type
-        // The target must be an Object or Any.
+        // Only error if we're CERTAIN the target cannot be an object.
+        // Allow Any, Object, Entity, Struct (all can have methods/fields accessed with ->)
         if (!target.TypeUnknown() &&
-            target.Type != ScrDataTypes.Object)
+            target.Type != ScrDataTypes.Object &&
+            target.Type != ScrDataTypes.Entity &&
+            target.Type != ScrDataTypes.Struct)
         {
-            // If the target isn't a valid object type, we can't call methods on it.
-            // We only warn if we're sure it's the wrong type (not Any).
-            AddDiagnostic(methodCall.Target?.Range ?? methodCall.Range,
-                GSCErrorCodes.NoImplicitConversionExists,
-                target.TypeToString(),
-                ScrDataTypeNames.Object);
+            // Check if it's ONLY primitive types that definitely can't have methods
+            bool isPurelyPrimitive = (target.Type & (ScrDataTypes.Int | ScrDataTypes.Float | 
+                ScrDataTypes.Bool | ScrDataTypes.String | ScrDataTypes.Undefined)) != 0 &&
+                (target.Type & (ScrDataTypes.Object | ScrDataTypes.Entity | ScrDataTypes.Struct | 
+                ScrDataTypes.Array | ScrDataTypes.Vector)) == 0;
+
+            if (isPurelyPrimitive)
+            {
+                AddDiagnostic(methodCall.Target?.Range ?? methodCall.Range,
+                    GSCErrorCodes.NoImplicitConversionExists,
+                    target.TypeToString(),
+                    ScrDataTypeNames.Object);
+            }
         }
 
         // 3. Analyze arguments
@@ -1328,11 +1340,28 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             AnalyseExpr(argument, symbolTable, sense);
         }
 
-        // 4. Resolve the method symbol (if possible)
-        // For now, we assume the method exists on the target.
-        // We're just "superficially" analyzing, so we don't look up the specific method definition yet
-        // to validate signature or return type.
+        // 4. Try to resolve the method symbol if we know the target's class
+        string? className = target.GetObjectClassName();
+        string methodName = methodCall.Method.Lexeme;
 
+        if (className is not null && symbolTable.DefinitionsTable is not null)
+        {
+            // Look up the method in the class
+            ScrFunction? method = symbolTable.DefinitionsTable.GetMethodOnClass(className, methodName);
+            if (method is not null)
+            {
+                // Get the class object for the ScrMethodSymbol
+                ScrClass? scrClass = symbolTable.DefinitionsTable.GetClassByName(className);
+                if (scrClass is not null)
+                {
+                    // Annotate the method token with proper IntelliSense
+                    Sense.AddSenseToken(methodCall.Method, new ScrMethodSymbol(methodCall.Method, method, scrClass));
+                }
+            }
+        }
+
+        // For now, assume the method exists and returns some data
+        // In future, could validate method existence and return type
         return ScrData.Default;
     }
 
@@ -2648,38 +2677,60 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
     }
 
     /// <summary>
-    /// Analyzes a dereference operation [[ expr ]], validating that expr is a FunctionPointer
-    /// and converting it to a Function type for calling.
+    /// <summary>
+    /// Analyzes a dereference operation [[ expr ]], which can be:
+    /// 1. Function pointer dereference: [[func_ptr]]() - converts FunctionPointer to Function
+    /// 2. Variable/array access: [[c_door]] - returns the stored value (Object, Entity, etc.)
     /// </summary>
-    /// <param name="derefExpr">The expression being dereferenced (inside [[ ]])</param>
+    /// <param name="deref">The dereference expression node</param>
     /// <param name="symbolTable">The symbol table for lookups</param>
     /// <param name="sense">IntelliSense for diagnostics</param>
-    /// <returns>A Function if valid, or Default/Undefined otherwise</returns>
+    /// <returns>The dereferenced value type</returns>
     private ScrData AnalyseDeref(DerefExprNode deref, SymbolTable symbolTable, ParserIntelliSense sense)
     {
         // Analyze the expression inside the dereference brackets
-        ScrData functionPtrData = AnalyseExpr(deref.Inner, symbolTable, sense);
+        ScrData innerData = AnalyseExpr(deref.Inner, symbolTable, sense);
 
-        // If type is unknown, we can't validate
-        if (functionPtrData.TypeUnknown())
+        // If type is unknown, we can't validate - assume it's valid
+        if (innerData.TypeUnknown())
         {
             return ScrData.Default;
         }
 
-        // Validate that it's a FunctionPointer
-        if (functionPtrData.Type != ScrDataTypes.FunctionPointer)
+        // Case 1: FunctionPointer dereference - convert FunctionPointer → Function
+        if (innerData.HasType(ScrDataTypes.FunctionPointer))
         {
-            // Not a function pointer - emit diagnostic
-            AddDiagnostic(deref.Inner.Range, GSCErrorCodes.ExpectedFunction, functionPtrData.TypeToString());
-            return ScrData.Default;
+            if (innerData.TryGetFunction(out var func))
+            {
+                return ScrData.Function(func);
+            }
+            return new ScrData(ScrDataTypes.Function);
         }
 
-        // Dereference: FunctionPointer → Function
-        if (functionPtrData.TryGetFunction(out var func))
+        // Case 2: Object/Entity/Struct/Array dereference - return the value as-is
+        // These types can be stored in variables and accessed with [[ ]]
+        if (innerData.HasType(ScrDataTypes.Object) ||
+            innerData.HasType(ScrDataTypes.Entity) ||
+            innerData.HasType(ScrDataTypes.Struct) ||
+            innerData.HasType(ScrDataTypes.Array))
         {
-            return ScrData.Function(func);
+            // Return the data unchanged - [[c_door]] where c_door is an object variable
+            // will return the object itself for method calls like [[c_door]]->method()
+            return innerData;
         }
-        return new ScrData(ScrDataTypes.Function);
+
+        // Case 3: Invalid dereference - not a valid type for [[ ]]
+        // Only error if it's definitely not valid (primitives, etc.)
+        bool isDefinitelyInvalid = (innerData.Type & (ScrDataTypes.FunctionPointer | 
+            ScrDataTypes.Object | ScrDataTypes.Entity | ScrDataTypes.Struct | 
+            ScrDataTypes.Array)) == 0;
+
+        if (isDefinitelyInvalid)
+        {
+            AddDiagnostic(deref.Inner.Range, GSCErrorCodes.ExpectedFunction, innerData.TypeToString());
+        }
+
+        return ScrData.Default;
     }
 
     private ScrData? TryAnalyseReservedFunction(FunCallNode call, string functionName, SymbolTable symbolTable, ParserIntelliSense sense)

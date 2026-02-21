@@ -4,6 +4,7 @@ using GSCode.Parser.AST;
 using GSCode.Parser.Data;
 using GSCode.Parser.DFA;
 using GSCode.Parser.Lexical;
+using GSCode.Parser.SPA;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using System.Text.RegularExpressions;
 using GSCode.Parser.Util;
@@ -159,9 +160,13 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         if (parameters is not null)
         {
+            int paramIndex = 0;
             foreach (ScrParameter parameter in parameters)
             {
-                Sense.AddSenseToken(parameter.Source, new ScrParameterSymbol(parameter));
+                // Get the corresponding ParamNode for this parameter
+                ParamNode? paramNode = functionDefn.Parameters.Parameters.ElementAtOrDefault(paramIndex);
+                Sense.AddSenseToken(parameter.Source, new ScrParameterSymbol(parameter, paramNode));
+                paramIndex++;
             }
         }
     }
@@ -281,9 +286,13 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         if (parameters is not null)
         {
+            int paramIndex = 0;
             foreach (ScrParameter parameter in parameters)
             {
-                Sense.AddSenseToken(parameter.Source, new ScrParameterSymbol(parameter));
+                // Get the corresponding ParamNode for this parameter
+                ParamNode? paramNode = functionDefn.Parameters.Parameters.ElementAtOrDefault(paramIndex);
+                Sense.AddSenseToken(parameter.Source, new ScrParameterSymbol(parameter, paramNode));
+                paramIndex++;
             }
         }
     }
@@ -503,35 +512,6 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
     }
 }
 
-
-/// <summary>
-/// Records the definition of a function parameter for semantics & hovers
-/// </summary>
-/// <param name="Source">The parameter source</param>
-internal record ScrParameterSymbol(ScrParameter Source) : ISenseDefinition
-{
-    // I'm pretty sure this is redundant
-    public bool IsFromPreprocessor { get; } = false;
-    public Range Range { get; } = Source.Range;
-
-    public string SemanticTokenType { get; } = "parameter";
-    public string[] SemanticTokenModifiers { get; } = [];
-
-    public Hover GetHover()
-    {
-        string parameterName = $"{Source.Name}";
-        return new()
-        {
-            Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
-                Kind = MarkupKind.Markdown,
-                Value = string.Format("```gsc\n{0}\n```",
-                   parameterName)
-            })
-        };
-    }
-}
 
 internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseDefinition
 {

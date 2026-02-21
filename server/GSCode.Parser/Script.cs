@@ -1054,6 +1054,39 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         if (token is null)
             return null;
 
+        // Check if this is a variable reference - go to its definition
+        if (token.SenseDefinition is ScrVariableSymbol varSymbol && varSymbol.DefinitionSource is not null)
+        {
+            // Navigate to the definition (the identifier token where it was first declared)
+            string normalized = NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
+            // Use the Range from the definition source's identifier token (stored in the variable symbol)
+            // We need to find the declaration token - for now, use the identifier token from definition source
+            Range targetRange = varSymbol.DefinitionSource switch
+            {
+                ExprNode expr => expr.Range,
+                ConstStmtNode constStmt => constStmt.IdentifierToken.Range,
+                ForeachStmtNode foreachStmt => varSymbol.IdentifierToken.Range, // Use the identifier token range
+                MemberDeclNode memberDecl => memberDecl.NameToken?.Range ?? varSymbol.IdentifierToken.Range,
+                ParamNode paramNode => paramNode.Name?.Range ?? varSymbol.IdentifierToken.Range, // Function parameter
+                _ => varSymbol.IdentifierToken.Range // Fallback to the identifier token
+            };
+            return new Location() { Uri = new Uri(normalized), Range = targetRange };
+        }
+
+        // Check if this is a parameter reference - go to its definition
+        if (token.SenseDefinition is ScrParameterSymbol paramSymbol && paramSymbol.DefinitionSource is not null)
+        {
+            // Navigate to the parameter definition
+            string normalized = NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
+            // For parameters, use the token from the ParamNode
+            Range targetRange = paramSymbol.DefinitionSource switch
+            {
+                ParamNode paramNode => paramNode.Name?.Range ?? paramSymbol.Range,
+                _ => paramSymbol.Range // Fallback to the parameter symbol's range
+            };
+            return new Location() { Uri = new Uri(normalized), Range = targetRange };
+        }
+
         // If the token has an IntelliSense definition pointing at a dependency, return that file location.
         if (token.SenseDefinition is ScrDependencySymbol dep)
         {

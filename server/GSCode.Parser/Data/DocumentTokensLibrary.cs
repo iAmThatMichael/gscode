@@ -58,7 +58,15 @@ public sealed class DocumentTokensLibrary
             return null;
         }
 
-        return TokenList[index];
+        Token token = TokenList[index];
+
+        // If current token is an open paren, use the previous token instead (e.g., function name before the paren)
+        if (token.Type == TokenType.OpenParen && index > 0)
+        {
+            return TokenList[index - 1];
+        }
+
+        return token;
     }
 
     /// <summary>

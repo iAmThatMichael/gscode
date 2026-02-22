@@ -110,7 +110,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters);
 
         // Extract doc comment if present
-        string? doc = ExtractDocCommentBefore(nameToken);
+        string? doc = ExtractDocCommentBefore(nameToken, DefinitionsTable.CurrentNamespace);
 
         // TODO: Probably needs to be a ScrMethod instead.
         ScrFunction function = new()
@@ -173,7 +173,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
             return;
         }
 
-        string? doc = ExtractDocCommentBefore(nameToken);
+        string? doc = ExtractDocCommentBefore(nameToken, DefinitionsTable.CurrentNamespace);
 
         ScrMember member = new()
         {
@@ -258,7 +258,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
             ],
             Flags = [],
             Private = functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Private),
-            DocComment = ExtractDocCommentBefore(nameToken)
+            DocComment = ExtractDocCommentBefore(nameToken, DefinitionsTable.CurrentNamespace)
         };
 
         // Produce a definition for our function
@@ -332,7 +332,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         return result;
     }
 
-    private static string? ExtractDocCommentBefore(Token nameToken)
+    private static string? ExtractDocCommentBefore(Token nameToken, string? ns)
     {
         while (nameToken.Range.Start.Line > 0 && nameToken.Type != TokenType.LineBreak)
         {
@@ -359,13 +359,13 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         if (nameToken.Previous.Type == TokenType.DocComment)
         {
-            return SanitizeDocForMarkdown(nameToken.Previous.Lexeme);
+            return SanitizeDocForMarkdown(nameToken.Previous.Lexeme, ns);
         }
 
         return null;
     }
 
-    private static string SanitizeDocForMarkdown(string lexeme)
+    private static string SanitizeDocForMarkdown(string lexeme, string? ns)
     {
         // Use shared doc comment sanitizer for initial cleanup
         string[] lines = DocCommentHelper.Sanitize(lexeme).Split('\n');
@@ -448,7 +448,15 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         if (!string.IsNullOrWhiteSpace(name))
         {
             sb.AppendLine("```gsc");
-            sb.AppendLine(name);
+            // Only add namespace prefix if name doesn't already contain it
+            if (!string.IsNullOrWhiteSpace(ns) && !name.StartsWith(ns + "::"))
+            {
+                sb.AppendLine(ns + "::" + name);
+            }
+            else
+            {
+                sb.AppendLine(name);
+            }
             sb.AppendLine("```");
             sb.AppendLine("---");
         }
@@ -462,9 +470,11 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         if (!string.IsNullOrWhiteSpace(module) || !string.IsNullOrWhiteSpace(callOn) || !string.IsNullOrWhiteSpace(spmp))
         {
-            if (!string.IsNullOrWhiteSpace(callOn)) sb.AppendLine($"Called on: `<{callOn}>`");
-            if (!string.IsNullOrWhiteSpace(spmp)) sb.AppendLine($"* SPMP: {spmp}");
-            if (!string.IsNullOrWhiteSpace(module)) sb.AppendLine($"* Module: {module}");
+            sb.AppendLine("Region:");
+            sb.AppendLine();
+            if (!string.IsNullOrWhiteSpace(callOn)) sb.AppendLine($"* Called on: `<{callOn}>`");
+            if (!string.IsNullOrWhiteSpace(spmp)) sb.AppendLine($"* SPMP: `{spmp}`");
+            if (!string.IsNullOrWhiteSpace(module)) sb.AppendLine($"* Module: `{module}`");
             sb.AppendLine();
             sb.AppendLine("---");
         }
@@ -486,7 +496,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         foreach (var ex in examples)
         {
-            sb.AppendLine("Example");
+            sb.AppendLine("Example:");
             sb.AppendLine("```gsc");
             sb.AppendLine(ex);
             sb.AppendLine("```");

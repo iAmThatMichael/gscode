@@ -29,7 +29,7 @@ public class TextDocumentSyncHandler : ITextDocumentSyncHandler
         _documentSelector = documentSelector;
     }
 
-    public TextDocumentSyncKind Change { get; } = TextDocumentSyncKind.Full;
+    public TextDocumentSyncKind Change { get; } = TextDocumentSyncKind.Incremental;
 
     public TextDocumentChangeRegistrationOptions GetRegistrationOptions(TextSynchronizationCapability capability, ClientCapabilities clientCapabilities)
     {
@@ -47,7 +47,10 @@ public class TextDocumentSyncHandler : ITextDocumentSyncHandler
 
     public async Task<Unit> Handle(DidChangeTextDocumentParams request, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Document changed");
+        var changeType = request.ContentChanges.Any(c => c.Range == null) ? "Full" : "Incremental";
+        var changeCount = request.ContentChanges.Count();
+        _logger.LogInformation("Document changed ({ChangeType}, {ChangeCount} change(s))", changeType, changeCount);
+
         var sw = Stopwatch.StartNew();
         var diagnostics = ImmutableArray<Diagnostic>.Empty.ToBuilder();
 

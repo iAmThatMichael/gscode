@@ -38,21 +38,24 @@ public class ScriptCache
         foreach (TextDocumentContentChangeEvent change in changes)
         {
             // If no range is specified then this is an outright replacement of the entire document.
+            // This happens when client sends full sync (fallback) or on certain operations.
             if (change.Range == null)
             {
                 cachedVersion = new(change.Text);
+                Scripts[documentUri] = cachedVersion;
                 continue;
             }
 
             Position start = change.Range.Start;
             Position end = change.Range.End;
 
-            // Otherwise modify the buffer
+            // Apply incremental change: replace text in the specified range
             string cachedString = cachedVersion.ToString();
             int startPosition = GetBaseCharOfLine(cachedString, start.Line) + start.Character;
             int endLineBase = GetBaseCharOfLine(cachedString, end.Line);
             int endPosition = endLineBase + end.Character;
 
+            // Handle edge case: end position beyond buffer length
             if (endLineBase == -1 || endPosition > cachedVersion.Length)
             {
                 cachedVersion.Remove(startPosition, cachedVersion.Length - startPosition);
@@ -60,10 +63,13 @@ public class ScriptCache
                 continue;
             }
 
+            // Standard incremental update: remove old text and insert new
             cachedVersion.Remove(startPosition, endPosition - startPosition);
             cachedVersion.Insert(startPosition, change.Text);
         }
 
+        // Ensure the updated StringBuilder is stored back
+        Scripts[documentUri] = cachedVersion;
         return cachedVersion.ToString();
     }
 

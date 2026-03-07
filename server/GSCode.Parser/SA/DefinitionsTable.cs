@@ -241,4 +241,87 @@ public class DefinitionsTable
     {
         return _functionDocs.ToList();
     }
+
+    /// <summary>
+    /// Gets a method on a specific class by name.
+    /// Searches both the class's methods and its parent class chain.
+    /// </summary>
+    public ScrFunction? GetMethodOnClass(string className, string methodName)
+    {
+        // First try to find the class in local scope
+        var localClass = LocalScopedClasses.FirstOrDefault(t => 
+            string.Equals(t.Item1.Name, className, StringComparison.OrdinalIgnoreCase));
+
+        if (localClass is not null)
+        {
+            return FindMethodInClassHierarchy(localClass.Item1, methodName);
+        }
+
+        // Try exported symbols (from dependencies)
+        if (InternalSymbols.TryGetValue(className, out var symbol) && symbol is ScrClass scrClass)
+        {
+            return FindMethodInClassHierarchy(scrClass, methodName);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Recursively searches for a method in a class and its parent chain.
+    /// </summary>
+    private ScrFunction? FindMethodInClassHierarchy(ScrClass scrClass, string methodName)
+    {
+        // Search direct methods on this class
+        var method = scrClass.Methods.FirstOrDefault(m => 
+            string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase));
+
+        if (method is not null)
+        {
+            return method;
+        }
+
+        // If not found and class has a parent, search the parent
+        if (!string.IsNullOrEmpty(scrClass.InheritsFrom))
+        {
+            var parentClass = LocalScopedClasses.FirstOrDefault(t => 
+                string.Equals(t.Item1.Name, scrClass.InheritsFrom, StringComparison.OrdinalIgnoreCase));
+
+            if (parentClass is not null)
+            {
+                return FindMethodInClassHierarchy(parentClass.Item1, methodName);
+            }
+
+            // Try from exported symbols
+            if (InternalSymbols.TryGetValue(scrClass.InheritsFrom, out var parentSymbol) && 
+                parentSymbol is ScrClass parentScrClass)
+            {
+                return FindMethodInClassHierarchy(parentScrClass, methodName);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the ScrClass object by name, searching local and exported symbols.
+    /// </summary>
+    public ScrClass? GetClassByName(string className)
+    {
+        // Try local scope first
+        var localClass = LocalScopedClasses.FirstOrDefault(t => 
+            string.Equals(t.Item1.Name, className, StringComparison.OrdinalIgnoreCase));
+
+        if (localClass is not null)
+        {
+            return localClass.Item1;
+        }
+
+        // Try exported/imported symbols
+        if (InternalSymbols.TryGetValue(className, out var symbol) && symbol is ScrClass scrClass)
+        {
+            return scrClass;
+        }
+
+        return null;
+    }
 }

@@ -51,15 +51,43 @@ public class ScriptCache
 
             // Apply incremental change: replace text in the specified range
             string cachedString = cachedVersion.ToString();
-            int startPosition = GetBaseCharOfLine(cachedString, start.Line) + start.Character;
+            int startLineBase = GetBaseCharOfLine(cachedString, start.Line);
             int endLineBase = GetBaseCharOfLine(cachedString, end.Line);
-            int endPosition = endLineBase + end.Character;
 
-            // Handle edge case: end position beyond buffer length
-            if (endLineBase == -1 || endPosition > cachedVersion.Length)
+            // Validate positions
+            if (startLineBase == -1)
             {
+                // Start line doesn't exist - shouldn't happen, but fall back to appending
+                Log.Warning("Incremental update: start line {Line} not found in document {Uri}", start.Line, documentUri);
+                cachedVersion.Append(change.Text);
+                continue;
+            }
+
+            int startPosition = startLineBase + start.Character;
+
+            // Handle edge case: end position beyond buffer or end line doesn't exist
+            if (endLineBase == -1 || startPosition > cachedVersion.Length)
+            {
+                // Clamp to end of document
+                if (startPosition > cachedVersion.Length)
+                {
+                    startPosition = cachedVersion.Length;
+                }
                 cachedVersion.Remove(startPosition, cachedVersion.Length - startPosition);
                 cachedVersion.Append(change.Text);
+                continue;
+            }
+
+            int endPosition = endLineBase + end.Character;
+            if (endPosition > cachedVersion.Length)
+            {
+                endPosition = cachedVersion.Length;
+            }
+
+            // Ensure valid range
+            if (startPosition > endPosition)
+            {
+                Log.Warning("Incremental update: invalid range [{Start},{End}) in document {Uri}", startPosition, endPosition, documentUri);
                 continue;
             }
 
@@ -75,12 +103,29 @@ public class ScriptCache
 
     private int GetBaseCharOfLine(string content, int line)
     {
-        int pos = -1;
-        do
+        // Line 0 starts at position 0
+        if (line == 0)
         {
-            pos = content.IndexOf(Environment.NewLine, pos + 1);
-        } while (line-- > 0 && pos != -1);
-        return pos;
+            return 0;
+        }
+
+        int pos = 0;
+        int currentLine = 0;
+
+        while (currentLine < line && pos < content.Length)
+        {
+            int newlinePos = content.IndexOf(Environment.NewLine, pos);
+            if (newlinePos == -1)
+            {
+                // No more newlines found, return -1 to indicate line doesn't exist
+                return -1;
+            }
+            // Move past the newline (Environment.NewLine could be \r\n or \n)
+            pos = newlinePos + Environment.NewLine.Length;
+            currentLine++;
+        }
+
+        return currentLine == line ? pos : -1;
     }
 
     public void RemoveFromCache(TextDocumentIdentifier document)

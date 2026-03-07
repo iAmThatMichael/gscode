@@ -214,6 +214,24 @@ internal class SymbolTable
     }
 
     /// <summary>
+    /// Tries to get the full variable information (including definition source) for a local variable.
+    /// Returns null for built-in globals since they don't have a definition source.
+    /// </summary>
+    /// <param name="symbol">The symbol to look for</param>
+    /// <returns>The ScrVariable if it exists in the local table, null otherwise</returns>
+    public ScrVariable? TryGetLocalVariableInfo(string symbol)
+    {
+        // Check if the symbol exists in the local variable table
+        if (VariableSymbols.TryGetValue(symbol, out ScrVariable? localData))
+        {
+            return localData;
+        }
+
+        // Built-in globals don't have definition sources
+        return null;
+    }
+
+    /// <summary>
     /// Tries to get the associated ScrData for a function if it exists.
     /// This is used for function calls (e.g., b()), function pointers (e.g., &b), and namespaced functions.
     /// All functions are global - looks up in the global symbol table, then API functions as fallback.

@@ -733,7 +733,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return;
         }
 
-        // Add the function's parameters to the in set.
+        // Add the function's parameters to the in set with their definition source for go-to-definition.
         foreach (ParamNode param in node.Parameters.Parameters)
         {
             if (param.Name is null)
@@ -741,7 +741,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
                 continue;
             }
 
-            inSet[param.Name.Lexeme] = new(param.Name.Lexeme, ScrData.Default, 0, false);
+            inSet[param.Name.Lexeme] = new(param.Name.Lexeme, ScrData.Default, 0, false, DefinitionSource: param);
         }
 
         // Note: Built-in globals (self, level, game, anim) are no longer added to the symbol table.
@@ -778,7 +778,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
             if (keyAssignmentResult == AssignmentResult.SuccessNew)
             {
-                Sense.AddSenseToken(keyIdentifier, ScrVariableSymbol.Declaration(foreachStmt.KeyIdentifier, ScrData.Default));
+                Sense.AddSenseToken(keyIdentifier, ScrVariableSymbol.Declaration(foreachStmt.KeyIdentifier, ScrData.Default, foreachStmt));
             }
         }
 
@@ -791,7 +791,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         // }
         if (valueAssignmentResult == AssignmentResult.SuccessNew)
         {
-            Sense.AddSenseToken(valueIdentifier, ScrVariableSymbol.Declaration(foreachStmt.ValueIdentifier, ScrData.Default));
+            Sense.AddSenseToken(valueIdentifier, ScrVariableSymbol.Declaration(foreachStmt.ValueIdentifier, ScrData.Default, foreachStmt));
         }
         else if (valueAssignmentResult == AssignmentResult.SuccessMutated)
         {
@@ -1041,7 +1041,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             // Add a semantic token for the field declaration
             // Using a custom identifier expression node for the sense token
             IdentifierExprNode fieldIdentifier = new(memberDecl.NameToken);
-            Sense.AddSenseToken(memberDecl.NameToken, ScrVariableSymbol.Declaration(fieldIdentifier, ScrData.Default));
+            Sense.AddSenseToken(memberDecl.NameToken, ScrVariableSymbol.Declaration(fieldIdentifier, ScrData.Default, memberDecl));
             return;
         }
 
@@ -1111,7 +1111,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         if (assignmentResult == AssignmentResult.SuccessNew || assignmentResult == AssignmentResult.SuccessAlreadyDefined)
         {
             // Add a semantic token for the constant.
-            Sense.AddSenseToken(statement.IdentifierToken, ScrVariableSymbol.ConstantDeclaration(statement.IdentifierToken, result));
+            Sense.AddSenseToken(statement.IdentifierToken, ScrVariableSymbol.ConstantDeclaration(statement.IdentifierToken, result, statement));
             return;
         }
         else if (assignmentResult == AssignmentResult.FailedReserved)
@@ -1203,7 +1203,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             }
 
             symbolTable.AddOrSetVariableSymbol(variable.Identifier, ScrData.Default, definitionSource: expr);
-            Sense.AddSenseToken(variable.Token, ScrVariableSymbol.Declaration(variable, ScrData.Default));
+            Sense.AddSenseToken(variable.Token, ScrVariableSymbol.Declaration(variable, ScrData.Default, expr));
         }
 
         // Waittill doesn't return.
@@ -1855,11 +1855,14 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
             if (assignmentResult == AssignmentResult.SuccessNew)
             {
-                Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Declaration(identifier, right));
+                Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Declaration(identifier, right, node));
                 return right;
             }
 
-            Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Usage(identifier, right));
+            // Get the variable's definition source for usage tokens
+            ScrVariable? varInfo = symbolTable.TryGetLocalVariableInfo(symbolName);
+            AstNode? definitionSource = varInfo?.DefinitionSource;
+            Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Usage(identifier, right, false, definitionSource));
             return right;
         }
 
@@ -2512,7 +2515,10 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             if (createSenseTokenForRhs)
             {
                 bool isConstant = symbolTable.SymbolIsConstant(expr.Identifier);
-                Sense.AddSenseToken(expr.Token, ScrVariableSymbol.Usage(expr, data, isConstant));
+                // Get the full variable info to access the definition source
+                ScrVariable? varInfo = symbolTable.TryGetLocalVariableInfo(expr.Identifier);
+                AstNode? definitionSource = varInfo?.DefinitionSource;
+                Sense.AddSenseToken(expr.Token, ScrVariableSymbol.Usage(expr, data, isConstant, definitionSource));
             }
         }
         return data;

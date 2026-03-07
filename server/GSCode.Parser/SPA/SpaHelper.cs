@@ -28,25 +28,32 @@ public class ScrVariableSymbol : ISenseDefinition
 
     public bool IsConstant { get; private set; } = false;
 
-    internal ScrVariableSymbol(Token identifierToken, ScrData data)
+    /// <summary>
+    /// The AST node where this variable was originally defined/declared.
+    /// Used for "Go to Definition" navigation.
+    /// </summary>
+    internal AstNode? DefinitionSource { get; private set; }
+
+    internal ScrVariableSymbol(Token identifierToken, ScrData data, AstNode? definitionSource = null)
     {
         IdentifierToken = identifierToken;
         TypeString = data.TypeToString();
         Range = identifierToken.Range;
+        DefinitionSource = definitionSource;
     }
 
-    internal static ScrVariableSymbol Declaration(IdentifierExprNode node, ScrData data)
+    internal static ScrVariableSymbol Declaration(IdentifierExprNode node, ScrData data, AstNode? definitionSource = null)
     {
-        return new(node.Token, data)
+        return new(node.Token, data, definitionSource)
         {
             SemanticTokenModifiers =
                 new string[] { "declaration", "local" },
         };
     }
 
-    internal static ScrVariableSymbol ConstantDeclaration(Token identifierToken, ScrData data)
+    internal static ScrVariableSymbol ConstantDeclaration(Token identifierToken, ScrData data, AstNode? definitionSource = null)
     {
-        return new(identifierToken, data)
+        return new(identifierToken, data, definitionSource)
         {
             SemanticTokenModifiers = new string[] { "declaration", "readonly", "local" },
             IsConstant = true
@@ -61,9 +68,9 @@ public class ScrVariableSymbol : ISenseDefinition
         };
     }
 
-    internal static ScrVariableSymbol Usage(IdentifierExprNode node, ScrData data, bool isConstant = false)
+    internal static ScrVariableSymbol Usage(IdentifierExprNode node, ScrData data, bool isConstant = false, AstNode? definitionSource = null)
     {
-        return new(node.Token, data)
+        return new(node.Token, data, definitionSource)
         {
             SemanticTokenModifiers = isConstant ?
                 new string[] { "readonly", "local" } :
@@ -87,45 +94,52 @@ public class ScrVariableSymbol : ISenseDefinition
         };
     }
 }
-// public class ScrParameterSymbol : ISenseToken
-// {
-//     public Range Range { get; }
 
-//     public string SemanticTokenType { get; } = "parameter";
+public class ScrParameterSymbol : ISenseDefinition
+{
+    public Range Range { get; }
 
-//     public string[] SemanticTokenModifiers { get; private set; } = Array.Empty<string>();
+    public string SemanticTokenType { get; } = "parameter";
 
-//     internal ScrParameter Source { get; }
+    public string[] SemanticTokenModifiers { get; private set; } = [];
+    public bool IsFromPreprocessor { get; } = false;
 
-//     internal ScrParameterSymbol(ScrParameter parameter)
-//     {
-//         Source = parameter;
-//         Range = parameter.Range;
+    internal ScrParameter Source { get; }
 
-//         // Add default library if it's the vararg declaration
-//         if(parameter.Name == "vararg")
-//         {
-//             SemanticTokenModifiers = new string[] { "defaultLibrary" };
-//         }
-//     }
+    /// <summary>
+    /// The AST node where this parameter was defined.
+    /// Used for "Go to Definition" navigation.
+    /// </summary>
+    internal AstNode? DefinitionSource { get; }
 
-//     public Hover GetHover()
-//     {
-//         string parameterName = $"{Source.Name}";
-//         return new()
-//         {
-//             Range = Range,
-//             Contents = new MarkupContent()
-//             {
-//                 Kind = MarkupKind.Markdown,
-//                 Value = string.Format("```gsc\n{0}\n```",
-//                    parameterName)
-//                 //Value = string.Format("```gsc\n/@ {0} @/ {1}\n```",
-//                 //   typeValue, Node.SourceToken.Contents!)
-//             }
-//         };
-//     }
-// }
+    internal ScrParameterSymbol(ScrParameter parameter, AstNode? definitionSource = null)
+    {
+        Source = parameter;
+        Range = parameter.Range;
+        DefinitionSource = definitionSource;
+
+        // Add default library if it's the vararg declaration
+        if(parameter.Name == "vararg")
+        {
+            SemanticTokenModifiers = new string[] { "defaultLibrary" };
+        }
+    }
+
+    public Hover GetHover()
+    {
+        string parameterName = $"{Source.Name}";
+        return new()
+        {
+            Range = Range,
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
+            {
+                Kind = MarkupKind.Markdown,
+                Value = string.Format("```gsc\n{0}\n```",
+                   parameterName)
+            })
+        };
+    }
+}
 
 
 public class ScrFieldSymbol : ISenseDefinition

@@ -757,9 +757,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             InsertTextFormat = InsertTextFormat.Snippet,
             Kind = kind,
             // Add sorting with prefix to group by type
-            SortText = sortPrefix + function.Name.ToLowerInvariant(),
-            // Add commit characters to automatically complete when typing these
-            CommitCharacters = new Container<string>(new[] { "(", ")", ";" })
+            SortText = sortPrefix + function.Name.ToLowerInvariant()
         };
     }
 

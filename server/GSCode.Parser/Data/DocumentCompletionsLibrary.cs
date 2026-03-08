@@ -628,7 +628,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         }
 
         // Build documentation showing the macro definition
-        string documentation = $"```gsc\n{macroDef.DefineTokens.ToSnippetString()}\n```";
+        string documentation = $"```gsc\n{macroDef.DefineSnippet}\n```";
         if (!string.IsNullOrEmpty(macroDef.Documentation))
         {
             documentation += $"\n\n{macroDef.Documentation}";

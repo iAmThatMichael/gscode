@@ -408,6 +408,9 @@ public class ScriptManager
         string filePath = documentUri.ToUri().LocalPath;
         _symbolRegistry.RemoveSymbolsFromFile(filePath);
 
+        // Clean up cached macro definitions for this file
+        GSCode.Parser.Pre.MacroDefinitionCache.Instance.RemoveFileMacros(filePath);
+
         Scripts.Remove(documentUri, out _);
 
         RemoveDependent(documentUri);

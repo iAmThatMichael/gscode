@@ -195,14 +195,66 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         // Remove the define directive from the script.
         ConnectTokens(defineToken.Previous, current.Next);
 
-        // Create the macro
-        MacroDefinition definition = new(
+        // Pre-compute the define snippet string (more memory efficient than storing TokenList)
+        StringBuilder defineSnippetBuilder = new();
+        Token snippetCurrent = defineToken;
+        bool lastWasWhitespace = false;
+        while (snippetCurrent != current.Next)
+        {
+            // Collapse consecutive whitespace to single space
+            if (snippetCurrent.IsWhitespacey())
+            {
+                if (!lastWasWhitespace)
+                {
+                    defineSnippetBuilder.Append(' ');
+                    lastWasWhitespace = true;
+                }
+            }
+            else
+            {
+                defineSnippetBuilder.Append(snippetCurrent.Lexeme);
+                lastWasWhitespace = false;
+            }
+            snippetCurrent = snippetCurrent.Next;
+        }
+        string defineSnippet = defineSnippetBuilder.ToString().Trim();
+
+        // Determine source file path for caching
+        string? sourceFilePath = null;
+        string? srcDisplay = null;
+        if (nameToken.IsFromPreprocessor)
+        {
+            // This macro came from an insert, find which insert region it belongs to
+            foreach (var region in Sense.InsertRegions)
+            {
+                // Find the insert region that this macro line falls within
+                if (region.Range.Start.Line <= nameToken.Range.Start.Line && 
+                    region.ResolvedPath is not null)
+                {
+                    sourceFilePath = region.ResolvedPath;
+                    string rel = GetRelativeDisplay(region.ResolvedPath);
+                    srcDisplay = rel;
+                    // Keep updating as we find later regions (use the most recent/closest one)
+                }
+            }
+        }
+        else
+        {
+            // Local macro - use the current script path
+            sourceFilePath = Sense.ScriptPath;
+        }
+
+        // Create the macro definition (will be cached to avoid duplication)
+        MacroDefinition uncachedDefinition = new(
             nameToken,
-            DefineTokens: new TokenList(defineToken, current),
+            DefineSnippet: defineSnippet,
             ExpansionTokens: new TokenList(firstExpansionToken, lastExpansionToken),
             Parameters: parameters,
             Documentation: documentation
             );
+
+        // Use the cache to deduplicate identical macros across files
+        MacroDefinition definition = MacroDefinitionCache.Instance.GetOrAdd(sourceFilePath, macroName, uncachedDefinition);
 
         // GSC doesn't allow redefinitions of existing macros.
         if(TryGetMacroDefinition(nameToken, out _))
@@ -213,26 +265,6 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         {
             // Fine to add
             Defines.Add(macroName, definition);
-
-            // Determine source display for macro - ONLY if it came from an insert file
-            // Check if the name token is marked as coming from preprocessor (i.e., from an #insert)
-            string? srcDisplay = null;
-            if (nameToken.IsFromPreprocessor)
-            {
-                // This macro came from an insert, find which insert region it belongs to
-                foreach (var region in Sense.InsertRegions)
-                {
-                    // Find the insert region that this macro line falls within
-                    if (region.Range.Start.Line <= nameToken.Range.Start.Line && 
-                        region.ResolvedPath is not null)
-                    {
-                        string rel = GetRelativeDisplay(region.ResolvedPath);
-                        srcDisplay = rel;
-                        // Keep updating as we find later regions (use the most recent/closest one)
-                    }
-                }
-            }
-            // If nameToken.IsFromPreprocessor is false, srcDisplay stays null (local macro)
 
             Sense.AddMacroOutline(macroName, nameToken.Range, srcDisplay);
             Sense.AddMacroDefinition(macroName, definition, srcDisplay);
@@ -537,8 +569,11 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         // Make sure we're at the beginning, as macros can contain macros.
         CurrentToken = macroToken.Previous;
 
+        // Pre-compute the expansion snippet string (more memory efficient than storing TokenList)
+        string expansionSnippet = expansion.ToSnippetString();
+
         // Finally, add the macro reference to IntelliSense
-        Sense.AddSenseToken(macroToken, new ScriptMacro(macroToken, macroDefinition, expansion));
+        Sense.AddSenseToken(macroToken, new ScriptMacro(macroToken, macroDefinition, expansionSnippet));
     }
 
     private void MacroWithArgs(MacroDefinition macroDefinition)
@@ -642,9 +677,12 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         // Make sure we're at the beginning, as macros can contain macros.
         CurrentToken = macroToken.Previous;
 
+        // Pre-compute the expansion snippet string (more memory efficient than storing TokenList)
+        string expansionSnippet = expansion.ToSnippetString();
+
         // Job done (who knew with args would be so much more complex!)
         // Finally, add the macro reference to IntelliSense
-        Sense.AddSenseToken(macroToken, new ScriptMacro(macroToken, macroDefinition, expansion));
+        Sense.AddSenseToken(macroToken, new ScriptMacro(macroToken, macroDefinition, expansionSnippet));
     }
 
     /// <summary>

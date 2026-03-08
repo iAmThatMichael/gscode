@@ -15,11 +15,11 @@ namespace GSCode.Parser.Pre;
 /// Records script defines for semantics & usage
 /// </summary>
 /// <param name="Source">The source name token</param>
-/// <param name="DefineTokens">The tokens #define to the last token of the expansion, excluding comments</param>
-/// <param name="ExpansionTokens">When used, the key expands to these tokens</param>
+/// <param name="DefineSnippet">Pre-computed string representation of the define</param>
+/// <param name="ExpansionTokens">When used, the key expands to these tokens (only for actual expansion)</param>
 /// <param name="Parameters">List of parameters</param>
 /// <param name="Documentation">Documentation for the define if it ends in a comment</param>
-internal record MacroDefinition(Token Source, TokenList DefineTokens, TokenList ExpansionTokens,
+internal record MacroDefinition(Token Source, string DefineSnippet, TokenList ExpansionTokens,
    LinkedList<Token>? Parameters, string? Documentation = null) : ISenseDefinition
 {
     public bool IsFromPreprocessor { get; } = Source.IsFromPreprocessor;
@@ -37,7 +37,7 @@ internal record MacroDefinition(Token Source, TokenList DefineTokens, TokenList 
             {
                 Kind = MarkupKind.Markdown,
                 Value = string.Format("```gsc\n{0}\n```\n{1}",
-                    DefineTokens.ToSnippetString(), GetFormattedDocumentation())
+                    DefineSnippet, GetFormattedDocumentation())
             })
         };
     }
@@ -58,19 +58,26 @@ internal record MacroDefinition(Token Source, TokenList DefineTokens, TokenList 
             IsFromPreprocessor = true
         };
 
-        // Create a combined array of all tokens for the define source
-        Token[] defineTokens = [
-            new Token(TokenType.Define, RangeHelper.Empty, "#define"),
-            new Token(TokenType.Whitespace, RangeHelper.Empty, " "),
-            sourceToken,
-            new Token(TokenType.Whitespace, RangeHelper.Empty, " "),
-            .. expansion,
-        ];
+        // Pre-compute the define snippet string
+        StringBuilder sb = new();
+        sb.Append("#define ");
+        sb.Append(source);
+        if (expansion.Length > 0)
+        {
+            sb.Append(' ');
+            for (int i = 0; i < expansion.Length; i++)
+            {
+                sb.Append(expansion[i].Lexeme);
+            }
+        }
+        string defineSnippet = sb.ToString();
 
-        TokenList defineSource = TokenList.From(defineTokens);
         TokenList expansionSource = TokenList.From(expansion);
 
-        return new(sourceToken, defineSource, expansionSource, null);
+        MacroDefinition uncached = new(sourceToken, defineSnippet, expansionSource, null);
+
+        // Use cache for built-in macros to avoid duplication across files
+        return MacroDefinitionCache.Instance.GetOrAdd(null, source, uncached);
     }
 }
 
@@ -79,8 +86,8 @@ internal record MacroDefinition(Token Source, TokenList DefineTokens, TokenList 
 /// </summary>
 /// <param name="Source">The macro token source</param>
 /// <param name="DefineSource">The define this macro is from</param>
-/// <param name="ExpansionTokens">The expansion of this macro</param>
-internal record ScriptMacro(Token Source, MacroDefinition DefineSource, TokenList ExpansionTokens) : ISenseDefinition
+/// <param name="ExpansionSnippet">Pre-computed string representation of the expansion</param>
+internal record ScriptMacro(Token Source, MacroDefinition DefineSource, string ExpansionSnippet) : ISenseDefinition
 {
     public bool IsFromPreprocessor { get; } = Source.IsFromPreprocessor;
     public Range Range { get; } = Source.Range;
@@ -91,8 +98,7 @@ internal record ScriptMacro(Token Source, MacroDefinition DefineSource, TokenLis
 
     public Hover GetHover()
     {
-        string defineSnippet = DefineSource.DefineTokens.ToSnippetString();
-        string expansionSnippet = ExpansionTokens.ToSnippetString();
+        string defineSnippet = DefineSource.DefineSnippet;
 
         Hover hover = new()
         {
@@ -100,7 +106,7 @@ internal record ScriptMacro(Token Source, MacroDefinition DefineSource, TokenLis
             {
                 Kind = MarkupKind.Markdown,
                 Value = string.Format("```gsc\n{0}\n```\n{1}\n\n---\n{2}\n```gsc\n{3}\n```",
-                    defineSnippet, GetFormattedDocumentation(), "Expands to:", expansionSnippet)
+                    defineSnippet, GetFormattedDocumentation(), "Expands to:", ExpansionSnippet)
             }),
             Range = Source.Range,
         };

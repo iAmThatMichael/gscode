@@ -120,6 +120,8 @@ export function activate(context: ExtensionContext) {
   const config = workspace.getConfiguration("gscode");
   const workspaceIndexingMode = config.get<string>("workspaceIndexingMode", "off");
   const serverLogLevel = config.get<string>("serverLogLevel", "off");
+  const customRawPath = config.get<string>("customRawPath");
+  const allowRawFolderWrites = config.get<boolean>("allowRawFolderWrites", false);
 
   // Options to control the language client
   let clientOptions: LanguageClientOptions = {
@@ -144,6 +146,8 @@ export function activate(context: ExtensionContext) {
       gscode: {
         workspaceIndexingMode: workspaceIndexingMode,
         serverLogLevel: serverLogLevel,
+        customRawPath: customRawPath,
+        allowRawFolderWrites: allowRawFolderWrites,
       },
     },
     outputChannel: window.createOutputChannel('GSCode Language Server'),
@@ -161,50 +165,48 @@ export function activate(context: ExtensionContext) {
   // client can be deactivated on extension deactivation
   client.start();
 
-  // Watch for configuration changes and prompt for reload
+  // Watch for configuration changes and send to server
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async e => {
-      if (e.affectsConfiguration('gscode.customRawPath') || 
-          e.affectsConfiguration('gscode.serverLogLevel') ||
-          e.affectsConfiguration('gscode.workspaceIndexingMode')) {
-        
-        // Prevent multiple prompts
-        if (pendingReload) {
-          return;
-        }
-        pendingReload = true;
+      if (e.affectsConfiguration('gscode')) {
+        // Send the entire gscode configuration section to the server
+        const config = vscode.workspace.getConfiguration('gscode');
+        client.sendNotification('workspace/didChangeConfiguration', {
+          settings: {
+            gscode: {
+              customRawPath: config.get('customRawPath'),
+              allowRawFolderWrites: config.get('allowRawFolderWrites'),
+              workspaceIndexingMode: config.get('workspaceIndexingMode')
+            }
+          }
+        });
 
-        const action = await vscode.window.showInformationMessage(
-          'GSCode configuration changed. Reload window for changes to take effect.',
-          'Reload Window',
-          'Later'
-        );
+        // For certain settings that require reload, prompt the user
+        if (e.affectsConfiguration('gscode.serverLogLevel') ||
+            e.affectsConfiguration('gscode.workspaceIndexingMode')) {
 
-        if (action === 'Reload Window') {
-          await vscode.commands.executeCommand('workbench.action.reloadWindow');
-        } else {
-          pendingReload = false;
+          // Prevent multiple prompts
+          if (pendingReload) {
+            return;
+          }
+          pendingReload = true;
+
+          const action = await vscode.window.showInformationMessage(
+            'GSCode configuration changed. Reload window for changes to take effect.',
+            'Reload Window',
+            'Later'
+          );
+
+          if (action === 'Reload Window') {
+            await vscode.commands.executeCommand('workbench.action.reloadWindow');
+          } else {
+            pendingReload = false;
+          }
         }
       }
     })
   );
 }
-
-vscode.workspace.onDidChangeConfiguration(e => {
-    if (e.affectsConfiguration('gscode')) {
-        // Send the entire gscode configuration section
-        const config = vscode.workspace.getConfiguration('gscode');
-        client.sendNotification('workspace/didChangeConfiguration', {
-            settings: {
-                gscode: {
-                    customRawPath: config.get('customRawPath'),
-                    allowRawFolderWrites: config.get('allowRawFolderWrites'),
-                    workspaceIndexingMode: config.get('workspaceIndexingMode')
-                }
-            }
-        });
-    }
-});
 
 export function deactivate(): Thenable<void> | undefined {
     if (!client) {

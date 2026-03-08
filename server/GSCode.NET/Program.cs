@@ -138,6 +138,27 @@ LanguageServer server = await LanguageServer.From(options =>
 								_ => IndexingMode.Off
 							};
 						}
+
+						// Read customRawPath from initialization options
+						var customRawPathSetting = gscodeSection.SelectToken("customRawPath");
+						if (customRawPathSetting is not null)
+						{
+							var customPath = customRawPathSetting.Value<string>();
+							if (!string.IsNullOrWhiteSpace(customPath))
+							{
+								CompletionConfiguration.CustomRawPath = customPath;
+								Log.Information("CustomRawPath set from initialization options: {Path}", customPath);
+							}
+						}
+
+						// Read allowRawFolderWrites from initialization options
+						var allowRawWritesSetting = gscodeSection.SelectToken("allowRawFolderWrites");
+						if (allowRawWritesSetting is not null)
+						{
+							var allowWrites = allowRawWritesSetting.Value<bool>();
+							CompletionConfiguration.AllowRawFolderWrites = allowWrites;
+							Log.Information("AllowRawFolderWrites set from initialization options: {Value}", allowWrites);
+						}
 					}
 				}
 
@@ -211,7 +232,21 @@ LanguageServer server = await LanguageServer.From(options =>
 				options.RegisterForDisposal(indexingCts);
 				var indexingToken = indexingCts.Token;
 
-				if (request.WorkspaceFolders is not null && request.WorkspaceFolders.Any())
+				// If CustomRawPath is set, index that instead of workspace folders
+				if (!string.IsNullOrWhiteSpace(CompletionConfiguration.CustomRawPath))
+				{
+					string customPath = CompletionConfiguration.CustomRawPath;
+					if (Directory.Exists(customPath))
+					{
+						Log.Information("Starting workspace indexing for CustomRawPath: {Root}", customPath);
+						_ = Task.Run(() => sm.IndexWorkspaceAsync(customPath, indexingToken), indexingToken);
+					}
+					else
+					{
+						Log.Warning("CustomRawPath is set but directory does not exist: {Path}", customPath);
+					}
+				}
+				else if (request.WorkspaceFolders is not null && request.WorkspaceFolders.Any())
 				{
 					foreach (var wf in request.WorkspaceFolders)
 					{

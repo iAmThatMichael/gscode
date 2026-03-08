@@ -832,20 +832,19 @@ public class ScriptManager
         }
         perfTracker.Checkpoint("Post-Dependencies");
 
-        perfTracker.Checkpoint("Pre-ExportSymbols");
-        // Build exported symbols
-        List<IExportedSymbol> exportedSymbols = new();
-        foreach (Uri dep in dependencies)
-        {
-            var depDoc = DocumentUri.From(dep);
-            if (Scripts.TryGetValue(depDoc, out CachedScript? depScript))
-            {
-                exportedSymbols.AddRange(await depScript.Script.IssueExportedSymbolsAsync(cancellationToken));
-            }
-        }
-        perfTracker.Checkpoint("Post-ExportSymbols");
+        // Check indexing mode early to avoid unnecessary work
+        var indexingMode = GSCode.Parser.Configuration.CompletionConfiguration.WorkspaceIndexingMode;
+        perfTracker.AddMetadata("IndexingMode", indexingMode.ToString());
 
-        // Snapshot dependency locations under dep locks
+        // Defensive check - IndexWorkspaceAsync should never be called with Off mode
+        if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Off)
+        {
+            _logger.LogWarning("IndexFileAsync called with Off mode for {File} - this should not happen", Path.GetFileName(filePath));
+            return;
+        }
+
+        // Snapshot dependency locations under dep locks (needed for both Partial and Full)
+        perfTracker.Checkpoint("Pre-MergeDependencies");
         var mergeFuncLocs = new List<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>>();
         var mergeClassLocs = new List<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>>();
         foreach (Uri dep in dependencies)
@@ -861,9 +860,9 @@ public class ScriptManager
                 await Task.CompletedTask;
             });
         }
+        perfTracker.Checkpoint("Post-MergeDependencies");
 
-        perfTracker.Checkpoint("Pre-Analysis");
-        // Merge + analyse under this script's analysis lock
+        // Merge definition tables (needed for go-to-definition in both modes)
         await WithAnalysisLockAsync(docUri, async () =>
         {
             if (cached.Script.DefinitionsTable is not null)
@@ -879,19 +878,53 @@ public class ScriptManager
                     cached.Script.DefinitionsTable.AddClassLocation(key.Namespace, key.Name, val.FilePath, val.Range);
                 }
             }
-            perfTracker.Checkpoint("Pre-AnalyseAsync");
-            await cached.Script.AnalyseAsync(exportedSymbols, cancellationToken);
-            perfTracker.Checkpoint("Post-AnalyseAsync");
-            perfTracker.Checkpoint("Pre-PublishDiagnostics");
+            await Task.CompletedTask;
+        });
 
+        if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Partial)
+        {
+            // Partial indexing: signature analysis only (already done during parse)
+            // Symbol registry already populated, definition tables merged
+            // Skip expensive semantic analysis and exported symbols
+            perfTracker.Checkpoint("Partial-Complete");
+#if DEBUG
+            _logger.LogDebug("Partial indexing complete for {File}", Path.GetFileName(filePath));
+#endif
+        }
+        else if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Full)
+        {
+            // Full mode: build exported symbols and run semantic analysis
+            perfTracker.Checkpoint("Pre-ExportSymbols");
+            List<IExportedSymbol> exportedSymbols = new();
+            foreach (Uri dep in dependencies)
+            {
+                var depDoc = DocumentUri.From(dep);
+                if (Scripts.TryGetValue(depDoc, out CachedScript? depScript))
+                {
+                    exportedSymbols.AddRange(await depScript.Script.IssueExportedSymbolsAsync(cancellationToken));
+                }
+            }
+            perfTracker.Checkpoint("Post-ExportSymbols");
+
+            perfTracker.Checkpoint("Pre-Analysis");
+            await WithAnalysisLockAsync(docUri, async () =>
+            {
+                // Full semantic analysis (CFG + DFA + diagnostics)
+                perfTracker.Checkpoint("Pre-AnalyseAsync");
+                await cached.Script.AnalyseAsync(exportedSymbols, cancellationToken);
+                perfTracker.Checkpoint("Post-AnalyseAsync");
+            });
+            perfTracker.Checkpoint("Post-Analysis");
+
+            perfTracker.Checkpoint("Pre-PublishDiagnostics");
             // Publish diagnostics for indexed file (if LSP facade is available)
             await PublishDiagnosticsAsync(docUri, cached.Script, cancellationToken: cancellationToken);
             perfTracker.Checkpoint("Post-PublishDiagnostics");
-        });
-        perfTracker.Checkpoint("Post-Analysis");
 
-        var diagnostics = await cached.Script.GetDiagnosticsAsync(cancellationToken);
-        perfTracker.AddMetadata("DiagnosticCount", diagnostics.Count);
+            // Add diagnostic count for perf tracking
+            var diagnostics = await cached.Script.GetDiagnosticsAsync(cancellationToken);
+            perfTracker.AddMetadata("DiagnosticCount", diagnostics.Count);
+        }
     }
 
     private async Task PublishDiagnosticsAsync(DocumentUri uri, Script script, int? version = null, CancellationToken cancellationToken = default)

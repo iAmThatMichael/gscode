@@ -135,10 +135,20 @@
 					"description": "Allow saving/modifying files in raw folders (default or custom). When disabled, you'll be warned when editing files in protected raw folders to prevent accidental modifications to vanilla game files.",
 					"scope": "window"
 				},
-				"gscode.enableWorkspaceIndexing": {
-					"type": "boolean",
-					"default": false,
-					"description": "Enable workspace-wide symbol indexing for Go to Definition across files.",
+				"gscode.workspaceIndexingMode": {
+					"type": "string",
+					"default": "off",
+					"enum": [
+						"off",
+						"partial",
+						"full"
+					],
+					"enumDescriptions": [
+						"Workspace indexing disabled. Only open files are analyzed.",
+						"Fast indexing with signature analysis only. Provides symbol navigation and completions without diagnostics for unopened files. Recommended for large workspaces.",
+						"Complete semantic analysis with diagnostics. Slower but provides full language features including diagnostics for all indexed files."
+					],
+					"description": "Controls workspace indexing. 'off' disables indexing, 'partial' performs fast signature analysis (recommended), 'full' runs complete semantic analysis with diagnostics.",
 					"scope": "window"
 				}
 			}

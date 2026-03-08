@@ -87,7 +87,7 @@ export function activate(context: ExtensionContext) {
 
   // Get configuration from workspace settings
   const config = workspace.getConfiguration("gscode");
-  const enableWorkspaceIndexing = config.get<boolean>("enableWorkspaceIndexing", false);
+  const workspaceIndexingMode = config.get<string>("workspaceIndexingMode", "off");
   const serverLogLevel = config.get<string>("serverLogLevel", "off");
 
   // Options to control the language client
@@ -111,7 +111,7 @@ export function activate(context: ExtensionContext) {
     // Pass configuration via initializationOptions to avoid workspace/configuration request
     initializationOptions: {
       gscode: {
-        enableWorkspaceIndexing: enableWorkspaceIndexing,
+        workspaceIndexingMode: workspaceIndexingMode,
         serverLogLevel: serverLogLevel,
       },
     },
@@ -134,8 +134,8 @@ export function activate(context: ExtensionContext) {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async e => {
       if (e.affectsConfiguration('gscode.customRawPath') || 
-          e.affectsConfiguration('gscode.enableWorkspaceIndexing') ||
-          e.affectsConfiguration('gscode.serverLogLevel')) {
+          e.affectsConfiguration('gscode.serverLogLevel') ||
+          e.affectsConfiguration('gscode.workspaceIndexingMode')) {
         
         // Prevent multiple prompts
         if (pendingReload) {
@@ -167,7 +167,8 @@ vscode.workspace.onDidChangeConfiguration(e => {
             settings: {
                 gscode: {
                     customRawPath: config.get('customRawPath'),
-                    enableWorkspaceIndexing: config.get('enableWorkspaceIndexing')
+                    allowRawFolderWrites: config.get('allowRawFolderWrites'),
+                    workspaceIndexingMode: config.get('workspaceIndexingMode')
                 }
             }
         });

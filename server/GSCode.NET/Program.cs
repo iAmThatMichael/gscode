@@ -1,5 +1,6 @@
 ﻿using GSCode.NET;
 using GSCode.Parser.SPA;
+using GSCode.Parser.Configuration;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -117,29 +118,39 @@ LanguageServer server = await LanguageServer.From(options =>
 
 				Log.Information("Server log level set to: {LogLevel} (mapped to {MinimumLevel})", logLevelValue, minimumLevel);
 
-				// Check if workspace indexing is enabled via InitializationOptions
-				bool enableIndexing = false;
+				// Check workspace indexing mode via InitializationOptions
+				var indexingMode = IndexingMode.Off;
 
 				if (request.InitializationOptions is JToken initOptions2)
 				{
 					var gscodeSection = initOptions2.SelectToken("gscode");
 					if (gscodeSection is not null)
 					{
-						var indexingSetting = gscodeSection.SelectToken("enableWorkspaceIndexing");
+						var indexingSetting = gscodeSection.SelectToken("workspaceIndexingMode");
 						if (indexingSetting is not null)
 						{
-							enableIndexing = indexingSetting.Value<bool>();
+							var modeValue = indexingSetting.Value<string>()?.ToLowerInvariant();
+							indexingMode = modeValue switch
+							{
+								"off" => IndexingMode.Off,
+								"partial" => IndexingMode.Partial,
+								"full" => IndexingMode.Full,
+								_ => IndexingMode.Off
+							};
 						}
 					}
 				}
 
-				if (!enableIndexing)
+				// Set the configuration
+				CompletionConfiguration.WorkspaceIndexingMode = indexingMode;
+
+				if (indexingMode == IndexingMode.Off)
 				{
-					Log.Information("Workspace indexing is disabled (not enabled in initialization options)");
+					Log.Information("Workspace indexing is disabled");
 					return;
 				}
 
-				Log.Information("Workspace indexing is enabled via initialization options");
+				Log.Information("Workspace indexing is enabled: {Mode} mode", indexingMode);
 
 				var sm = server.Services.GetRequiredService<ScriptManager>();
 
@@ -160,26 +171,39 @@ LanguageServer server = await LanguageServer.From(options =>
 		{
 			try
 			{
-				// Check initialization options again for workspace indexing
-				bool enableIndexing = false;
+				// Check workspace indexing mode via InitializationOptions
+				var indexingMode = IndexingMode.Off;
 
 				if (request.InitializationOptions is JToken initOptions)
 				{
 					var gscodeSection = initOptions.SelectToken("gscode");
 					if (gscodeSection is not null)
 					{
-						var indexingSetting = gscodeSection.SelectToken("enableWorkspaceIndexing");
+						var indexingSetting = gscodeSection.SelectToken("workspaceIndexingMode");
 						if (indexingSetting is not null)
 						{
-							enableIndexing = indexingSetting.Value<bool>();
+							var modeValue = indexingSetting.Value<string>()?.ToLowerInvariant();
+							indexingMode = modeValue switch
+							{
+								"off" => IndexingMode.Off,
+								"partial" => IndexingMode.Partial,
+								"full" => IndexingMode.Full,
+								_ => IndexingMode.Off
+							};
 						}
 					}
 				}
 
-				if (!enableIndexing)
+				// Re-apply configuration to ensure it's set correctly
+				CompletionConfiguration.WorkspaceIndexingMode = indexingMode;
+
+				if (indexingMode == IndexingMode.Off)
 				{
+					Log.Information("Workspace indexing disabled in OnInitialized");
 					return;
 				}
+
+				Log.Information("Starting workspace indexing in {Mode} mode", indexingMode);
 
 				var sm = server.Services.GetRequiredService<ScriptManager>();
 

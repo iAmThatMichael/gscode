@@ -1,6 +1,31 @@
 namespace GSCode.Parser.Configuration;
 
 /// <summary>
+/// Indexing mode for workspace files.
+/// </summary>
+public enum IndexingMode
+{
+    /// <summary>
+    /// Workspace indexing is disabled.
+    /// No automatic indexing of workspace files on startup.
+    /// </summary>
+    Off,
+
+    /// <summary>
+    /// Parse and perform signature analysis only (fast).
+    /// Provides symbol information, go-to-definition, and completions.
+    /// No diagnostics for unopened files.
+    /// </summary>
+    Partial,
+
+    /// <summary>
+    /// Parse and perform full semantic analysis (slower).
+    /// Provides diagnostics, data flow analysis, and all language features.
+    /// </summary>
+    Full
+}
+
+/// <summary>
 /// Global configuration for completion features.
 /// </summary>
 public static class CompletionConfiguration
@@ -18,4 +43,13 @@ public static class CompletionConfiguration
     /// This helps prevent accidental modifications to vanilla game files.
     /// </summary>
     public static bool AllowRawFolderWrites { get; set; } = false;
+
+    /// <summary>
+    /// Indexing mode for workspace files during initial indexing.
+    /// - Off: Workspace indexing is disabled.
+    /// - Partial: Fast indexing with signature analysis only (no diagnostics for unopened files).
+    /// - Full: Complete semantic analysis with diagnostics (slower).
+    /// Default is Off for better startup performance. Users can enable Partial or Full as needed.
+    /// </summary>
+    public static IndexingMode WorkspaceIndexingMode { get; set; } = IndexingMode.Off;
 }

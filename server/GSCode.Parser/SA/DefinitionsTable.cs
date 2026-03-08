@@ -51,15 +51,38 @@ public class DefinitionsTable
         LocalScopedFunctions.Add(new Tuple<ScrFunction, FunDefnNode>(function, node));
 
         ScrFunction internalFunction = function with { Namespace = CurrentNamespace, Implicit = true };
-        InternalSymbols.Add(function.Name, internalFunction);
-        InternalSymbols.Add($"{CurrentNamespace}::{function.Name}", internalFunction);
+        string qualifiedName = $"{CurrentNamespace}::{function.Name}";
+
+        // Merge as overload if a function with the same name already exists.
+        if (InternalSymbols.TryGetValue(function.Name, out IExportedSymbol? existing) && existing is ScrFunction existingFunc)
+        {
+            existingFunc.Overloads.AddRange(internalFunction.Overloads);
+            // Also merge into the qualified entry
+            if (InternalSymbols.TryGetValue(qualifiedName, out IExportedSymbol? existingQual) && existingQual is ScrFunction existingQualFunc)
+            {
+                existingQualFunc.Overloads.AddRange(internalFunction.Overloads);
+            }
+        }
+        else
+        {
+            InternalSymbols[function.Name] = internalFunction;
+            InternalSymbols[qualifiedName] = internalFunction;
+        }
 
         // Only add to exported functions if it's not private.
         if (!function.Private)
         {
             ScrFunction exportedFunction = function with { Namespace = CurrentNamespace };
-            ExportedFunctions.Add(exportedFunction);
-            ExportedSymbols.Add(exportedFunction.Name, exportedFunction);
+
+            if (ExportedSymbols.TryGetValue(exportedFunction.Name, out IExportedSymbol? existingExport) && existingExport is ScrFunction existingExportFunc)
+            {
+                existingExportFunc.Overloads.AddRange(exportedFunction.Overloads);
+            }
+            else
+            {
+                ExportedFunctions.Add(exportedFunction);
+                ExportedSymbols[exportedFunction.Name] = exportedFunction;
+            }
         }
     }
 

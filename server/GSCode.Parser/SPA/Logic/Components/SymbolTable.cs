@@ -196,7 +196,7 @@ internal class SymbolTable
         if (symbol.Equals("level", StringComparison.OrdinalIgnoreCase))
         {
             flags = SymbolFlags.Global | SymbolFlags.BuiltIn;
-            return new ScrData(ScrDataTypes.Entity);
+            return new ScrData(ScrDataTypes.Struct);
         }
         if (symbol.Equals("game", StringComparison.OrdinalIgnoreCase))
         {
@@ -207,6 +207,11 @@ internal class SymbolTable
         {
             flags = SymbolFlags.Global | SymbolFlags.BuiltIn;
             return new ScrData(ScrDataTypes.Entity);
+        }
+        if (symbol.Equals("world", StringComparison.OrdinalIgnoreCase))
+        {
+            flags = SymbolFlags.Global | SymbolFlags.BuiltIn;
+            return new ScrData(ScrDataTypes.Struct);
         }
 
         // If the symbol doesn't exist, return undefined.

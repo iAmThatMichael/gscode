@@ -221,6 +221,36 @@ export class FunctionEditor {
 		this.function.overloads = [...this.function.overloads];
 	}
 
+	// --- Remarks editing methods ---
+
+	addRemark() {
+		this.function.remarks = [...(this.function.remarks ?? []), ''];
+	}
+
+	removeRemark(index: number) {
+		if (!this.function.remarks) return;
+		this.function.remarks = this.function.remarks.filter((_, i) => i !== index);
+		if (this.function.remarks.length === 0) {
+			this.function.remarks = null;
+		}
+	}
+
+	setRemark(index: number, value: string) {
+		if (!this.function.remarks) return;
+		this.function.remarks[index] = value;
+		this.function.remarks = [...this.function.remarks];
+	}
+
+	moveRemark(index: number, direction: 'up' | 'down') {
+		if (!this.function.remarks) return;
+		const newIndex = direction === 'up' ? index - 1 : index + 1;
+		if (newIndex < 0 || newIndex >= this.function.remarks.length) return;
+
+		const remarks = [...this.function.remarks];
+		[remarks[index], remarks[newIndex]] = [remarks[newIndex], remarks[index]];
+		this.function.remarks = remarks;
+	}
+
 	// --- Overload editing methods ---
 
 	addOverload() {

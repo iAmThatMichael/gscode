@@ -19,6 +19,8 @@
 				return 'Home';
 			case '/library':
 				return 'Script API Reference';
+			case '/contributing':
+				return 'Contributing';
 		}
 		return '';
 	});
@@ -31,6 +33,10 @@
 		{
 			label: 'Script API Reference',
 			href: '/library'
+		},
+		{
+			label: 'Contributing',
+			href: '/contributing'
 		}
 	];
 
@@ -90,7 +96,7 @@
 				rel="noopener noreferrer"
 			>
 				<Download class="w-4 h-4" />
-				v1.1.0
+				v1.2.0
 			</Button>
 		</div>
 	{:else}

@@ -38,6 +38,9 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     private Task? ParsingTask { get; set; } = null;
     private Task? AnalysisTask { get; set; } = null;
 
+    private readonly TaskCompletionSource _parseInitiated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _analysisInitiated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     private ScriptNode? RootNode { get; set; } = null;
 
     /// <summary>
@@ -83,6 +86,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     public async Task ParseAsync(string documentText)
     {
         ParsingTask = DoParseAsync(documentText);
+        _parseInitiated.TrySetResult();
         await ParsingTask;
     }
 
@@ -429,6 +433,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         await WaitUntilParsedAsync(cancellationToken);
 
         AnalysisTask = DoAnalyseAsync(exportedSymbols, cancellationToken);
+        _analysisInitiated.TrySetResult();
         await AnalysisTask;
     }
 
@@ -527,10 +532,6 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             EmitUnusedVariableDiagnostics();
 #if FLAG_PERFORMANCE_TRACKING
             Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedVariable: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
-#endif
-            EmitSwitchCaseDiagnostics();
-#if FLAG_PERFORMANCE_TRACKING
-            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-SwitchCase: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
             EmitAssignOnThreadDiagnostics();
 #if FLAG_PERFORMANCE_TRACKING
@@ -936,9 +937,9 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
         if (ParsingTask is null)
         {
-            throw new InvalidOperationException("The script has not been parsed yet.");
+            await _parseInitiated.Task.WaitAsync(cancellationToken);
         }
-        await ParsingTask;
+        await ParsingTask!;
         cancellationToken.ThrowIfCancellationRequested();
     }
 
@@ -950,9 +951,9 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
         if (AnalysisTask is null)
         {
-            throw new InvalidOperationException("The script has not been parsed yet.");
+            await _analysisInitiated.Task.WaitAsync(cancellationToken);
         }
-        await AnalysisTask;
+        await AnalysisTask!;
         cancellationToken.ThrowIfCancellationRequested();
     }
 
@@ -1554,161 +1555,6 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             }
         }
     }
-
-    // NOTE: This method has been replaced by argument count validation in ReachingDefinitionsAnalyser
-    // which properly handles vararg and runs during data flow analysis.
-    // Keeping this commented out for reference.
-    /*
-    private void EmitCallArityDiagnostics()
-    {
-        if (RootNode is null) return;
-        // Build known function param counts for local/dep functions
-        var localParamMap = new Dictionary<(string ns, string name), (int required, int total)>();
-        if (DefinitionsTable is not null)
-        {
-            foreach (var kv in DefinitionsTable.GetAllFunctionParameters())
-            {
-                var key = kv.Key;
-                var values = kv.Value ?? Array.Empty<string>();
-                int total = values.Length;
-                int required = 0;
-                foreach (var v in values)
-                {
-                    if (string.IsNullOrWhiteSpace(v)) continue;
-                    if (!v.Contains('=')) required++;
-                }
-                localParamMap[(key.Namespace, key.Name)] = (required, total);
-            }
-        }
-
-        // Walk all call nodes
-        foreach (var call in EnumerateCalls(RootNode))
-        {
-            string? ns = null;
-            string? name = null;
-            Range reportRange = call.Arguments.Range;
-
-            if (call is FunCallNode fcall)
-            {
-                switch (fcall.Function)
-                {
-                    case IdentifierExprNode id:
-                        name = id.Identifier;
-                        reportRange = fcall.Arguments.Range;
-                        break;
-                    case NamespacedMemberNode nsm:
-                        if (nsm.Namespace is IdentifierExprNode nsId && nsm.Member is IdentifierExprNode member)
-                        {
-                            ns = nsId.Identifier; name = member.Identifier; reportRange = fcall.Arguments.Range;
-                        }
-                        break;
-                }
-            }
-            // MethodCallNode also counts as a call, but we can't reliably infer name for arity; skip
-            if (name is null) continue;
-
-            int argCount = call.Arguments.Arguments.Count;
-
-            // Builtin API arity check
-            if (TryGetApi() is ScriptAnalyserData api)
-            {
-                try
-                {
-                    var apiFn = api.GetApiFunction(name);
-                    if (apiFn is not null && ns is null)
-                    {
-                        int minAny = int.MaxValue; int maxAny = int.MinValue; bool any = false;
-                        foreach (var ov in apiFn.Overloads)
-                        {
-                            int total = ov.Parameters.Count;
-                            int req = ov.Parameters.Count(p => p.Mandatory == true);
-                            minAny = Math.Min(minAny, req);
-                            maxAny = Math.Max(maxAny, total);
-                            any = true;
-                        }
-                        if (any)
-                        {
-                            // remove on purpose: too few arguments is very common due to optional params and overloads
-                            // TODO: both disabled due to API - re-enable when we're comfortable with the API or have some middle ground solution
-                            //if (argCount < minAny)
-                            //{
-                            //    Sense.AddSpaDiagnostic(reportRange, GSCErrorCodes.TooFewArguments, name, argCount, minAny);
-                            //    continue;
-                            //}
-                            // if (argCount > maxAny)
-                            // {
-                            //     Sense.AddSpaDiagnostic(reportRange, GSCErrorCodes.TooManyArguments, name, argCount, maxAny);
-                            //     continue;
-                            // }
-                            // If within some overload's min/max, we assume OK (type checking not implemented)
-                            continue;
-                        }
-                    }
-                }
-                catch { }
-            }
-
-            // Local/dep function arity check via DefinitionsTable
-            string lookupNs = ns ?? (DefinitionsTable?.CurrentNamespace ?? Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath));
-            (int required, int total) paramInfo;
-            if (!localParamMap.TryGetValue((lookupNs, name), out paramInfo))
-            {
-                // try any namespace entry for this name if not namespaced
-                if (ns is null && localParamMap.Count > 0)
-                {
-                    bool found = false;
-                    foreach (var kv in localParamMap)
-                    {
-                        if (string.Equals(kv.Key.name, name, StringComparison.OrdinalIgnoreCase))
-                        {
-                            paramInfo = kv.Value;
-                            lookupNs = kv.Key.ns;
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found)
-                    {
-                        continue; // unknown symbol; skip
-                    }
-                }
-                else
-                {
-                    continue;
-                }
-            }
-
-            // removed on purpose : too few arguments is very common due to optional params and overloads
-            //if (argCount < paramInfo.required)
-            //{
-            //    Sense.AddSpaDiagnostic(reportRange, GSCErrorCodes.TooFewArguments, name, argCount, paramInfo.required);
-            //}
-            //else 
-            if (paramInfo.total >= 0 && argCount > paramInfo.total)
-            {
-                Sense.AddSpaDiagnostic(reportRange, GSCErrorCodes.TooManyArguments, name, argCount, paramInfo.total);
-            }
-        }
-    }
-    */
-
-    // Now handled later in analysis
-    // private void EmitUnknownNamespaceDiagnostics()
-    // {
-    //     if (RootNode is null || DefinitionsTable is null) return;
-    //     HashSet<string> known = new(StringComparer.OrdinalIgnoreCase);
-    //     foreach (var kv in DefinitionsTable.GetAllFunctionLocations()) known.Add(kv.Key.Namespace);
-    //     foreach (var kv in DefinitionsTable.GetAllClassLocations()) known.Add(kv.Key.Namespace);
-    //     known.Add(DefinitionsTable.CurrentNamespace);
-
-    //     foreach (var nsm in EnumerateNamespacedMembers(RootNode))
-    //     {
-    //         if (nsm.Namespace is IdentifierExprNode nsId && !known.Contains(nsId.Identifier))
-    //         {
-    //             Sense.AddSpaDiagnostic(nsId.Range, GSCErrorCodes.UnknownNamespace, nsId.Identifier);
-    //         }
-    //     }
-    // }
 
     private void EmitUnusedUsingDiagnostics()
     {

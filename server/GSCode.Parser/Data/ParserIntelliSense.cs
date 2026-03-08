@@ -3,6 +3,7 @@ using GSCode.Parser.Lexical;
 using GSCode.Parser.Util;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 
@@ -198,6 +199,13 @@ internal sealed class ParserIntelliSense
         return resolvedPath;
     }
 
+    /// <summary>
+    /// Cache of lexed token lists for #insert files, keyed by resolved absolute path.
+    /// Shared across all ParserIntelliSense instances to avoid re-reading and re-lexing
+    /// the same included file for every script that inserts it.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, TokenList> _insertTokenCache = new();
+
     public TokenList? GetFileTokens(string dependencyPath, Range? belongToRange = null)
     {
         string? resolvedPath = ParserUtil.GetScriptFilePath(_scriptPath, dependencyPath);
@@ -208,11 +216,16 @@ internal sealed class ParserIntelliSense
             return null;
         }
 
-        string contents = File.ReadAllText(resolvedPath);
+        // Cache the lexed tokens by resolved path — clone for each consumer
+        // so token linking in the preprocessor doesn't corrupt the cached copy.
+        var cachedTokens = _insertTokenCache.GetOrAdd(resolvedPath, path =>
+        {
+            string contents = File.ReadAllText(path);
+            Lexer lexer = new(contents.AsSpan());
+            return lexer.Transform();
+        });
 
-        // Use the lexer to transform the contents into a token list, with their range being the one specified.
-        Lexer lexer = new(contents.AsSpan(), belongToRange);
-        return lexer.Transform();
+        return cachedTokens.CloneList(belongToRange);
     }
 
     public void CommitTokens(Token startToken)

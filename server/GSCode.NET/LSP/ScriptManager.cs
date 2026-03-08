@@ -43,6 +43,7 @@ public class ScriptCache
             {
                 cachedVersion = new(change.Text);
                 Scripts[documentUri] = cachedVersion;
+                Scripts[documentUri] = cachedVersion;
                 continue;
             }
 
@@ -200,6 +201,9 @@ public class ScriptManager
     // Ensure only one analysis/merge per script at a time
     private readonly ConcurrentDictionary<DocumentUri, SemaphoreSlim> _analysisLocks = new();
 
+    // Editor priority gate: held during editor operations to pause the indexer dispatch loop
+    private readonly SemaphoreSlim _editorPriority = new(1, 1);
+
     public ScriptManager(ILogger<ScriptManager> logger, ILanguageServerFacade? facade = null)
     {
         _cache = new();
@@ -209,29 +213,45 @@ public class ScriptManager
 
     public async Task<IEnumerable<Diagnostic>> AddEditorAsync(TextDocumentItem document, CancellationToken cancellationToken = default)
     {
-        string content = _cache.AddToCache(document);
-        Script script = GetEditor(document);
+        await _editorPriority.WaitAsync(cancellationToken);
+        try
+        {
+            string content = _cache.AddToCache(document);
+            Script script = GetEditor(document);
 
-        return await ProcessEditorAsync(document.Uri.ToUri(), script, content, cancellationToken);
+            return await ProcessEditorAsync(document.Uri.ToUri(), script, content, cancellationToken);
+        }
+        finally
+        {
+            _editorPriority.Release();
+        }
     }
 
     public async Task<IEnumerable<Diagnostic>> UpdateEditorAsync(OptionalVersionedTextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes, CancellationToken cancellationToken = default)
     {
-        string updatedContent = _cache.UpdateCache(document, changes);
-
-        // Check if content actually changed using hash comparison
-        var docUri = document.Uri;
-        int contentHash = updatedContent.GetHashCode();
-
-        if (Scripts.TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
+        await _editorPriority.WaitAsync(cancellationToken);
+        try
         {
-            // Content unchanged, return cached diagnostics
-            return await cached.Script.GetDiagnosticsAsync(cancellationToken);
+            string updatedContent = _cache.UpdateCache(document, changes);
+
+            // Check if content actually changed using hash comparison
+            var docUri = document.Uri;
+            int contentHash = updatedContent.GetHashCode();
+
+            if (Scripts.TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
+            {
+                // Content unchanged, return cached diagnostics
+                return await cached.Script.GetDiagnosticsAsync(cancellationToken);
+            }
+
+            Script script = GetEditor(document);
+
+            return await ProcessEditorAsync(document.Uri.ToUri(), script, updatedContent, cancellationToken);
         }
-
-        Script script = GetEditor(document);
-
-        return await ProcessEditorAsync(document.Uri.ToUri(), script, updatedContent, cancellationToken);
+        finally
+        {
+            _editorPriority.Release();
+        }
     }
 
     private async Task<IEnumerable<Diagnostic>> ProcessEditorAsync(Uri documentUri, Script script, string content, CancellationToken cancellationToken = default)
@@ -308,7 +328,7 @@ public class ScriptManager
                 mergeFuncLocs.AddRange(depTable.GetAllFunctionLocations());
                 mergeClassLocs.AddRange(depTable.GetAllClassLocations());
                 await Task.CompletedTask;
-            });
+            }, cancellationToken);
         }
 
         perfTracker.Checkpoint("Pre-Analysis");
@@ -330,7 +350,7 @@ public class ScriptManager
                 }
             }
             await script.AnalyseAsync(exportedSymbols, cancellationToken);
-        });
+        }, cancellationToken);
         perfTracker.Checkpoint("Post-Analysis");
 
         var diagnostics = await script.GetDiagnosticsAsync(cancellationToken);
@@ -412,21 +432,14 @@ public class ScriptManager
         GSCode.Parser.Pre.MacroDefinitionCache.Instance.RemoveFileMacros(filePath);
 
         Scripts.Remove(documentUri, out _);
+        CleanupLocksForUri(documentUri);
 
         RemoveDependent(documentUri);
     }
 
     public Script? GetParsedEditor(TextDocumentIdentifier document)
     {
-        DocumentUri uri = document.Uri;
-        if (!Scripts.ContainsKey(uri))
-        {
-            return null;
-        }
-
-        CachedScript script = Scripts[uri];
-
-        return script.Script;
+        return Scripts.TryGetValue(document.Uri, out var script) ? script.Script : null;
     }
 
     /// <summary>
@@ -567,10 +580,10 @@ public class ScriptManager
         }
     }
 
-    private async Task WithAnalysisLockAsync(DocumentUri docUri, Func<Task> action)
+    private async Task WithAnalysisLockAsync(DocumentUri docUri, Func<Task> action, CancellationToken cancellationToken = default)
     {
         var gate = _analysisLocks.GetOrAdd(docUri, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync();
+        await gate.WaitAsync(cancellationToken);
         try
         {
             await action();
@@ -626,9 +639,18 @@ public class ScriptManager
                 if (dependents.IsEmpty && script.Value.Type == CachedScriptType.Dependency)
                 {
                     Scripts.Remove(script.Key, out _);
+                    CleanupLocksForUri(script.Key);
                 }
             }
         }
+    }
+
+    private void CleanupLocksForUri(DocumentUri uri)
+    {
+        if (_parseLocks.TryRemove(uri, out var parseLock))
+            parseLock.Dispose();
+        if (_analysisLocks.TryRemove(uri, out var analysisLock))
+            analysisLock.Dispose();
     }
 
     private Script GetEditor(TextDocumentIdentifier document)
@@ -643,27 +665,24 @@ public class ScriptManager
 
     private Script GetEditorByUri(DocumentUri uri, string? languageId = null)
     {
-        if (!Scripts.ContainsKey(uri))
+        var cached = Scripts.GetOrAdd(uri, key => new CachedScript()
         {
-            Scripts[uri] = new CachedScript()
+            Type = CachedScriptType.Editor,
+            Script = new Script(key, languageId ?? "gsc", _symbolRegistry)
+        });
+
+        // If it was a dependency, upgrade to editor
+        if (cached.Type != CachedScriptType.Editor)
+        {
+            var newCached = new CachedScript()
             {
                 Type = CachedScriptType.Editor,
                 Script = new Script(uri, languageId ?? "gsc", _symbolRegistry)
             };
+            cached = Scripts.AddOrUpdate(uri, newCached, (_, _) => newCached);
         }
 
-        CachedScript script = Scripts[uri];
-
-        if (script.Type != CachedScriptType.Editor)
-        {
-            script = Scripts[uri] = new CachedScript()
-            {
-                Type = CachedScriptType.Editor,
-                Script = new Script(uri, languageId ?? "gsc", _symbolRegistry)
-            };
-        }
-
-        return script.Script;
+        return cached.Script;
     }
 
     public IEnumerable<LoadedScript> GetLoadedScripts()
@@ -719,6 +738,10 @@ public class ScriptManager
             perfTracker.Checkpoint("Start-Indexing");
             foreach (string file in filesList)
             {
+                // Yield to editor operations — pauses dispatch while an editor is being processed
+                await _editorPriority.WaitAsync(cancellationToken);
+                _editorPriority.Release();
+
                 await gate.WaitAsync(cancellationToken);
                 tasks.Add(Task.Run(async () =>
                 {
@@ -815,20 +838,10 @@ public class ScriptManager
         perfTracker.AddMetadata("DependencyCount", dependencies.Count);
 
         perfTracker.Checkpoint("Pre-Dependencies");
-        // Parse and include dependencies
+        // Parse and register dependencies (AddDependencyAsync handles parse + registry internally)
         foreach (Uri dep in dependencies)
         {
             await AddDependencyAsync(docUri.ToUri(), dep, languageId);
-        }
-
-        // Ensure dependencies are parsed before exporting/merging
-        foreach (Uri dep in dependencies)
-        {
-            var depDoc = DocumentUri.From(dep);
-            if (Scripts.TryGetValue(depDoc, out CachedScript? depScript))
-            {
-                await EnsureParsedAsync(depDoc, depScript.Script, languageId, cancellationToken);
-            }
         }
         perfTracker.Checkpoint("Post-Dependencies");
 
@@ -930,9 +943,9 @@ public class ScriptManager
     private async Task PublishDiagnosticsAsync(DocumentUri uri, Script script, int? version = null, CancellationToken cancellationToken = default)
     {
         if (_facade is null) return;
-        var diags = await script.GetDiagnosticsAsync(cancellationToken);
         try
         {
+            var diags = await script.GetDiagnosticsAsync(cancellationToken);
             _facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
             {
                 Uri = uri,

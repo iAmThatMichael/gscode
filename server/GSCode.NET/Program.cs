@@ -217,14 +217,14 @@ LanguageServer server = await LanguageServer.From(options =>
 					{
 						string root = wf.Uri.ToUri().LocalPath;
 						Log.Information("Starting workspace indexing for: {Root}", root);
-						_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), CancellationToken.None);
+						_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), indexingToken);
 					}
 				}
 				else if (request.RootUri is not null)
 				{
 					string root = request.RootUri.ToUri().LocalPath;
 					Log.Information("Starting workspace indexing for: {Root}", root);
-					_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), CancellationToken.None);
+					_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), indexingToken);
 				}
 			}
 			catch (Exception ex)

@@ -30,15 +30,18 @@
 </script>
 
 {#if editing}
-	<Input
-		bind:ref={inputRef}
-		type="text"
-		value={functionEditor.function.name}
-		oninput={(e) => functionEditor.setName(e.currentTarget.value)}
-		onblur={stopEditing}
-		onkeydown={handleKeydown}
-		class="text-xl font-bold tracking-tight lg:text-4xl h-auto py-1 px-2"
-	/>
+	<div>
+		<Input
+			bind:ref={inputRef}
+			type="text"
+			value={functionEditor.function.name}
+			oninput={(e) => functionEditor.setName(e.currentTarget.value)}
+			onblur={stopEditing}
+			onkeydown={handleKeydown}
+			class="text-xl font-bold tracking-tight lg:text-4xl h-auto py-1 px-2"
+		/>
+		<p class="text-xs text-muted-foreground mt-1 px-2">PascalCase. Lowercase subsequent initials, e.g. IPrintLnBold, SetLpf.</p>
+	</div>
 {:else}
 	<button
 		type="button"

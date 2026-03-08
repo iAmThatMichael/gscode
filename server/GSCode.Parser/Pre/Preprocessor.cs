@@ -213,18 +213,29 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         {
             // Fine to add
             Defines.Add(macroName, definition);
-            // Determine source display for macro (use nearest insert region if any)
+
+            // Determine source display for macro - ONLY if it came from an insert file
+            // Check if the name token is marked as coming from preprocessor (i.e., from an #insert)
             string? srcDisplay = null;
-            foreach (var region in Sense.InsertRegions)
+            if (nameToken.IsFromPreprocessor)
             {
-                // If the define tokens fall after an insert range on the same line, prefer that region
-                if (region.Range.Start.Line <= nameToken.Range.Start.Line && region.ResolvedPath is not null)
+                // This macro came from an insert, find which insert region it belongs to
+                foreach (var region in Sense.InsertRegions)
                 {
-                    string rel = GetRelativeDisplay(region.ResolvedPath);
-                    srcDisplay = rel;
+                    // Find the insert region that this macro line falls within
+                    if (region.Range.Start.Line <= nameToken.Range.Start.Line && 
+                        region.ResolvedPath is not null)
+                    {
+                        string rel = GetRelativeDisplay(region.ResolvedPath);
+                        srcDisplay = rel;
+                        // Keep updating as we find later regions (use the most recent/closest one)
+                    }
                 }
             }
+            // If nameToken.IsFromPreprocessor is false, srcDisplay stays null (local macro)
+
             Sense.AddMacroOutline(macroName, nameToken.Range, srcDisplay);
+            Sense.AddMacroDefinition(macroName, definition, srcDisplay);
         }
         Sense.AddSenseToken(nameToken, definition);
 
@@ -754,12 +765,18 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
 
         public bool ShouldEndExpansion(TokenType currentTokenType)
         {
+            // EOF should always end expansion, even if punctuation is unclosed
+            if (currentTokenType == TokenType.Eof)
+            {
+                return true;
+            }
+
             if (InPunctuation)
             {
                 return false;
             }
-        
-            return currentTokenType == TokenType.Comma || currentTokenType == TokenType.CloseParen || currentTokenType == TokenType.Eof;
+
+            return currentTokenType == TokenType.Comma || currentTokenType == TokenType.CloseParen;
         }
     }
 

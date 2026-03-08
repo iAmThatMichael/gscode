@@ -33,6 +33,11 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
     /// </summary>
     public DefinitionsTable? DefinitionsTable { get; set; }
 
+    /// <summary>
+    /// Macro definitions for completions.
+    /// </summary>
+    internal Dictionary<string, (Pre.MacroDefinition Definition, string? SourceDisplay)>? MacroDefinitions { get; set; }
+
     // Language ID (gsc or csc) for filtering file completions
     private readonly string _languageId = languageId;
 
@@ -331,7 +336,8 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
     private List<CompletionItem> GetGlobalScopeCompletions(CompletionContext context)
     {
-        List<ScrFunction> functions = _scriptAnalyserData?.GetApiFunctions(context.Filter) ?? [];
+        // Get ALL API functions - let the client handle filtering based on what the user types
+        List<ScrFunction> functions = _scriptAnalyserData?.GetApiFunctions(string.Empty) ?? [];
 
         List<CompletionItem> completions = new();
 
@@ -346,7 +352,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
         foreach (ScrFunction function in functions)
         {
-            completions.Add(CreateCompletionItem(function));
+            completions.Add(CreateCompletionItem(function, namespaceAlreadyTyped: false));
         }
 
         return completions;
@@ -379,14 +385,15 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         }
 
         // Check API functions first (they may have namespace qualifiers)
-        var apiFunctions = _scriptAnalyserData?.GetApiFunctions(context.Filter) ?? [];
+        // Get ALL API functions - let the client handle filtering
+        var apiFunctions = _scriptAnalyserData?.GetApiFunctions(string.Empty) ?? [];
         foreach (var apiFunc in apiFunctions)
         {
             // API functions typically don't have explicit namespaces in the definition
             // But we still show them for any namespace
             if (!seenIdentifiers.Contains(apiFunc.Name))
             {
-                completions.Add(CreateCompletionItem(apiFunc));
+                completions.Add(CreateCompletionItem(apiFunc, namespaceAlreadyTyped: true));
                 seenIdentifiers.Add(apiFunc.Name);
             }
         }
@@ -409,19 +416,18 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                     // Extract the function name (after the ::)
                     string functionName = function.Name;
 
-                    Log.Information("  Found matching function: Key='{Key}', Name='{Name}', Filter='{Filter}'", 
-                        kvp.Key, functionName, context.Filter ?? "(none)");
+                    Log.Information("  Found matching function: Key='{Key}', Name='{Name}'", 
+                        kvp.Key, functionName);
 
-                    if (!seenIdentifiers.Contains(functionName) && 
-                        (string.IsNullOrEmpty(context.Filter) || functionName.StartsWith(context.Filter, StringComparison.OrdinalIgnoreCase)))
+                    if (!seenIdentifiers.Contains(functionName))
                     {
-                        completions.Add(CreateCompletionItem(function));
+                        completions.Add(CreateCompletionItem(function, namespaceAlreadyTyped: true));
                         seenIdentifiers.Add(functionName);
                         Log.Information("  Added function: {Name}", functionName);
                     }
                     else
                     {
-                        Log.Information("  Skipped function: {Name} (already seen or doesn't match filter)", functionName);
+                        Log.Information("  Skipped function: {Name} (already seen)", functionName);
                     }
                 }
             }
@@ -435,10 +441,9 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             if (string.Equals(function.Namespace, context.Namespace, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(DefinitionsTable.CurrentNamespace, context.Namespace, StringComparison.OrdinalIgnoreCase))
             {
-                if (!seenIdentifiers.Contains(function.Name) &&
-                    (string.IsNullOrEmpty(context.Filter) || function.Name.StartsWith(context.Filter, StringComparison.OrdinalIgnoreCase)))
+                if (!seenIdentifiers.Contains(function.Name))
                 {
-                    completions.Add(CreateCompletionItem(function));
+                    completions.Add(CreateCompletionItem(function, namespaceAlreadyTyped: true));
                     seenIdentifiers.Add(function.Name);
                     Log.Information("  Added local function: {Name} from namespace {Namespace}", function.Name, function.Namespace);
                 }
@@ -453,13 +458,20 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
     private List<CompletionItem> GetFileScopeCompletions(CompletionContext context)
     {
         List<CompletionItem> completions = new();
-        HashSet<string> seenIdentifiers = new(StringComparer.OrdinalIgnoreCase);
+        // Use case-sensitive comparison so "default" keyword and "DEFAULT" macro are both shown
+        HashSet<string> seenIdentifiers = new(StringComparer.Ordinal);
 
         // Only show keywords and identifiers when inside a function block
         if (!context.IsInsideFunctionBlock)
         {
             return completions;
         }
+
+        Log.Information("GetFileScopeCompletions: Starting, token count: {Count}", Tokens.GetAll().Count());
+        int macroCount = 0;
+        int skippedApiCount = 0;
+        int skippedPreprocCount = 0;
+        int skippedFunctionCount = 0;
 
         // Add GSC/CSC keywords from shared definition
         foreach (string keyword in ScriptKeywords.All)
@@ -476,6 +488,23 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             }
         }
 
+        // Add macros from MacroDefinitions dictionary
+        if (MacroDefinitions is not null)
+        {
+            foreach (var kvp in MacroDefinitions)
+            {
+                string macroName = kvp.Key;
+                var (macroDef, sourceDisplay) = kvp.Value;
+
+                if (!seenIdentifiers.Contains(macroName))
+                {
+                    completions.Add(CreateMacroCompletionItem(macroName, macroDef, sourceDisplay));
+                    seenIdentifiers.Add(macroName);
+                    macroCount++;
+                }
+            }
+        }
+
         // Add functions from the definitions table (both local and imported)
         if (DefinitionsTable is not null)
         {
@@ -485,7 +514,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                 var function = functionTuple.Item1;
                 if (!seenIdentifiers.Contains(function.Name))
                 {
-                    completions.Add(CreateCompletionItem(function));
+                    completions.Add(CreateCompletionItem(function, namespaceAlreadyTyped: false));
                     seenIdentifiers.Add(function.Name);
                 }
             }
@@ -501,7 +530,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                         continue;
                     }
 
-                    completions.Add(CreateCompletionItem(function));
+                    completions.Add(CreateCompletionItem(function, namespaceAlreadyTyped: false));
                     seenIdentifiers.Add(function.Name);
                 }
             }
@@ -515,12 +544,14 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                 // Skip identifiers that are API function names to avoid duplicates
                 if (_scriptAnalyserData?.GetApiFunction(token.Lexeme) is not null)
                 {
+                    skippedApiCount++;
                     continue;
                 }
 
                 // Skip identifiers that are from preprocessor expansion
                 if (token.IsFromPreprocessor)
                 {
+                    skippedPreprocCount++;
                     continue;
                 }
 
@@ -543,6 +574,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                 // If already added as a function, skip
                 if (isFunction)
                 {
+                    skippedFunctionCount++;
                     continue;
                 }
 
@@ -556,14 +588,94 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             }
         }
 
+        Log.Information("GetFileScopeCompletions: Macros found={MacroCount}, Skipped: API={SkipApi}, Preprocessor={SkipPreproc}, Functions={SkipFunc}, Total completions={Total}",
+            macroCount, skippedApiCount, skippedPreprocCount, skippedFunctionCount, completions.Count);
+
         return completions;
     }
 
-    private CompletionItem CreateCompletionItem(ScrFunction function)
+    private CompletionItem CreateMacroCompletionItem(string macroName, Pre.MacroDefinition macroDef, string? sourceDisplay = null)
+    {
+        // Generate snippet-formatted insert text for macros
+        string insertText = macroName;
+
+        // Build detail showing the macro signature (like functions show their signature)
+        string detail;
+        if (macroDef.Parameters != null && macroDef.Parameters.Count > 0)
+        {
+            // Show like: DEFAULT(__var, __default)
+            var paramNames = string.Join(", ", macroDef.Parameters.Select(p => p.Lexeme));
+            detail = $"{macroName}({paramNames})";
+
+            // Build insert text with snippet parameters
+            insertText += "(";
+            List<string> paramSnippets = new();
+            int tabIndex = 1;
+
+            foreach (var param in macroDef.Parameters)
+            {
+                paramSnippets.Add($"${{{tabIndex}:{param.Lexeme}}}");
+                tabIndex++;
+            }
+
+            insertText += string.Join(", ", paramSnippets);
+            insertText += ")$0";
+        }
+        else
+        {
+            // Show just the macro name for parameterless macros
+            detail = macroName;
+        }
+
+        // Build documentation showing the macro definition
+        string documentation = $"```gsc\n{macroDef.DefineTokens.ToSnippetString()}\n```";
+        if (!string.IsNullOrEmpty(macroDef.Documentation))
+        {
+            documentation += $"\n\n{macroDef.Documentation}";
+        }
+
+        // Build labelDetails to show source file (like namespace badge for functions)
+        CompletionItemLabelDetails? labelDetails = null;
+        if (!string.IsNullOrEmpty(sourceDisplay))
+        {
+            labelDetails = new CompletionItemLabelDetails
+            {
+                Description = sourceDisplay  // Shows like "shared/shared.gsh" on the right
+            };
+        }
+
+        return new CompletionItem()
+        {
+            Label = macroName,
+            LabelDetails = labelDetails,
+            Detail = detail,
+            Documentation = new StringOrMarkupContent(new MarkupContent()
+            {
+                Kind = MarkupKind.Markdown,
+                Value = documentation
+            }),
+            InsertText = insertText,
+            InsertTextFormat = InsertTextFormat.Snippet,
+            Kind = CompletionItemKind.Constant,
+            SortText = "3_" + macroName.ToLowerInvariant()  // Sort after functions
+        };
+    }
+
+    private CompletionItem CreateCompletionItem(ScrFunction function, bool namespaceAlreadyTyped = false)
     {
         // TODO: has been hacked to show first only, but we need to handle all overloads eventually.
+
+        // Determine if we need to include namespace in insert text
+        // Only include if it's a namespace function AND the namespace hasn't been typed yet
+        bool includeNamespace = !namespaceAlreadyTyped && 
+                                !function.Implicit && 
+                                !string.IsNullOrEmpty(function.Namespace) && 
+                                function.Namespace != "sys";
+
+        // Build base insert text (with namespace if needed)
+        string insertText = includeNamespace ? $"{function.Namespace}::{function.Name}" : function.Name;
+
         // Generate snippet-formatted parameters with tabstops
-        string insertText = function.Name;
         if (function.Overloads.First().Parameters.Count > 0)
         {
             insertText += "(";
@@ -599,10 +711,43 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             insertText += "()$0";
         }
 
+        // Build detail and labelDetails for better differentiation
+        string detail;
+        CompletionItemLabelDetails? labelDetails = null;
+        CompletionItemKind kind;
+        string sortPrefix;
+
+        if (includeNamespace)
+        {
+            // Functions from other namespaces - show as Method with namespace badge
+            detail = $"function {function.Namespace}::{function.Name}()";
+            labelDetails = new CompletionItemLabelDetails
+            {
+                Description = function.Namespace  // Shows on right side like "util"
+            };
+            kind = CompletionItemKind.Method;  // Different icon than local functions
+            sortPrefix = "2_";  // Sort after local/API functions
+        }
+        else if (!string.IsNullOrEmpty(function.Description))
+        {
+            // API functions have descriptions - no badge needed
+            detail = function.Description;
+            kind = CompletionItemKind.Function;
+            sortPrefix = "0_";  // Sort first
+        }
+        else
+        {
+            // Local functions in current file
+            detail = $"function {function.Name}()";
+            kind = CompletionItemKind.Function;
+            sortPrefix = "1_";  // Sort after API but before namespace functions
+        }
+
         return new CompletionItem()
         {
             Label = function.Name,
-            Detail = function.Description,
+            LabelDetails = labelDetails,
+            Detail = detail,
             Documentation = new StringOrMarkupContent(new MarkupContent()
             {
                 Kind = MarkupKind.Markdown,
@@ -610,9 +755,9 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             }),
             InsertText = insertText,
             InsertTextFormat = InsertTextFormat.Snippet,
-            Kind = CompletionItemKind.Function,
-            // Add sorting information to keep API functions organized
-            SortText = function.Name.ToLowerInvariant(),
+            Kind = kind,
+            // Add sorting with prefix to group by type
+            SortText = sortPrefix + function.Name.ToLowerInvariant(),
             // Add commit characters to automatically complete when typing these
             CommitCharacters = new Container<string>(new[] { "(", ")", ";" })
         };

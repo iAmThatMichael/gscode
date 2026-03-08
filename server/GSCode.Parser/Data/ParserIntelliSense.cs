@@ -103,6 +103,12 @@ internal sealed class ParserIntelliSense
     public List<MacroOutlineItem> MacroOutlines { get; } = new();
 
     /// <summary>
+    /// Macro definitions for completions and IntelliSense, with source file info.
+    /// Key: macro name, Value: (definition, source display like "shared/shared.gsh")
+    /// </summary>
+    public Dictionary<string, (Pre.MacroDefinition Definition, string? SourceDisplay)> MacroDefinitions { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Insert regions (range on the source line) to resolved file path mapping.
     /// </summary>
     public List<InsertRegion> InsertRegions { get; } = new();
@@ -126,9 +132,15 @@ internal sealed class ParserIntelliSense
         MacroOutlines.Add(new MacroOutlineItem(name, range, sourceDisplay));
     }
 
+    public void AddMacroDefinition(string name, Pre.MacroDefinition definition, string? sourceDisplay = null)
+    {
+        MacroDefinitions[name] = (definition, sourceDisplay);
+    }
+
     public void SetDefinitionsTable(SA.DefinitionsTable? definitionsTable)
     {
         Completions.DefinitionsTable = definitionsTable;
+        Completions.MacroDefinitions = MacroDefinitions;
     }
 
     public void AddSenseToken(Token token, ISenseDefinition definition)

@@ -855,8 +855,20 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     public async Task<CompletionList?> GetCompletionAsync(Position position, CancellationToken cancellationToken)
     {
-        await WaitUntilAnalysedAsync(cancellationToken);
-        return Sense.Completions.GetCompletionsFromPosition(position);
+        Log.Information("GetCompletionAsync: Starting, waiting for analysis...");
+        try
+        {
+            await WaitUntilAnalysedAsync(cancellationToken);
+            Log.Information("GetCompletionAsync: Analysis complete, calling GetCompletionsFromPosition at {Position}", position);
+            var result = Sense.Completions.GetCompletionsFromPosition(position);
+            Log.Information("GetCompletionAsync: Returning {Count} completions", result?.Count() ?? 0);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "GetCompletionAsync: Exception occurred");
+            throw;
+        }
     }
 
     public async Task<IEnumerable<FoldingRange>> GetFoldingRangesAsync(CancellationToken cancellationToken = default)
@@ -1024,26 +1036,52 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     {
         await WaitUntilParsedAsync(cancellationToken);
 
+        Log.Information("GetDefinitionAsync: Starting at position {Position}", position);
+
         // First, allow preprocessor macro definitions/usages to resolve even if the original macro token was removed
         IHoverable? hoverable = Sense.HoverLibrary.Get(position);
         if (hoverable is Pre.MacroDefinition macroDef && !macroDef.IsFromPreprocessor)
         {
+            Log.Information("GetDefinitionAsync: Found MacroDefinition at position");
             string normalized = NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
             return new Location() { Uri = new Uri(normalized), Range = macroDef.Range };
         }
         if (hoverable is Pre.ScriptMacro scriptMacro)
         {
+            Log.Information("GetDefinitionAsync: Found ScriptMacro at position, navigating to definition");
             string normalized = NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
             return new Location() { Uri = new Uri(normalized), Range = scriptMacro.DefineSource.Range };
         }
 
         Token? token = Sense.Tokens.Get(position);
         if (token is null)
+        {
+            Log.Information("GetDefinitionAsync: No token found at position {Position}", position);
             return null;
+        }
+
+        Log.Information("GetDefinitionAsync: Found token '{Lexeme}' type={Type} at position {Position}, IsFromPreprocessor={IsPrep}", 
+            token.Lexeme, token.Type, position, token.IsFromPreprocessor);
+
+        // Log token range for debugging
+        Log.Information("GetDefinitionAsync: Token range: Start=({Line}:{Char}), End=({EndLine}:{EndChar})", 
+            token.Range.Start.Line, token.Range.Start.Character, 
+            token.Range.End.Line, token.Range.End.Character);
+
+        // Log previous tokens for context
+        Token? prevToken = token.Previous;
+        int count = 0;
+        while (prevToken != null && count < 5)
+        {
+            Log.Information("  Previous token [{Index}]: '{Lexeme}' type={Type}", count, prevToken.Lexeme, prevToken.Type);
+            prevToken = prevToken.Previous;
+            count++;
+        }
 
         // Check if this is a variable reference - go to its definition
         if (token.SenseDefinition is ScrVariableSymbol varSymbol && varSymbol.DefinitionSource is not null)
         {
+            Log.Information("GetDefinitionAsync: Token is a variable reference, navigating to definition");
             // Navigate to the definition (the identifier token where it was first declared)
             string normalized = NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
             // Use the Range from the definition source's identifier token (stored in the variable symbol)
@@ -1063,6 +1101,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         // Check if this is a parameter reference - go to its definition
         if (token.SenseDefinition is ScrParameterSymbol paramSymbol && paramSymbol.DefinitionSource is not null)
         {
+            Log.Information("GetDefinitionAsync: Token is a parameter reference, navigating to definition");
             // Navigate to the parameter definition
             string normalized = NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
             // For parameters, use the token from the ParamNode
@@ -1077,9 +1116,13 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         // If the token has an IntelliSense definition pointing at a dependency, return that file location.
         if (token.SenseDefinition is ScrDependencySymbol dep)
         {
+            Log.Information("GetDefinitionAsync: Token is a dependency symbol, navigating to file: {Path}", dep.Path);
             string resolvedPath = dep.Path;
             if (!File.Exists(resolvedPath))
+            {
+                Log.Warning("GetDefinitionAsync: Dependency file does not exist: {Path}", resolvedPath);
                 return null;
+            }
             string normalized = NormalizeFilePathForUri(resolvedPath);
             var targetUri = new Uri(normalized);
             // Navigate to start of file in the target document
@@ -1113,8 +1156,12 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         // Ensure the token is a function-like identifier before attempting Go-to-Definition.
         if (token.Type != TokenType.Identifier)
         {
+            Log.Information("GetDefinitionAsync: Token is not an identifier, type={Type}", token.Type);
             return null;
         }
+
+        Log.Information("GetDefinitionAsync: Token is identifier '{Lexeme}', checking heuristics", token.Lexeme);
+
         // Helper: get next non-whitespace/comment token
         Token? nextNonWs = token.Next;
         while (nextNonWs is not null && nextNonWs.IsWhitespacey())
@@ -1144,42 +1191,59 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         bool isQualified = token.Previous is not null && token.Previous.Type == TokenType.ScopeResolution && token.Previous.Previous is not null && token.Previous.Previous.Type == TokenType.Identifier;
         bool hasDefinitionSymbol = token.SenseDefinition is ScrFunctionSymbol || token.SenseDefinition is ScrMethodSymbol || token.SenseDefinition is ScrClassSymbol || token.SenseDefinition is ScrClassReferenceSymbol;
         bool isAddressOf = IsAddressOfIdentifier(token);
+
+        Log.Information("GetDefinitionAsync: Heuristics - looksLikeCall={Call}, isQualified={Qual}, hasDefinitionSymbol={Def}, isAddressOf={Addr}", 
+            looksLikeCall, isQualified, hasDefinitionSymbol, isAddressOf);
+
         if (!looksLikeCall && !isQualified && !hasDefinitionSymbol && !isAddressOf)
         {
+            Log.Information("GetDefinitionAsync: Failed heuristic checks, returning null");
             return null;
         }
+
         var (qualifier, name) = ParseNamespaceQualifiedIdentifier(token);
+        Log.Information("GetDefinitionAsync: Parsed identifier - qualifier={Qualifier}, name={Name}", qualifier ?? "(none)", name);
+
         if (IsBuiltinFunction(name))
         {
+            Log.Information("GetDefinitionAsync: Identifier is builtin function, returning null");
             return null;
         }
         if (qualifier is not null && DefinitionsTable is not null)
         {
+            Log.Information("GetDefinitionAsync: Looking up qualified function/class: {Qualifier}::{Name}", qualifier, name);
             var loc = DefinitionsTable.GetFunctionLocation(qualifier, name)
                    ?? DefinitionsTable.GetClassLocation(qualifier, name);
             if (loc is not null)
             {
+                Log.Information("GetDefinitionAsync: Found qualified definition at {File}:{Range}", loc.Value.FilePath, loc.Value.Range);
                 string normalized = NormalizeFilePathForUri(loc.Value.FilePath);
                 var targetUri = new Uri(normalized); return new Location() { Uri = targetUri, Range = loc.Value.Range };
             }
+            Log.Information("GetDefinitionAsync: Qualified lookup failed");
         }
         string ns = GetEffectiveNamespace();
+        Log.Information("GetDefinitionAsync: Looking up in current namespace: {Namespace}", ns);
         var localLoc = DefinitionsTable?.GetFunctionLocation(ns, name)
                     ?? DefinitionsTable?.GetClassLocation(ns, name);
         if (localLoc is not null)
         {
+            Log.Information("GetDefinitionAsync: Found local definition at {File}:{Range}", localLoc.Value.FilePath, localLoc.Value.Range);
             string normalized = NormalizeFilePathForUri(localLoc.Value.FilePath);
             var targetUri = new Uri(normalized);
             return new Location() { Uri = targetUri, Range = localLoc.Value.Range };
         }
+        Log.Information("GetDefinitionAsync: Local namespace lookup failed, trying any namespace");
         var anyLoc = DefinitionsTable?.GetFunctionLocationAnyNamespace(name)
                   ?? DefinitionsTable?.GetClassLocationAnyNamespace(name);
         if (anyLoc is not null)
         {
+            Log.Information("GetDefinitionAsync: Found definition in any namespace at {File}:{Range}", anyLoc.Value.FilePath, anyLoc.Value.Range);
             string normalized = NormalizeFilePathForUri(anyLoc.Value.FilePath);
             var targetUri = new Uri(normalized);
             return new Location() { Uri = targetUri, Range = anyLoc.Value.Range };
         }
+        Log.Information("GetDefinitionAsync: All lookups failed, returning null");
         return null;
     }
 

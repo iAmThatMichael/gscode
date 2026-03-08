@@ -189,18 +189,6 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Token? PreviousNonTrivia(Token? token)
-    {
-        return token?.PreviousNonTrivia();
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Token? NextNonTrivia(Token? token)
-    {
-        return token?.NextNonTrivia();
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsAddressOfIdentifier(Token identifier)
     {
         // identifier may be part of ns::name; find left-most identifier
@@ -209,7 +197,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         {
             leftMost = ns;
         }
-        Token? prev = PreviousNonTrivia(leftMost);
+        Token? prev = leftMost.PreviousNonTrivia();
         return prev is not null && prev.Type == TokenType.BitAnd;
     }
 
@@ -218,15 +206,15 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     {
         // Pattern: [[ identifier ]]( ... )
         // Check immediate surrounding tokens ignoring trivia
-        Token? prev1 = PreviousNonTrivia(identifier);
+        Token? prev1 = identifier.PreviousNonTrivia();
         if (prev1?.Type != TokenType.OpenBracket) return false;
-        Token? prev2 = PreviousNonTrivia(prev1);
+        Token? prev2 = prev1.PreviousNonTrivia();
         if (prev2?.Type != TokenType.OpenBracket) return false;
-        Token? next1 = NextNonTrivia(identifier);
+        Token? next1 = identifier.NextNonTrivia();
         if (next1?.Type != TokenType.CloseBracket) return false;
-        Token? next2 = NextNonTrivia(next1);
+        Token? next2 = next1.NextNonTrivia();
         if (next2?.Type != TokenType.CloseBracket) return false;
-        Token? next3 = NextNonTrivia(next2);
+        Token? next3 = next2.NextNonTrivia();
         if (next3?.Type != TokenType.OpenParen) return false;
         return true;
     }

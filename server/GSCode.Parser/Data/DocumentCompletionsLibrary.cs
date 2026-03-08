@@ -33,6 +33,9 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
     /// </summary>
     public DefinitionsTable? DefinitionsTable { get; set; }
 
+    // Language ID (gsc or csc) for filtering file completions
+    private readonly string _languageId = languageId;
+
     // Use shared API instance to avoid redundant allocations
     private readonly ScriptAnalyserData? _scriptAnalyserData = ScriptAnalyserData.GetShared(languageId);
 
@@ -198,7 +201,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         {
             Log.Information("Showing directive completions only");
             HashSet<string> seenIdentifiers = new(StringComparer.OrdinalIgnoreCase);
-            completions.AddRange(GetDirectiveCompletions(seenIdentifiers));
+            completions.AddRange(GetDirectiveCompletions(seenIdentifiers, token));
             return new CompletionList(completions, isIncomplete: false);
         }
 
@@ -615,11 +618,19 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         };
     }
 
-    private List<CompletionItem> GetDirectiveCompletions(HashSet<string> seenIdentifiers)
+    private List<CompletionItem> GetDirectiveCompletions(HashSet<string> seenIdentifiers, Token token)
     {
         List<CompletionItem> completions = new();
 
-        // Define directives with their snippet patterns
+        // Check if the previous non-whitespace token is # (meaning user just typed #)
+        // If so, DON'T include # in InsertText to avoid ##using
+        Token? prev = token.PreviousNonWhitespace();
+        bool includeHash = prev?.Type != TokenType.Hash;
+
+        Log.Information("GetDirectiveCompletions: token type={Type}, prev type={PrevType}, includeHash={IncludeHash}", 
+            token.Type, prev?.Type, includeHash);
+
+        // Define directives with their snippet patterns (always include # in InsertText)
         var directives = new[]
         {
             new {
@@ -688,12 +699,16 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         {
             if (!seenIdentifiers.Contains(directive.Label))
             {
+                // If # is already present, skip the first character to avoid ##using
+                string insertText = includeHash ? directive.InsertText : directive.InsertText.Substring(1);
+
                 completions.Add(new CompletionItem()
                 {
                     Label = directive.Label,
                     Kind = CompletionItemKind.Keyword,
-                    InsertText = directive.InsertText,
+                    InsertText = insertText,
                     InsertTextFormat = InsertTextFormat.Snippet,
+                    InsertTextMode = InsertTextMode.AdjustIndentation,
                     FilterText = directive.Label.TrimStart('#'), // Allow filtering without the # prefix
                     Detail = directive.Detail,
                     Documentation = new StringOrMarkupContent(new MarkupContent()
@@ -1090,9 +1105,20 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                 fileFilter, string.Join(", ", searchDirs));
 
             // Determine file extensions based on directive type
-            string[] extensions = context.DirectiveType == TokenType.Using
-                ? new[] { ".gsc", ".csc" }
-                : new[] { ".gsh" }; // Insert
+            string[] extensions;
+            if (context.DirectiveType == TokenType.Using)
+            {
+                // For #using, only show files matching the current languageId
+                string ext = "." + _languageId.ToLowerInvariant();
+                extensions = new[] { ext };
+                Log.Information("GetDirectivePathCompletions: #using directive, filtering to {Ext} files only", ext);
+            }
+            else
+            {
+                // For #insert, show all .gsh header files
+                extensions = new[] { ".gsh" };
+                Log.Information("GetDirectivePathCompletions: #insert directive, showing .gsh files");
+            }
 
             // Use HashSets to track unique entries (case-insensitive)
             HashSet<string> seenDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1141,11 +1167,16 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                         if ((string.IsNullOrEmpty(fileFilter) || fileName.StartsWith(fileFilter, StringComparison.OrdinalIgnoreCase) || fileNameWithoutExt.StartsWith(fileFilter, StringComparison.OrdinalIgnoreCase))
                             && !seenFiles.Contains(fileName))
                         {
+                            // For #insert, keep the .gsh extension; for #using, remove the .gsc/.csc extension
+                            string insertText = context.DirectiveType == TokenType.Insert 
+                                ? fileName + ";"  // Keep extension for .gsh files
+                                : fileNameWithoutExt + ";";  // Remove extension for .gsc/.csc files
+
                             completions.Add(new CompletionItem()
                             {
                                 Label = fileName,
                                 Kind = CompletionItemKind.File,
-                                InsertText = fileNameWithoutExt, // Insert without extension
+                                InsertText = insertText,
                                 Detail = $"Script file ({ext})",
                                 SortText = "1_" + fileName // Files after folders
                             });

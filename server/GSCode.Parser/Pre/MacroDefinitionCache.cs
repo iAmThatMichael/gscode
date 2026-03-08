@@ -97,6 +97,22 @@ public sealed class MacroDefinitionCache
     }
 
     /// <summary>
+    /// Gets detailed statistics including GSH file count.
+    /// </summary>
+    public (int TotalMacros, int TrackedFiles, int GshFiles) GetDetailedStatistics()
+    {
+        int gshCount = 0;
+        foreach (var filePath in _fileToMacros.Keys)
+        {
+            if (filePath.EndsWith(".gsh", StringComparison.OrdinalIgnoreCase))
+            {
+                gshCount++;
+            }
+        }
+        return (_cache.Count, _fileToMacros.Count, gshCount);
+    }
+
+    /// <summary>
     /// Cache key for macro definitions.
     /// </summary>
     private readonly record struct MacroCacheKey(string SourceFile, string MacroName, string DefineSnippet);

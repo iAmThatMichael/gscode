@@ -416,6 +416,33 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     }
 
     /// <summary>
+    /// Gets counts of symbols by type (functions and classes).
+    /// </summary>
+    public (int Functions, int Classes) GetCountsByType()
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            int functionCount = 0;
+            int classCount = 0;
+
+            foreach (var symbol in _symbols.Values)
+            {
+                if (symbol.Type == ExportedSymbolType.Function)
+                    functionCount++;
+                else if (symbol.Type == ExportedSymbolType.Class)
+                    classCount++;
+            }
+
+            return (functionCount, classCount);
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
     /// Gets all symbols in the registry.
     /// </summary>
     public IEnumerable<SymbolDefinition> GetAllSymbols()

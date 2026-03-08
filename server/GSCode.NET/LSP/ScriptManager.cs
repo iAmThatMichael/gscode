@@ -430,6 +430,39 @@ public class ScriptManager
     }
 
     /// <summary>
+    /// Gets the total number of loaded scripts (editor and dependency scripts).
+    /// </summary>
+    public int GetLoadedScriptCount()
+    {
+        return Scripts.Count;
+    }
+
+    /// <summary>
+    /// Gets detailed script counts by file type (GSC, CSC).
+    /// Note: GSH files are not loaded as scripts, use MacroDefinitionCache for GSH counts.
+    /// </summary>
+    public (int GscFiles, int CscFiles) GetScriptCountsByType()
+    {
+        int gscCount = 0;
+        int cscCount = 0;
+
+        foreach (var kvp in Scripts)
+        {
+            string filePath = kvp.Key.ToUri().LocalPath;
+            if (filePath.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase))
+            {
+                gscCount++;
+            }
+            else if (filePath.EndsWith(".csc", StringComparison.OrdinalIgnoreCase))
+            {
+                cscCount++;
+            }
+        }
+
+        return (gscCount, cscCount);
+    }
+
+    /// <summary>
     /// Try to find a symbol (function or class) in the global symbol registry. O(1) lookup.
     /// If ns is provided, search that namespace first. Falls back to name-only search.
     /// Returns a Location or null.

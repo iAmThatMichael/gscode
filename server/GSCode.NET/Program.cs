@@ -51,8 +51,6 @@ await ScriptAnalyserData.LoadLanguageApiAsync(
 	cscApiPath
 );
 
-Log.Information("GSCode Language Server");
-
 ServerOptions serverOptions = new();
 Parser.Default.ParseArguments<ServerOptions>(args).WithParsed(o => serverOptions = o);
 
@@ -243,7 +241,32 @@ _ = Task.Run(async () =>
 			var process = Process.GetCurrentProcess();
 			var memoryMB = process.WorkingSet64 / 1024.0 / 1024.0;
 			var privateMemoryMB = process.PrivateMemorySize64 / 1024.0 / 1024.0;
-			Log.Debug("Memory Usage - Working Set: {WorkingSet:F2} MB, Private: {Private:F2} MB", memoryMB, privateMemoryMB);
+
+			// Get ScriptManager instance to access loaded data counts
+			var scriptManager = server.Services.GetService<ScriptManager>();
+			int functionCount = 0;
+			int classCount = 0;
+			int gscCount = 0;
+			int cscCount = 0;
+			int macroCount = 0;
+			int gshFilesCount = 0;
+
+			if (scriptManager != null)
+			{
+				var symbolCounts = scriptManager.SymbolRegistry.GetCountsByType();
+				functionCount = symbolCounts.Functions;
+				classCount = symbolCounts.Classes;
+				var scriptCounts = scriptManager.GetScriptCountsByType();
+				gscCount = scriptCounts.GscFiles;
+				cscCount = scriptCounts.CscFiles;
+			}
+
+			var macroStats = GSCode.Parser.Pre.MacroDefinitionCache.Instance.GetDetailedStatistics();
+			macroCount = macroStats.TotalMacros;
+			gshFilesCount = macroStats.GshFiles;
+
+			Log.Debug("Memory Usage - Working Set: {WorkingSet:F2} MB, Private: {Private:F2} MB | Functions: {Functions}, Classes: {Classes}, Files: GSC={Gsc} CSC={Csc} GSH={Gsh}, Macros: {Macros}", 
+				memoryMB, privateMemoryMB, functionCount, classCount, gscCount, cscCount, gshFilesCount, macroCount);
 
 			await Task.Delay(250, memoryMonitorCts.Token);
 		}

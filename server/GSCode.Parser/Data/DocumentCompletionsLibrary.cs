@@ -54,7 +54,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             return new CompletionList(isIncomplete: false);
         }
 
-        Log.Information("GetCompletionsFromPosition: Found token '{Lexeme}' type={Type} at position {Position}", 
+        Log.Debug("GetCompletionsFromPosition: Found token '{Lexeme}' type={Type} at position {Position}", 
             token.Lexeme, token.Type, position);
 
         // Log previous tokens for context
@@ -62,7 +62,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         int count = 0;
         while (prevToken != null && count < 5)
         {
-            Log.Information("  Previous token [{Index}]: '{Lexeme}' type={Type}", count, prevToken.Lexeme, prevToken.Type);
+            Log.Debug("  Previous token [{Index}]: '{Lexeme}' type={Type}", count, prevToken.Lexeme, prevToken.Type);
             prevToken = prevToken.Previous;
             count++;
         }
@@ -168,14 +168,14 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             filter = "#" + filter;
         }
 
-        Log.Information("Completion at position {Position}: token='{Lexeme}' type={Type}, filter='{Filter}', namespace={Namespace}, insideFunc={InsideFunc}, isDirective={IsDirective}, pathContext={PathContext}, prevToken={PrevType}", 
+        Log.Debug("Completion at position {Position}: token='{Lexeme}' type={Type}, filter='{Filter}', namespace={Namespace}, insideFunc={InsideFunc}, isDirective={IsDirective}, pathContext={PathContext}, prevToken={PrevType}", 
             position, token.Lexeme, token.Type, filter, namespaceQualifier ?? "(none)", isInsideFunctionBlock, isDirectiveContext, directivePathContext != null, token.Previous?.Type);
 
         // If NOT inside a function block and NOT typing a directive, return empty completions
         // (top-level code can only have directives and function definitions, not statements)
         if (!isInsideFunctionBlock && !isDirectiveContext)
         {
-            Log.Information("Returning empty completions (not in function and not directive context)");
+            Log.Debug("Returning empty completions (not in function and not directive context)");
             return new CompletionList(isIncomplete: false);
         }
 
@@ -188,7 +188,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             IsDirectiveContext = isDirectiveContext,
             IsInsideFunctionBlock = isInsideFunctionBlock
         };
-        Log.Information("Created context: Type={Type}, Namespace={Namespace}, Filter={Filter}", 
+        Log.Debug("Created context: Type={Type}, Namespace={Namespace}, Filter={Filter}", 
             context.Type, context.Namespace ?? "(none)", context.Filter);
 
         List<CompletionItem> completions = new();
@@ -196,7 +196,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         // If we're typing a path in a directive, show path completions
         if (directivePathContext != null)
         {
-            Log.Information("Showing directive path completions for {DirectiveType}", directivePathContext.DirectiveType);
+            Log.Debug("Showing directive path completions for {DirectiveType}", directivePathContext.DirectiveType);
             // Set isIncomplete=true to hint that completions should be re-requested on any change
             return new CompletionList(GetDirectivePathCompletions(directivePathContext), isIncomplete: true);
         }
@@ -204,24 +204,24 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         // If in directive context, ONLY show directives
         if (isDirectiveContext)
         {
-            Log.Information("Showing directive completions only");
+            Log.Debug("Showing directive completions only");
             HashSet<string> seenIdentifiers = new(StringComparer.OrdinalIgnoreCase);
             completions.AddRange(GetDirectiveCompletions(seenIdentifiers, token));
             return new CompletionList(completions, isIncomplete: false);
         }
 
         // Otherwise, show normal completions (only when inside a function block)
-        Log.Information("Showing normal completions (insideFunc={IsInsideFunc}, namespace={Namespace})", isInsideFunctionBlock, context.Namespace);
+        Log.Debug("Showing normal completions (insideFunc={IsInsideFunc}, namespace={Namespace})", isInsideFunctionBlock, context.Namespace);
         switch (context.Type)
         {
             case CompletionContextType.GlobalScope:
                 completions = GetGlobalScopeCompletions(context);
-                Log.Information("After GetGlobalScopeCompletions: {Count} completions", completions.Count);
+                Log.Debug("After GetGlobalScopeCompletions: {Count} completions", completions.Count);
                 break;
             case CompletionContextType.FunctionCall:
                 // Namespace-qualified function call (e.g., namespace::func)
                 completions = GetNamespacedFunctionCompletions(context);
-                Log.Information("After GetNamespacedFunctionCompletions: {Count} completions", completions.Count);
+                Log.Debug("After GetNamespacedFunctionCompletions: {Count} completions", completions.Count);
                 break;
         }
 
@@ -232,11 +232,11 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         if (context.Type != CompletionContextType.FunctionCall || string.IsNullOrEmpty(context.Namespace))
         {
             var fileScopeCompletions = GetFileScopeCompletions(context);
-            Log.Information("GetFileScopeCompletions returned {Count} completions", fileScopeCompletions.Count);
+            Log.Debug("GetFileScopeCompletions returned {Count} completions", fileScopeCompletions.Count);
             completions.AddRange(fileScopeCompletions);
         }
 
-        Log.Information("Returning total of {Count} completions", completions.Count);
+        Log.Debug("Returning total of {Count} completions", completions.Count);
         // return token.SenseDefinition?.GetCompletions();
         return new CompletionList(completions, isIncomplete: false);
     }
@@ -467,7 +467,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             return completions;
         }
 
-        Log.Information("GetFileScopeCompletions: Starting, token count: {Count}", Tokens.GetAll().Count());
+        Log.Debug("GetFileScopeCompletions: Starting, token count: {Count}", Tokens.GetAll().Count());
         int macroCount = 0;
         int skippedApiCount = 0;
         int skippedPreprocCount = 0;
@@ -588,7 +588,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             }
         }
 
-        Log.Information("GetFileScopeCompletions: Macros found={MacroCount}, Skipped: API={SkipApi}, Preprocessor={SkipPreproc}, Functions={SkipFunc}, Total completions={Total}",
+        Log.Debug("GetFileScopeCompletions: Macros found={MacroCount}, Skipped: API={SkipApi}, Preprocessor={SkipPreproc}, Functions={SkipFunc}, Total completions={Total}",
             macroCount, skippedApiCount, skippedPreprocCount, skippedFunctionCount, completions.Count);
 
         return completions;

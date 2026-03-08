@@ -88,6 +88,7 @@ export function activate(context: ExtensionContext) {
   // Get configuration from workspace settings
   const config = workspace.getConfiguration("gscode");
   const enableWorkspaceIndexing = config.get<boolean>("enableWorkspaceIndexing", false);
+  const serverLogLevel = config.get<string>("serverLogLevel", "off");
 
   // Options to control the language client
   let clientOptions: LanguageClientOptions = {
@@ -111,6 +112,7 @@ export function activate(context: ExtensionContext) {
     initializationOptions: {
       gscode: {
         enableWorkspaceIndexing: enableWorkspaceIndexing,
+        serverLogLevel: serverLogLevel,
       },
     },
     outputChannel: window.createOutputChannel('GSCode Language Server'),
@@ -132,7 +134,8 @@ export function activate(context: ExtensionContext) {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async e => {
       if (e.affectsConfiguration('gscode.customRawPath') || 
-          e.affectsConfiguration('gscode.enableWorkspaceIndexing')) {
+          e.affectsConfiguration('gscode.enableWorkspaceIndexing') ||
+          e.affectsConfiguration('gscode.serverLogLevel')) {
         
         // Prevent multiple prompts
         if (pendingReload) {

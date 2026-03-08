@@ -1,3 +1,4 @@
+using GSCode.Parser.Configuration;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol;
@@ -99,7 +100,91 @@ public class TextDocumentSyncHandler : ITextDocumentSyncHandler
         return Unit.Task;
     }
 
-    public Task<Unit> Handle(DidSaveTextDocumentParams request, CancellationToken cancellationToken) => Unit.Task;
+    public Task<Unit> Handle(DidSaveTextDocumentParams request, CancellationToken cancellationToken)
+    {
+        // Check if write protection is enabled
+        if (!CompletionConfiguration.AllowRawFolderWrites)
+        {
+            string filePath = GetLocalPath(request.TextDocument.Uri);
+            if (IsInProtectedRawFolder(filePath))
+            {
+                _logger.LogWarning("File saved in protected raw folder: {Path}. Consider setting gscode.allowRawFolderWrites to false or working in a separate mod directory.", filePath);
+
+                // Send window/showMessage notification to the client
+                _facade.SendNotification("window/showMessage", new ShowMessageParams
+                {
+                    Type = MessageType.Error,
+                    Message = "You are editing a file in a protected raw folder. Consider working in a separate mod directory to avoid modifying vanilla game files."
+                });
+            }
+        }
+        return Unit.Task;
+    }
+
+    private string GetLocalPath(DocumentUri uri)
+    {
+        try
+        {
+            if (Uri.TryCreate(uri.ToString(), UriKind.Absolute, out Uri? parsedUri) && parsedUri.IsFile)
+            {
+                return parsedUri.LocalPath;
+            }
+            else if (uri.ToString().StartsWith("/") && uri.ToString().Length > 2 && uri.ToString()[2] == ':')
+            {
+                // Handle URI-style path like "/g:/..." -> "G:\..."
+                return uri.ToString().Substring(1).Replace('/', '\\');
+            }
+            return uri.ToString();
+        }
+        catch
+        {
+            return uri.ToString();
+        }
+    }
+
+    private bool IsInProtectedRawFolder(string filePath)
+    {
+        try
+        {
+            // Normalize path for comparison
+            string normalizedPath = Path.GetFullPath(filePath).Replace('/', '\\').ToLowerInvariant();
+
+            // Check if file is in custom raw path
+            string? customRawPath = CompletionConfiguration.CustomRawPath;
+            if (!string.IsNullOrEmpty(customRawPath))
+            {
+                string normalizedCustomPath = Path.GetFullPath(customRawPath).Replace('/', '\\').ToLowerInvariant();
+                if (normalizedPath.StartsWith(normalizedCustomPath))
+                {
+                    _logger.LogDebug("File is in custom raw folder: {Path}", filePath);
+                    return true;
+                }
+            }
+
+            // Check if file is in TA_GAME_PATH\share\raw
+            string? taGamePath = Environment.GetEnvironmentVariable("TA_GAME_PATH");
+            if (!string.IsNullOrEmpty(taGamePath) && Directory.Exists(taGamePath))
+            {
+                string shareRawPath = Path.Combine(taGamePath, "share", "raw");
+                if (Directory.Exists(shareRawPath))
+                {
+                    string normalizedShareRawPath = Path.GetFullPath(shareRawPath).Replace('/', '\\').ToLowerInvariant();
+                    if (normalizedPath.StartsWith(normalizedShareRawPath))
+                    {
+                        _logger.LogDebug("File is in default raw folder (TA_GAME_PATH\\share\\raw): {Path}", filePath);
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking if file is in protected raw folder: {Path}", filePath);
+            return false;
+        }
+    }
 
     TextDocumentOpenRegistrationOptions IRegistration<TextDocumentOpenRegistrationOptions, TextSynchronizationCapability>.GetRegistrationOptions(TextSynchronizationCapability capability, ClientCapabilities clientCapabilities)
     {

@@ -1,6 +1,8 @@
 ﻿using GSCode.NET;
 using GSCode.Parser.SPA;
 using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 using StreamJsonRpc;
 using System.IO.Pipes;
 using System.Text;
@@ -18,8 +20,11 @@ using System.Diagnostics;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
 
 
+// Create a logging level switch that can be changed dynamically
+var loggingLevelSwitch = new LoggingLevelSwitch(LogEventLevel.Information);
+
 Log.Logger = new LoggerConfiguration()
-				.MinimumLevel.Debug()
+				.MinimumLevel.ControlledBy(loggingLevelSwitch)
 				.WriteTo.Console()
 #if DEBUG
 				.WriteTo.File("log.txt", rollingInterval: RollingInterval.Day)
@@ -63,7 +68,7 @@ LanguageServer server = await LanguageServer.From(options =>
 			x => x
 				.AddSerilog(Log.Logger)
 				.AddLanguageProtocolLogging()
-				.SetMinimumLevel(LogLevel.Debug)
+				.SetMinimumLevel(LogLevel.Trace)
 		)
 		.WithServices(x => x.AddLogging(b => b.SetMinimumLevel(LogLevel.Trace)))
 		.WithServices(services =>
@@ -85,14 +90,41 @@ LanguageServer server = await LanguageServer.From(options =>
 		{
 			try
 			{
-				// Check if workspace indexing is enabled via InitializationOptions
-				// This is passed by the client during the initialize request, so no need
-				// to make a request back to the client (which would cause warnings)
-				bool enableIndexing = false;
+				// Configure logging level based on serverLogLevel setting from initialization options
+				string logLevelValue = "off";
 
 				if (request.InitializationOptions is JToken initOptions)
 				{
 					var gscodeSection = initOptions.SelectToken("gscode");
+					if (gscodeSection is not null)
+					{
+						var logLevelSetting = gscodeSection.SelectToken("serverLogLevel");
+						if (logLevelSetting is not null)
+						{
+							logLevelValue = logLevelSetting.Value<string>()?.ToLowerInvariant() ?? "off";
+						}
+					}
+				}
+
+				var minimumLevel = logLevelValue switch
+				{
+					"off" => LogEventLevel.Warning,
+					"messages" => LogEventLevel.Information,
+					"verbose" => LogEventLevel.Debug,
+					_ => LogEventLevel.Information
+				};
+
+				// Update the logging level switch dynamically
+				loggingLevelSwitch.MinimumLevel = minimumLevel;
+
+				Log.Information("Server log level set to: {LogLevel} (mapped to {MinimumLevel})", logLevelValue, minimumLevel);
+
+				// Check if workspace indexing is enabled via InitializationOptions
+				bool enableIndexing = false;
+
+				if (request.InitializationOptions is JToken initOptions2)
+				{
+					var gscodeSection = initOptions2.SelectToken("gscode");
 					if (gscodeSection is not null)
 					{
 						var indexingSetting = gscodeSection.SelectToken("enableWorkspaceIndexing");
@@ -187,7 +219,8 @@ LanguageServer server = await LanguageServer.From(options =>
 		.AddHandler<DocumentSymbolHandler>()
 		.AddHandler<SignatureHelpHandler>()
 		.AddHandler<ReferencesHandler>()
-		.AddHandler<ConfigurationHandler>();
+		.AddHandler<ConfigurationHandler>()
+		.AddHandler<DidChangeWatchedFilesHandler>();
 	// Allow disposal of the stream if required.
 	if (disposable is not null)
 	{

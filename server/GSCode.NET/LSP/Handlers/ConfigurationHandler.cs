@@ -40,6 +40,19 @@ internal class ConfigurationHandler : DidChangeConfigurationHandlerBase
                         _logger.LogInformation("Configuration: customRawPath not set or null");
                         CompletionConfiguration.CustomRawPath = null;
                     }
+
+                    // Read allowRawFolderWrites setting
+                    var allowRawFolderWrites = gscodeSection["allowRawFolderWrites"]?.Value<bool>();
+                    if (allowRawFolderWrites.HasValue)
+                    {
+                        _logger.LogInformation("Configuration: Setting allowRawFolderWrites to {Value}", allowRawFolderWrites.Value);
+                        CompletionConfiguration.AllowRawFolderWrites = allowRawFolderWrites.Value;
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Configuration: allowRawFolderWrites not set, using default (false)");
+                        CompletionConfiguration.AllowRawFolderWrites = false;
+                    }
                 }
             }
         }

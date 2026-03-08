@@ -563,10 +563,6 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 #if FLAG_PERFORMANCE_TRACKING
             Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedVariable: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
-            EmitSwitchCaseDiagnostics();
-#if FLAG_PERFORMANCE_TRACKING
-            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-SwitchCase: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
-#endif
             EmitAssignOnThreadDiagnostics();
 #if FLAG_PERFORMANCE_TRACKING
             Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-AssignOnThread: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);

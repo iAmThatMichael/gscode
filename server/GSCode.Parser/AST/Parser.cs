@@ -1483,6 +1483,15 @@ internal ref struct Parser(Token startToken, ParserIntelliSense sense, string la
         Token actionToken = CurrentToken;
         Advance();
 
+        // Allow optional empty parentheses for waittillframeend (e.g. waittillframeend();)
+        if (type == AstNodeType.WaitTillFrameEndStmt && AdvanceIfType(TokenType.OpenParen))
+        {
+            if (!AdvanceIfType(TokenType.CloseParen))
+            {
+                AddError(GSCErrorCodes.ExpectedToken, ')', CurrentToken.Lexeme);
+            }
+        }
+
         // Check for SEMICOLON
         if (AdvanceIfType(TokenType.Semicolon))
         {

@@ -158,12 +158,11 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             // Update the in & out sets
             InSets[node] = inSet;
 
-            // Store the previous outset for comparison
-            Dictionary<string, ScrVariable>? previousOutSet = null;
+            // Snapshot hash of previous outset for convergence check (avoids full dictionary copy)
+            int? previousOutSetHash = null;
             if (OutSets.TryGetValue(node, out Dictionary<string, ScrVariable>? existingOutSet))
             {
-                // Create a copy of the existing outset for comparison
-                previousOutSet = new Dictionary<string, ScrVariable>(existingOutSet, StringComparer.OrdinalIgnoreCase);
+                previousOutSetHash = existingOutSet.ComputeTableHash();
             }
 
             if (!OutSets.ContainsKey(node))
@@ -280,7 +279,9 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 #endif
 
             // Check if the outset has changed before queueing successors.
-            bool outSetChanged = previousOutSet == null || !previousOutSet.VariableTableEquals(OutSets[node]) || edgeOutChanged;
+            bool outSetChanged = previousOutSetHash == null ||
+                                 previousOutSetHash.Value != OutSets[node].ComputeTableHash() ||
+                                 edgeOutChanged;
 
             // Only add successors to the worklist if the outset has changed
             if (!outSetChanged)
@@ -421,12 +422,11 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             // Update the in & out sets
             InSets[node] = inSet;
 
-            // Store the previous outset for comparison
-            Dictionary<string, ScrVariable>? previousOutSet = null;
+            // Snapshot hash of previous outset for convergence check (avoids full dictionary copy)
+            int? previousOutSetHash = null;
             if (OutSets.TryGetValue(node, out Dictionary<string, ScrVariable>? existingOutSet))
             {
-                // Create a copy of the existing outset for comparison
-                previousOutSet = new Dictionary<string, ScrVariable>(existingOutSet, StringComparer.OrdinalIgnoreCase);
+                previousOutSetHash = existingOutSet.ComputeTableHash();
             }
 
             if (!OutSets.ContainsKey(node))
@@ -514,7 +514,9 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
                 node.Type == CfgNodeType.DecisionNode ? decisionCondition : node.Type == CfgNodeType.IterationNode ? iterationCondition : null);
 
             // Check if the outset has changed before queueing successors.
-            bool outSetChanged = previousOutSet == null || !previousOutSet.VariableTableEquals(OutSets[node]) || edgeOutChanged;
+            bool outSetChanged = previousOutSetHash == null ||
+                                 previousOutSetHash.Value != OutSets[node].ComputeTableHash() ||
+                                 edgeOutChanged;
 
             // Only add successors to the worklist if the outset has changed
             if (!outSetChanged)
@@ -3348,5 +3350,21 @@ file static class DataFlowAnalyserExtensions
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Computes an order-independent hash of a variable table for fast convergence checks.
+    /// Uses XOR so iteration order doesn't matter.
+    /// </summary>
+    public static int ComputeTableHash(this Dictionary<string, ScrVariable> table)
+    {
+        int hash = table.Count;
+        foreach (var pair in table)
+        {
+            int entryHash = StringComparer.OrdinalIgnoreCase.GetHashCode(pair.Key);
+            entryHash = entryHash * 397 ^ pair.Value.GetHashCode();
+            hash ^= entryHash;
+        }
+        return hash;
     }
 }

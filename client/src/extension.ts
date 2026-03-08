@@ -156,20 +156,20 @@ export function activate(context: ExtensionContext) {
     // Push the disposable to the context's subscriptions so that the
     // client can be deactivated on extension deactivation
     client.start();
-}
 
-vscode.workspace.onDidChangeConfiguration(e => {
-    if (e.affectsConfiguration('gscode.enableWorkspaceIndexing')) {
-        vscode.window.showInformationMessage(
-            'Changing gscode.enableWorkspaceIndexing requires reloading the GSCode language server.',
-            'Reload'
-        ).then(sel => {
-            if (sel === 'Reload') {
-                vscode.commands.executeCommand('workbench.action.reloadWindow');
-            }
-        });
-    }
-});
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+        if (e.affectsConfiguration('gscode.enableWorkspaceIndexing')) {
+            vscode.window.showInformationMessage(
+                'Changing gscode.enableWorkspaceIndexing requires reloading the GSCode language server.',
+                'Reload'
+            ).then(sel => {
+                if (sel === 'Reload') {
+                    vscode.commands.executeCommand('workbench.action.reloadWindow');
+                }
+            });
+        }
+    }));
+}
 
 export function deactivate(): Thenable<void> | undefined {
     if (!client) {

@@ -304,7 +304,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
                     _symbols[key] = def;
 
                     // Update name index
-                    var nameSymbols = _nameIndex.GetOrAdd(def.Name.ToLowerInvariant(),
+                    var nameSymbols = _nameIndex.GetOrAdd(StringPool.Intern(def.Name.ToLowerInvariant()),
                         _ => new ConcurrentDictionary<(string Namespace, string Name), byte>());
                     nameSymbols[key] = 0;
                 }
@@ -465,6 +465,10 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         }
     }
 
+    /// <summary>
+    /// Removes a symbol key from a file's index entry. Cleans up the file entry if empty.
+    /// Caller must hold _lock in write mode.
+    /// </summary>
     private void RemoveFromFileIndex(string filePath, (string Namespace, string Name) key)
     {
         if (_fileIndex.TryGetValue(filePath, out var keys))

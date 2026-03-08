@@ -462,17 +462,37 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
     private record DirectivePathContext(TokenType DirectiveType, string PartialPath);
 
-    private string? FindGameRoot(string startPath)
+    private record GameRootInfo(string PrimaryRoot, string? SecondaryRoot = null, string? ModName = null);
+
+    private GameRootInfo? FindGameRoot(string startPath)
     {
-        // First priority: Check if user has configured a custom raw path
+        // Check if user has configured a custom raw path (will be used as secondary root if in a mod)
         string? customRawPath = CompletionConfiguration.CustomRawPath;
-        if (!string.IsNullOrEmpty(customRawPath) && Directory.Exists(customRawPath))
+        bool hasValidCustomRawPath = false;
+
+        if (!string.IsNullOrEmpty(customRawPath))
         {
-            Log.Information("FindGameRoot: Using custom raw path from configuration: {Path}", customRawPath);
-            return customRawPath;
+            if (!Directory.Exists(customRawPath))
+            {
+                Log.Warning("FindGameRoot: Custom raw path is configured but does not exist: {Path}", customRawPath);
+            }
+            else
+            {
+                // Verify it actually contains a scripts folder
+                string scriptsDir = Path.Combine(customRawPath, "scripts");
+                if (!Directory.Exists(scriptsDir))
+                {
+                    Log.Warning("FindGameRoot: Custom raw path exists but does not contain a 'scripts' folder: {Path}. Path may be misconfigured.", customRawPath);
+                }
+                else
+                {
+                    hasValidCustomRawPath = true;
+                    Log.Information("FindGameRoot: Found valid custom raw path from configuration: {Path}", customRawPath);
+                }
+            }
         }
 
-        // Second priority: Try to get the game path from environment variable (set by tooling)
+        // Try to get the game path from environment variable (set by tooling)
         string? taGamePath = Environment.GetEnvironmentVariable("TA_GAME_PATH");
         if (!string.IsNullOrEmpty(taGamePath) && Directory.Exists(taGamePath))
         {
@@ -497,12 +517,42 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
                         if (Directory.Exists(modRoot))
                         {
-                            Log.Information("FindGameRoot: Current file is in mod '{ModName}', using mod root: {Path}", 
-                                modName, modRoot);
-                            return modRoot;
+                            // Determine secondary root: custom raw path takes priority over share\raw
+                            string? secondaryRoot = null;
+
+                            if (hasValidCustomRawPath)
+                            {
+                                secondaryRoot = customRawPath;
+                                Log.Information("FindGameRoot: Current file is in mod '{ModName}', using mod root: {ModRoot} with custom secondary root: {CustomRaw}", 
+                                    modName, modRoot, customRawPath);
+                            }
+                            else
+                            {
+                                string tentativeShareRaw = Path.Combine(taGamePath, "share", "raw");
+                                if (Directory.Exists(tentativeShareRaw))
+                                {
+                                    secondaryRoot = tentativeShareRaw;
+                                    Log.Information("FindGameRoot: Current file is in mod '{ModName}', using mod root: {ModRoot} with secondary root: {ShareRaw}", 
+                                        modName, modRoot, tentativeShareRaw);
+                                }
+                                else
+                                {
+                                    Log.Information("FindGameRoot: Current file is in mod '{ModName}', using mod root: {ModRoot} (no share\\raw found)", 
+                                        modName, modRoot);
+                                }
+                            }
+
+                            return new GameRootInfo(modRoot, secondaryRoot, modName);
                         }
                     }
                 }
+            }
+
+            // Not in a mod folder - use custom raw path if available, otherwise share\raw
+            if (hasValidCustomRawPath)
+            {
+                Log.Information("FindGameRoot: Using custom raw path as primary root: {Path}", customRawPath);
+                return new GameRootInfo(customRawPath);
             }
 
             // TA_GAME_PATH points to the game installation, but GSC scripts are in share\raw
@@ -511,7 +561,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             if (Directory.Exists(shareRawPath))
             {
                 Log.Information("FindGameRoot: Using share\\raw subdirectory: {Path}", shareRawPath);
-                return shareRawPath;
+                return new GameRootInfo(shareRawPath);
             }
 
             // Check if there's a scripts folder directly in TA_GAME_PATH
@@ -519,10 +569,17 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             if (Directory.Exists(scriptsPath))
             {
                 Log.Information("FindGameRoot: Using TA_GAME_PATH directly (contains scripts): {Path}", taGamePath);
-                return taGamePath;
+                return new GameRootInfo(taGamePath);
             }
 
             Log.Warning("FindGameRoot: TA_GAME_PATH doesn't contain share\\raw or scripts, falling back to directory search");
+        }
+
+        // If custom raw path is set but TA_GAME_PATH is not, use custom raw path
+        if (hasValidCustomRawPath)
+        {
+            Log.Information("FindGameRoot: TA_GAME_PATH not set, using custom raw path: {Path}", customRawPath);
+            return new GameRootInfo(customRawPath);
         }
 
         // Fallback: Walk up the directory tree to find a directory that contains "scripts" folder
@@ -536,7 +593,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             if (Directory.Exists(scriptsDir))
             {
                 Log.Information("FindGameRoot: Found scripts folder at: {Path}", current);
-                return current;
+                return new GameRootInfo(current);
             }
 
             // Move up one level
@@ -688,91 +745,115 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
             // In GSC/CSC, paths are relative to the game root (typically the directory containing "scripts")
             // Walk up the directory tree to find the root
-            string? gameRoot = FindGameRoot(scriptDir);
-            if (gameRoot == null)
+            GameRootInfo? gameRootInfo = FindGameRoot(scriptDir);
+            if (gameRootInfo == null)
             {
                 Log.Warning("GetDirectivePathCompletions: Could not find game root, using script directory");
-                gameRoot = scriptDir;
+                gameRootInfo = new GameRootInfo(scriptDir);
             }
 
-            Log.Information("GetDirectivePathCompletions: scriptDir='{ScriptDir}', gameRoot='{GameRoot}'", 
-                scriptDir, gameRoot);
+            Log.Information("GetDirectivePathCompletions: scriptDir='{ScriptDir}', primaryRoot='{PrimaryRoot}', secondaryRoot='{SecondaryRoot}'", 
+                scriptDir, gameRootInfo.PrimaryRoot, gameRootInfo.SecondaryRoot ?? "(none)");
 
             // Parse the partial path to determine what directory to search
             string searchPath = context.PartialPath.Replace('/', '\\');
             bool endsWithSeparator = searchPath.EndsWith("\\");
             searchPath = searchPath.TrimEnd('\\');
 
-            string searchDir = gameRoot;
-            string fileFilter = "";
-
-            if (!string.IsNullOrEmpty(searchPath))
+            // We'll search in both roots (if secondary exists) and combine results
+            List<string> searchRoots = new List<string> { gameRootInfo.PrimaryRoot };
+            if (!string.IsNullOrEmpty(gameRootInfo.SecondaryRoot))
             {
-                if (searchPath.Contains('\\'))
+                searchRoots.Add(gameRootInfo.SecondaryRoot);
+            }
+
+            string fileFilter = "";
+            List<string> searchDirs = new List<string>();
+
+            foreach (string root in searchRoots)
+            {
+                string searchDir = root;
+
+                if (!string.IsNullOrEmpty(searchPath))
                 {
-                    // Path contains directory separators (e.g., "scripts\shared" or "scripts\shared\")
-                    int lastSeparator = searchPath.LastIndexOf('\\');
-                    string dirPart = searchPath.Substring(0, lastSeparator);
-                    string lastPart = searchPath.Substring(lastSeparator + 1);
-
-                    // Try to resolve the directory relative to game root
-                    string tentativeDir = Path.Combine(gameRoot, dirPart);
-                    Log.Information("GetDirectivePathCompletions: tentativeDir='{TentativeDir}', exists={Exists}", 
-                        tentativeDir, Directory.Exists(tentativeDir));
-
-                    if (Directory.Exists(tentativeDir))
+                    if (searchPath.Contains('\\'))
                     {
-                        searchDir = tentativeDir;
+                        // Path contains directory separators (e.g., "scripts\shared" or "scripts\shared\")
+                        int lastSeparator = searchPath.LastIndexOf('\\');
+                        string dirPart = searchPath.Substring(0, lastSeparator);
+                        string lastPart = searchPath.Substring(lastSeparator + 1);
 
-                        // If original path ended with \, the last part is a directory, not a filter
-                        if (endsWithSeparator && !string.IsNullOrEmpty(lastPart))
+                        // Try to resolve the directory relative to game root
+                        string tentativeDir = Path.Combine(root, dirPart);
+                        Log.Information("GetDirectivePathCompletions: tentativeDir='{TentativeDir}', exists={Exists}", 
+                            tentativeDir, Directory.Exists(tentativeDir));
+
+                        if (Directory.Exists(tentativeDir))
                         {
-                            string fullDir = Path.Combine(searchDir, lastPart);
-                            if (Directory.Exists(fullDir))
+                            searchDir = tentativeDir;
+
+                            // If original path ended with \, the last part is a directory, not a filter
+                            if (endsWithSeparator && !string.IsNullOrEmpty(lastPart))
                             {
-                                searchDir = fullDir;
-                                fileFilter = "";
+                                string fullDir = Path.Combine(searchDir, lastPart);
+                                if (Directory.Exists(fullDir))
+                                {
+                                    searchDir = fullDir;
+                                    fileFilter = "";
+                                }
+                                else
+                                {
+                                    fileFilter = lastPart;
+                                }
                             }
                             else
                             {
                                 fileFilter = lastPart;
                             }
                         }
-                        else
-                        {
-                            fileFilter = lastPart;
-                        }
-                    }
-                }
-                else
-                {
-                    // No directory separators - check if it's a directory or a file filter
-                    string tentativeDir = Path.Combine(gameRoot, searchPath);
-                    if (Directory.Exists(tentativeDir))
-                    {
-                        // It's a directory that exists
-                        searchDir = tentativeDir;
-                        fileFilter = endsWithSeparator ? "" : searchPath;
                     }
                     else
                     {
-                        // It's a file filter in the game root
-                        fileFilter = searchPath;
+                        // No directory separators - check if it's a directory or a file filter
+                        string tentativeDir = Path.Combine(root, searchPath);
+                        if (Directory.Exists(tentativeDir))
+                        {
+                            // It's a directory that exists
+                            searchDir = tentativeDir;
+                            fileFilter = endsWithSeparator ? "" : searchPath;
+                        }
+                        else
+                        {
+                            // It's a file filter in the game root
+                            fileFilter = searchPath;
+                        }
                     }
+                }
+
+                if (Directory.Exists(searchDir))
+                {
+                    searchDirs.Add(searchDir);
                 }
             }
 
-            Log.Information("GetDirectivePathCompletions: searchDir='{SearchDir}', fileFilter='{FileFilter}'", 
-                searchDir, fileFilter);
+            Log.Information("GetDirectivePathCompletions: fileFilter='{FileFilter}', searchDirs={SearchDirs}", 
+                fileFilter, string.Join(", ", searchDirs));
 
             // Determine file extensions based on directive type
             string[] extensions = context.DirectiveType == TokenType.Using
                 ? new[] { ".gsc", ".csc" }
                 : new[] { ".gsh" }; // Insert
 
-            // Add directories
-            if (Directory.Exists(searchDir))
+            // Use HashSets to track unique entries (case-insensitive)
+            HashSet<string> seenDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> seenFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Search in all directories and collect unique results
+            foreach (string searchDir in searchDirs)
             {
+                Log.Information("GetDirectivePathCompletions: Searching in {SearchDir}", searchDir);
+
+                // Add directories
                 var dirs = Directory.GetDirectories(searchDir);
                 Log.Information("GetDirectivePathCompletions: Found {Count} directories in {SearchDir}", 
                     dirs.Length, searchDir);
@@ -780,7 +861,8 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                 foreach (var dir in dirs)
                 {
                     string dirName = Path.GetFileName(dir);
-                    if (string.IsNullOrEmpty(fileFilter) || dirName.StartsWith(fileFilter, StringComparison.OrdinalIgnoreCase))
+                    if ((string.IsNullOrEmpty(fileFilter) || dirName.StartsWith(fileFilter, StringComparison.OrdinalIgnoreCase))
+                        && !seenDirs.Contains(dirName))
                     {
                         completions.Add(new CompletionItem()
                         {
@@ -790,6 +872,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                             Detail = "Folder",
                             SortText = "0_" + dirName // Folders first
                         });
+                        seenDirs.Add(dirName);
                     }
                 }
 
@@ -805,7 +888,8 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                         string fileName = Path.GetFileName(file);
                         string fileNameWithoutExt = Path.GetFileNameWithoutExtension(file);
 
-                        if (string.IsNullOrEmpty(fileFilter) || fileName.StartsWith(fileFilter, StringComparison.OrdinalIgnoreCase) || fileNameWithoutExt.StartsWith(fileFilter, StringComparison.OrdinalIgnoreCase))
+                        if ((string.IsNullOrEmpty(fileFilter) || fileName.StartsWith(fileFilter, StringComparison.OrdinalIgnoreCase) || fileNameWithoutExt.StartsWith(fileFilter, StringComparison.OrdinalIgnoreCase))
+                            && !seenFiles.Contains(fileName))
                         {
                             completions.Add(new CompletionItem()
                             {
@@ -815,16 +899,14 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                                 Detail = $"Script file ({ext})",
                                 SortText = "1_" + fileName // Files after folders
                             });
+                            seenFiles.Add(fileName);
                         }
                     }
                 }
+            }
 
-                Log.Information("GetDirectivePathCompletions: Returning {Count} completions", completions.Count);
-            }
-            else
-            {
-                Log.Warning("GetDirectivePathCompletions: searchDir does not exist: {SearchDir}", searchDir);
-            }
+            Log.Information("GetDirectivePathCompletions: Returning {Count} completions (from {SearchDirCount} directories)", 
+                completions.Count, searchDirs.Count);
         }
         catch (Exception ex)
         {

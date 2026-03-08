@@ -54,8 +54,8 @@ internal class CompletionHandler(ILanguageServerFacade facade,
         return new CompletionRegistrationOptions
         {
             DocumentSelector = _documentSelector,
-            // Include additional triggers useful for namespaces and preprocessor
-            TriggerCharacters = new List<string> { ".", ":", "#", "(", "," },
+            // Include additional triggers useful for namespaces, preprocessor, and paths
+            TriggerCharacters = new List<string> { ".", ":", "#", "(", ",", "\\", "/" },
             ResolveProvider = true
         };
     }

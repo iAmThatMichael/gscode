@@ -113,7 +113,7 @@ internal sealed class ParserIntelliSense
         _scriptPath = scriptUri.Path;
         ScriptUri = scriptUri.Path;
         _languageId = languageId;
-        Completions = new(Tokens, languageId);
+        Completions = new(Tokens, languageId, scriptUri.Path);
     }
 
     public void AddInsertRegion(Range range, string rawPath, string? resolvedPath)

@@ -7,10 +7,12 @@
 
 import * as path from "path";
 import * as vscode from 'vscode';
+import { LanguageClient } from 'vscode-languageclient/node';
+
+let pendingReload = false;
 
 import { workspace, Disposable, ExtensionContext, window } from "vscode";
 import {
-  LanguageClient,
   LanguageClientOptions,
   SettingMonitor,
   ServerOptions,
@@ -125,16 +127,45 @@ export function activate(context: ExtensionContext) {
   // Push the disposable to the context's subscriptions so that the
   // client can be deactivated on extension deactivation
   client.start();
+
+  // Watch for configuration changes and prompt for reload
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async e => {
+      if (e.affectsConfiguration('gscode.customRawPath') || 
+          e.affectsConfiguration('gscode.enableWorkspaceIndexing')) {
+        
+        // Prevent multiple prompts
+        if (pendingReload) {
+          return;
+        }
+        pendingReload = true;
+
+        const action = await vscode.window.showInformationMessage(
+          'GSCode configuration changed. Reload window for changes to take effect.',
+          'Reload Window',
+          'Later'
+        );
+
+        if (action === 'Reload Window') {
+          await vscode.commands.executeCommand('workbench.action.reloadWindow');
+        } else {
+          pendingReload = false;
+        }
+      }
+    })
+  );
 }
 
 vscode.workspace.onDidChangeConfiguration(e => {
-    if (e.affectsConfiguration('gscode.enableWorkspaceIndexing')) {
-        vscode.window.showInformationMessage(
-            'Changing gscode.enableWorkspaceIndexing requires reloading the GSCode language server.',
-            'Reload'
-        ).then(sel => {
-            if (sel === 'Reload') {
-                vscode.commands.executeCommand('workbench.action.reloadWindow');
+    if (e.affectsConfiguration('gscode')) {
+        // Send the entire gscode configuration section
+        const config = vscode.workspace.getConfiguration('gscode');
+        client.sendNotification('workspace/didChangeConfiguration', {
+            settings: {
+                gscode: {
+                    customRawPath: config.get('customRawPath'),
+                    enableWorkspaceIndexing: config.get('enableWorkspaceIndexing')
+                }
             }
         });
     }

@@ -123,10 +123,16 @@
 					"description": "Traces the communication between VS Code and the GSCode language server.",
 					"scope": "window"
 				},
+				"gscode.customRawPath": {
+					"type": "string",
+					"default": null,
+					"description": "Custom path to the 'raw' folder for script path completions. Overrides automatic detection via TA_GAME_PATH.",
+					"scope": "window"
+				},
 				"gscode.enableWorkspaceIndexing": {
 					"type": "boolean",
 					"default": false,
-					"description": "Enable workspace-wide indexing of all script files on startup.",
+					"description": "Enable workspace-wide symbol indexing for Go to Definition across files.",
 					"scope": "window"
 				}
 			}

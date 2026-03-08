@@ -189,6 +189,12 @@ public class ScriptManager
     /// </summary>
     public GlobalSymbolRegistry SymbolRegistry => _symbolRegistry;
 
+    /// <summary>
+    /// Optional user-configured custom path to the "raw" folder for path completions.
+    /// This can be set via LSP configuration and overrides automatic detection.
+    /// </summary>
+    public string? CustomRawPath { get; set; }
+
     // Ensure only one parse per script at a time
     private readonly ConcurrentDictionary<DocumentUri, SemaphoreSlim> _parseLocks = new();
     // Ensure only one analysis/merge per script at a time

@@ -1,3 +1,4 @@
+using GSCode.Parser.Configuration;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SPA;
 using OmniSharp.Extensions.JsonRpc;
@@ -463,7 +464,15 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
     private string? FindGameRoot(string startPath)
     {
-        // First, try to get the game path from environment variable (set by tooling)
+        // First priority: Check if user has configured a custom raw path
+        string? customRawPath = CompletionConfiguration.CustomRawPath;
+        if (!string.IsNullOrEmpty(customRawPath) && Directory.Exists(customRawPath))
+        {
+            Log.Information("FindGameRoot: Using custom raw path from configuration: {Path}", customRawPath);
+            return customRawPath;
+        }
+
+        // Second priority: Try to get the game path from environment variable (set by tooling)
         string? taGamePath = Environment.GetEnvironmentVariable("TA_GAME_PATH");
         if (!string.IsNullOrEmpty(taGamePath) && Directory.Exists(taGamePath))
         {

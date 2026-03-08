@@ -19,6 +19,8 @@
 				return 'Home';
 			case '/library':
 				return 'Script API Reference';
+			case '/contributing':
+				return 'Contributing';
 		}
 		return '';
 	});
@@ -31,6 +33,10 @@
 		{
 			label: 'Script API Reference',
 			href: '/library'
+		},
+		{
+			label: 'Contributing',
+			href: '/contributing'
 		}
 	];
 

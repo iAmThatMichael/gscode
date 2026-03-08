@@ -81,51 +81,6 @@ LanguageServer server = await LanguageServer.From(options =>
                 new TextDocumentFilter { Pattern = "**/*.gsh" }
             ));
 		})
-		.OnInitialize(async (server, request, ct) =>
-		{
-			try
-			{
-				// Check if workspace indexing is enabled via InitializationOptions
-				// This is passed by the client during the initialize request, so no need
-				// to make a request back to the client (which would cause warnings)
-				bool enableIndexing = false;
-
-				if (request.InitializationOptions is JToken initOptions)
-				{
-					var gscodeSection = initOptions.SelectToken("gscode");
-					if (gscodeSection is not null)
-					{
-						var indexingSetting = gscodeSection.SelectToken("enableWorkspaceIndexing");
-						if (indexingSetting is not null)
-						{
-							enableIndexing = indexingSetting.Value<bool>();
-						}
-					}
-				}
-
-				if (!enableIndexing)
-				{
-					Log.Information("Workspace indexing is disabled (not enabled in initialization options)");
-					return;
-				}
-
-				Log.Information("Workspace indexing is enabled via initialization options");
-
-				var sm = server.Services.GetRequiredService<ScriptManager>();
-
-				// Use a long-lived CTS for indexing; do not tie to Initialize request token
-				var indexingCts = new CancellationTokenSource();
-				options.RegisterForDisposal(indexingCts);
-				var indexingToken = indexingCts.Token;
-
-				// Defer actual indexing to OnInitialized to ensure server is fully ready
-				await Task.CompletedTask;
-			}
-			catch (Exception ex)
-			{
-				Log.Error(ex, "Failed to process initialization options");
-			}
-		})
 		.OnInitialized(async (server, request, response, ct) =>
 		{
 			try
@@ -163,14 +118,14 @@ LanguageServer server = await LanguageServer.From(options =>
 					{
 						string root = wf.Uri.ToUri().LocalPath;
 						Log.Information("Starting workspace indexing for: {Root}", root);
-						_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), CancellationToken.None);
+						_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), indexingToken);
 					}
 				}
 				else if (request.RootUri is not null)
 				{
 					string root = request.RootUri.ToUri().LocalPath;
 					Log.Information("Starting workspace indexing for: {Root}", root);
-					_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), CancellationToken.None);
+					_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), indexingToken);
 				}
 			}
 			catch (Exception ex)

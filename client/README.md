@@ -6,11 +6,18 @@ GSCode helps you to find and fix errors before the compiler has to tell you, str
 
 ## Requirements
 
-GSCode's language server requires the .NET 8 Runtime, available at [Download .NET 8.0](https://dotnet.microsoft.com/en-us/download/dotnet/8.0). **You do not need the SDK.**
+GSCode's language server requires the .NET 10 Runtime, available at [Download .NET 10.0](https://dotnet.microsoft.com/download/dotnet/10.0). **You do not need the SDK.**
 
 ## Release Notes
 
-### 1.1 (latest)
+### 1.2 (latest)
+
+- Re-added indexing support.
+- Various optimisations and bug fixes.
+
+Special thanks go to [iAmThatMichael](https://github.com/iAmThatMichael) who contributed many of the above changes ([#51](https://github.com/Blakintosh/gscode/pull/51)).
+
+### 1.1 
 
 - Various type system improvements, including new support for inference on entity fields.
 - Added type inference support for built-in functions (via the API).

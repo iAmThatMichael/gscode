@@ -26,6 +26,7 @@
 	import EditReturns from '$components/app/pages/editor/article/EditReturns.svelte';
 	import EditCalledOn from '$components/app/pages/editor/article/EditCalledOn.svelte';
 	import EditParameters from '$components/app/pages/editor/article/EditParameters.svelte';
+	import EditRemarks from '$components/app/pages/editor/article/EditRemarks.svelte';
 	import { Separator } from '$lib/components/ui/separator/index.js';
 	import type { ScrFunction } from '$lib/models/library';
 	import type { FunctionEditor } from '$lib/api-editor/function-editor.svelte';
@@ -39,7 +40,7 @@
 
 	let fn: ScrFunction | undefined = $derived(functionEditor?.function);
 	let name = $derived(fn?.name ?? '');
-	let remarks = $derived(fn?.remarks);
+
 	let overloads = $derived(fn?.overloads ?? []);
 
 	let languageName = $derived.by(() => {
@@ -214,16 +215,8 @@
 						<h2 class="font-medium text-lg lg:text-xl border-b py-2">Usage</h2>
 						<EditExample {functionEditor} />
 
-						{#if remarks}
-							<h2 class="font-medium text-xl border-b py-2">Remarks</h2>
-							<ul class="text-sm list-disc marker:text-muted-foreground pl-8">
-								{#each remarks as remark}
-									<li class="pl-4">
-										{remark}
-									</li>
-								{/each}
-							</ul>
-						{/if}
+						<h2 class="font-medium text-xl border-b py-2">Remarks</h2>
+						<EditRemarks {functionEditor} />
 					</div>
 				</div>
 			</div>

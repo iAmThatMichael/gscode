@@ -24,7 +24,7 @@ namespace GSCode.Parser;
 
 using SymbolKindSA = GSCode.Parser.SA.SymbolKind;
 
-public class Script(DocumentUri ScriptUri, string languageId)
+public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationProvider? globalSymbolProvider = null)
 {
     public bool Failed { get; private set; } = false;
     public bool Parsed { get; private set; } = false;
@@ -37,7 +37,15 @@ public class Script(DocumentUri ScriptUri, string languageId)
     private Task? ParsingTask { get; set; } = null;
     private Task? AnalysisTask { get; set; } = null;
 
+    private readonly TaskCompletionSource _parseInitiated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _analysisInitiated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     private ScriptNode? RootNode { get; set; } = null;
+
+    /// <summary>
+    /// Optional global symbol location provider for workspace-wide O(1) lookups.
+    /// </summary>
+    private ISymbolLocationProvider? GlobalSymbolProvider { get; } = globalSymbolProvider;
 
     public DefinitionsTable? DefinitionsTable { get; private set; } = default;
 
@@ -50,14 +58,24 @@ public class Script(DocumentUri ScriptUri, string languageId)
     private readonly Dictionary<SymbolKey, List<Range>> _references = new();
     public IReadOnlyDictionary<SymbolKey, List<Range>> References => _references;
 
-    // Cache for language API to avoid repeated construction in hot paths
-    private ScriptAnalyserData? _api;
-    private ScriptAnalyserData? TryGetApi()
-    {
-        if (_api is not null) return _api;
-        try { _api = new(LanguageId); } catch { _api = null; }
-        return _api;
-    }
+    // Cached/interned strings for deduplication
+    private string? _scriptFileName;
+    private string ScriptFileName => _scriptFileName ??= Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath);
+
+    // Common markdown format strings (interned for memory efficiency)
+    private static readonly string s_gscCodeBlockStart = string.Intern("```gsc\n");
+    private static readonly string s_codeBlockEnd = string.Intern("\n```");
+    private static readonly string s_markdownSeparator = string.Intern("\n---\n");
+
+    /// <summary>
+    /// Gets the effective namespace - either from DefinitionsTable or falls back to script filename.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private string GetEffectiveNamespace() => DefinitionsTable?.CurrentNamespace ?? ScriptFileName;
+
+    // Use shared API instance to avoid redundant allocations across scripts
+    private ScriptAnalyserData? TryGetApi() => ScriptAnalyserData.GetShared(LanguageId);
+
     private bool IsBuiltinFunction(string name)
     {
         var api = TryGetApi();
@@ -79,6 +97,7 @@ public class Script(DocumentUri ScriptUri, string languageId)
     public async Task ParseAsync(string documentText)
     {
         ParsingTask = DoParseAsync(documentText);
+        _parseInitiated.TrySetResult();
         await ParsingTask;
     }
 
@@ -142,8 +161,7 @@ public class Script(DocumentUri ScriptUri, string languageId)
         }
 
         // Gather signatures for all functions and classes.
-        string initialNamespace = Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath);
-        DefinitionsTable = new(initialNamespace);
+        DefinitionsTable = new(ScriptFileName, GlobalSymbolProvider);
 
         SignatureAnalyser signatureAnalyser = new(RootNode, DefinitionsTable, Sense);
         try
@@ -194,17 +212,6 @@ public class Script(DocumentUri ScriptUri, string languageId)
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Token? NextNonTrivia(Token? token)
-    {
-        Token? t = token?.Next;
-        while (t is not null && (t.IsWhitespacey() || t.IsComment()))
-        {
-            t = t.Next;
-        }
-        return t;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsAddressOfIdentifier(Token identifier)
     {
         // identifier may be part of ns::name; find left-most identifier
@@ -215,24 +222,6 @@ public class Script(DocumentUri ScriptUri, string languageId)
         }
         Token? prev = PreviousNonTrivia(leftMost);
         return prev is not null && prev.Type == TokenType.BitAnd;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsFunctionPointerCallIdentifier(Token identifier)
-    {
-        // Pattern: [[ identifier ]]( ... )
-        // Check immediate surrounding tokens ignoring trivia
-        Token? prev1 = PreviousNonTrivia(identifier);
-        if (prev1?.Type != TokenType.OpenBracket) return false;
-        Token? prev2 = PreviousNonTrivia(prev1);
-        if (prev2?.Type != TokenType.OpenBracket) return false;
-        Token? next1 = NextNonTrivia(identifier);
-        if (next1?.Type != TokenType.CloseBracket) return false;
-        Token? next2 = NextNonTrivia(next1);
-        if (next2?.Type != TokenType.CloseBracket) return false;
-        Token? next3 = NextNonTrivia(next2);
-        if (next3?.Type != TokenType.OpenParen) return false;
-        return true;
     }
 
     private static string NormalizeDocComment(string raw)
@@ -286,13 +275,13 @@ public class Script(DocumentUri ScriptUri, string languageId)
             // Recognize definition identifiers
             if (token.SenseDefinition is ScrFunctionSymbol)
             {
-                var defNamespace = DefinitionsTable?.CurrentNamespace ?? Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath);
+                var defNamespace = GetEffectiveNamespace();
                 AddRef(new SymbolKey(SymbolKindSA.Function, defNamespace, token.Lexeme), token.Range);
                 continue;
             }
             if (token.SenseDefinition is ScrClassSymbol)
             {
-                var defNamespace = DefinitionsTable?.CurrentNamespace ?? Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath);
+                var defNamespace = GetEffectiveNamespace();
                 AddRef(new SymbolKey(SymbolKindSA.Class, defNamespace, token.Lexeme), token.Range);
                 continue;
             }
@@ -314,7 +303,7 @@ public class Script(DocumentUri ScriptUri, string languageId)
             }
 
             // Resolve to a namespace
-            string resolvedNamespace = qual ?? (DefinitionsTable?.CurrentNamespace ?? Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath));
+            string resolvedNamespace = qual ?? GetEffectiveNamespace();
             // Index as function reference for now (method support can be added later)
             AddRef(new SymbolKey(SymbolKindSA.Function, resolvedNamespace, name), token.Range);
         }
@@ -341,8 +330,7 @@ public class Script(DocumentUri ScriptUri, string languageId)
             var bodyRange = GetStmtListRange(fn.Body);
             if (IsPositionInsideRange(position, bodyRange))
             {
-                string ns = DefinitionsTable?.CurrentNamespace ?? Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath);
-                return $"{ns}::{nameTok.Lexeme}";
+                return $"{GetEffectiveNamespace()}::{nameTok.Lexeme}";
             }
         }
         return null;
@@ -486,11 +474,19 @@ public class Script(DocumentUri ScriptUri, string languageId)
         await WaitUntilParsedAsync(cancellationToken);
 
         AnalysisTask = DoAnalyseAsync(exportedSymbols, cancellationToken);
+        _analysisInitiated.TrySetResult();
         await AnalysisTask;
     }
 
     public Task DoAnalyseAsync(IEnumerable<IExportedSymbol> exportedSymbols, CancellationToken cancellationToken = default)
     {
+#if FLAG_PERFORMANCE_TRACKING
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+#endif
+        string fileName = System.IO.Path.GetFileName(ScriptUri.ToUri().LocalPath);
+#if FLAG_PERFORMANCE_TRACKING
+        Log.Debug("[PERF START] SPA-Analysis - File={File}", fileName);
+#endif
 
         // Get a comprehensive list of symbols available in this context.
         Dictionary<string, IExportedSymbol> allSymbols = new(DefinitionsTable!.InternalSymbols, StringComparer.OrdinalIgnoreCase);
@@ -515,6 +511,9 @@ public class Script(DocumentUri ScriptUri, string languageId)
         foreach (var kv in DefinitionsTable.GetAllClassLocations()) knownNamespaces.Add(kv.Key.Namespace);
         knownNamespaces.Add(DefinitionsTable.CurrentNamespace);
 
+#if FLAG_PERFORMANCE_TRACKING
+        Log.Debug("[PERF CHECKPOINT] SPA-Analysis - Pre-ControlFlow: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+#endif
         ControlFlowAnalyser controlFlowAnalyser = new(Sense, DefinitionsTable!);
         try
         {
@@ -529,7 +528,11 @@ public class Script(DocumentUri ScriptUri, string languageId)
             return Task.CompletedTask;
         }
 
-        DataFlowAnalyser dataFlowAnalyser = new(controlFlowAnalyser.FunctionGraphs, controlFlowAnalyser.ClassGraphs, Sense, allSymbols, TryGetApi(), DefinitionsTable.CurrentNamespace, knownNamespaces);
+#if FLAG_PERFORMANCE_TRACKING
+        Log.Debug("[PERF CHECKPOINT] SPA-Analysis - Post-ControlFlow: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+        Log.Debug("[PERF CHECKPOINT] SPA-Analysis - Pre-DataFlow: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+#endif
+        DataFlowAnalyser dataFlowAnalyser = new(controlFlowAnalyser.FunctionGraphs, controlFlowAnalyser.ClassGraphs, Sense, allSymbols, TryGetApi(), DefinitionsTable.CurrentNamespace, knownNamespaces, fileName);
         try
         {
             dataFlowAnalyser.Run();
@@ -543,23 +546,44 @@ public class Script(DocumentUri ScriptUri, string languageId)
             return Task.CompletedTask;
         }
 
+#if FLAG_PERFORMANCE_TRACKING
+        Log.Debug("[PERF CHECKPOINT] SPA-Analysis - Post-DataFlow: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+        Log.Debug("[PERF CHECKPOINT] SPA-Analysis - Pre-BasicDiagnostics: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+#endif
         // TODO: fit this within the analysers above, or a later step.
         // Basic SPA diagnostics
         try
         {
             EmitUnusedParameterDiagnostics();
+#if FLAG_PERFORMANCE_TRACKING
+            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedParameter: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+#endif
             // EmitCallArityDiagnostics(); // Now handled in ReachingDefinitionsAnalyser
             // EmitUnknownNamespaceDiagnostics(); // Now handled in ReachingDefinitionsAnalyser
             EmitUnusedUsingDiagnostics();
+#if FLAG_PERFORMANCE_TRACKING
+            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedUsing: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+#endif
             EmitUnusedVariableDiagnostics();
-            EmitSwitchCaseDiagnostics();
+#if FLAG_PERFORMANCE_TRACKING
+            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedVariable: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+#endif
             EmitAssignOnThreadDiagnostics();
+#if FLAG_PERFORMANCE_TRACKING
+            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-AssignOnThread: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+#endif
         }
         catch (Exception ex)
         {
             // Do not fail analysis entirely; surface as SPA failure
             Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
         }
+
+#if FLAG_PERFORMANCE_TRACKING
+        Log.Debug("[PERF CHECKPOINT] SPA-Analysis - Post-BasicDiagnostics: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+        sw.Stop();
+        Log.Debug("[PERF END] SPA-Analysis completed in {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+#endif
 
         Analysed = true;
         return Task.CompletedTask;
@@ -589,6 +613,31 @@ public class Script(DocumentUri ScriptUri, string languageId)
     public async Task<Hover?> GetHoverAsync(Position position, CancellationToken cancellationToken)
     {
         await WaitUntilAnalysedAsync(cancellationToken);
+
+        // Check if position is on a namespace qualifier (followed by :: and identifier)
+        // If so, forward to the function token for hover resolution
+        Token? initialToken = Sense.Tokens.Get(position);
+        if (initialToken is not null && initialToken.Type == TokenType.Identifier)
+        {
+            Token? nextNonWsCheck = initialToken.Next;
+            while (nextNonWsCheck is not null && nextNonWsCheck.IsWhitespacey())
+            {
+                nextNonWsCheck = nextNonWsCheck.Next;
+            }
+            if (nextNonWsCheck is not null && nextNonWsCheck.Type == TokenType.ScopeResolution)
+            {
+                Token? afterScopeCheck = nextNonWsCheck.Next;
+                while (afterScopeCheck is not null && afterScopeCheck.IsWhitespacey())
+                {
+                    afterScopeCheck = afterScopeCheck.Next;
+                }
+                if (afterScopeCheck is not null && afterScopeCheck.Type == TokenType.Identifier)
+                {
+                    // Forward position to the function token for hover lookup
+                    position = afterScopeCheck.Range.Start;
+                }
+            }
+        }
 
         IHoverable? result = Sense.HoverLibrary.Get(position);
         if (result is not null)
@@ -637,7 +686,7 @@ public class Script(DocumentUri ScriptUri, string languageId)
         }
 
         // Find function/method in current script tables
-        string ns = qualifier ?? (DefinitionsTable?.CurrentNamespace ?? Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath));
+        string ns = qualifier ?? GetEffectiveNamespace();
         string? doc = DefinitionsTable?.GetFunctionDoc(ns, name);
         string[]? parameters = DefinitionsTable?.GetFunctionParameters(ns, name);
 
@@ -655,7 +704,7 @@ public class Script(DocumentUri ScriptUri, string languageId)
                     Contents = new MarkedStringsOrMarkupContent(new MarkupContent
                     {
                         Kind = MarkupKind.Markdown,
-                        Value = $"```gsc\n{proto}\n```"
+                        Value = $"{s_gscCodeBlockStart}{proto}{s_codeBlockEnd}"
                     })
                 };
             }
@@ -669,8 +718,8 @@ public class Script(DocumentUri ScriptUri, string languageId)
 
         string formattedDoc = doc is not null ? NormalizeDocComment(doc) : string.Empty;
         string value = string.IsNullOrEmpty(formattedDoc)
-            ? $"```gsc\n{protoWithParams}\n```"
-            : $"```gsc\n{protoWithParams}\n```\n---\n{formattedDoc}";
+            ? $"{s_gscCodeBlockStart}{protoWithParams}{s_codeBlockEnd}"
+            : $"{s_gscCodeBlockStart}{protoWithParams}{s_codeBlockEnd}{s_markdownSeparator}{formattedDoc}";
 
         return new Hover
         {
@@ -699,21 +748,21 @@ public class Script(DocumentUri ScriptUri, string languageId)
                     string[] names = paramSeq.Select(p => StripDefault(p.Name)).ToArray();
                     string sig = FormatSignature(name, names, activeParam, qualifier);
                     string desc = apiFn.Description ?? string.Empty;
-                    return string.IsNullOrEmpty(desc) ? sig : $"{sig}\n---\n{desc}";
+                    return string.IsNullOrEmpty(desc) ? sig : $"{sig}{s_markdownSeparator}{desc}";
                 }
             }
             catch { }
         }
 
         // Script-defined (local or imported)
-        string ns = qualifier ?? (DefinitionsTable?.CurrentNamespace ?? Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath));
+        string ns = qualifier ?? GetEffectiveNamespace();
         string[]? parms = DefinitionsTable?.GetFunctionParameters(ns, name);
         string? doc = DefinitionsTable?.GetFunctionDoc(ns, name);
         if (parms is not null)
         {
             string sig = FormatSignature(name, parms.Select(StripDefault).ToArray(), activeParam, qualifier);
             string formattedDoc = doc is not null ? NormalizeDocComment(doc) : string.Empty;
-            return string.IsNullOrEmpty(formattedDoc) ? sig : $"{sig}\n---\n{formattedDoc}";
+            return string.IsNullOrEmpty(formattedDoc) ? sig : $"{sig}{s_markdownSeparator}{formattedDoc}";
         }
 
         // Fallback: show empty params signature if symbol exists somewhere
@@ -730,10 +779,10 @@ public class Script(DocumentUri ScriptUri, string languageId)
         string nsPrefix = string.IsNullOrEmpty(qualifier) ? string.Empty : qualifier + "::";
         if (parameters.Count == 0)
         {
-            return $"```gsc\nfunction {nsPrefix}{name}()\n```";
+            return $"{s_gscCodeBlockStart}function {nsPrefix}{name}(){s_codeBlockEnd}";
         }
         var sb = new StringBuilder();
-        sb.Append("```gsc\nfunction ").Append(nsPrefix).Append(name).Append('(');
+        sb.Append(s_gscCodeBlockStart).Append("function ").Append(nsPrefix).Append(name).Append('(');
         for (int i = 0; i < parameters.Count; i++)
         {
             if (i > 0) sb.Append(", ");
@@ -747,7 +796,7 @@ public class Script(DocumentUri ScriptUri, string languageId)
                 sb.Append(p);
             }
         }
-        sb.Append(")\n```");
+        sb.Append(')').Append(s_codeBlockEnd);
         return sb.ToString();
     }
 
@@ -824,9 +873,9 @@ public class Script(DocumentUri ScriptUri, string languageId)
 
         if (ParsingTask is null)
         {
-            throw new InvalidOperationException("The script has not been parsed yet.");
+            await _parseInitiated.Task.WaitAsync(cancellationToken);
         }
-        await ParsingTask;
+        await ParsingTask!;
         cancellationToken.ThrowIfCancellationRequested();
     }
 
@@ -838,9 +887,9 @@ public class Script(DocumentUri ScriptUri, string languageId)
 
         if (AnalysisTask is null)
         {
-            throw new InvalidOperationException("The script has not been parsed yet.");
+            await _analysisInitiated.Task.WaitAsync(cancellationToken);
         }
-        await AnalysisTask;
+        await AnalysisTask!;
         cancellationToken.ThrowIfCancellationRequested();
     }
 
@@ -848,7 +897,9 @@ public class Script(DocumentUri ScriptUri, string languageId)
     {
         await WaitUntilParsedAsync(cancellationToken);
 
-        return DefinitionsTable!.ExportedFunctions ?? [];
+        var functions = DefinitionsTable!.ExportedFunctions ?? [];
+        var classes = DefinitionsTable!.ExportedClasses ?? [];
+        return functions.Cast<IExportedSymbol>().Concat(classes);
     }
 
     /// <summary>
@@ -961,9 +1012,28 @@ public class Script(DocumentUri ScriptUri, string languageId)
         {
             nextNonWs = nextNonWs.Next;
         }
+        // If current token is namespace qualifier (followed by :: and identifier), forward to the function token
+        if (nextNonWs is not null && nextNonWs.Type == TokenType.ScopeResolution)
+        {
+            Token? afterScope = nextNonWs.Next;
+            while (afterScope is not null && afterScope.IsWhitespacey())
+            {
+                afterScope = afterScope.Next;
+            }
+            if (afterScope is not null && afterScope.Type == TokenType.Identifier)
+            {
+                token = afterScope;
+                // Re-evaluate nextNonWs for the new token
+                nextNonWs = token.Next;
+                while (nextNonWs is not null && nextNonWs.IsWhitespacey())
+                {
+                    nextNonWs = nextNonWs.Next;
+                }
+            }
+        }
         bool looksLikeCall = nextNonWs is not null && nextNonWs.Type == TokenType.OpenParen;
         bool isQualified = token.Previous is not null && token.Previous.Type == TokenType.ScopeResolution && token.Previous.Previous is not null && token.Previous.Previous.Type == TokenType.Identifier;
-        bool hasDefinitionSymbol = token.SenseDefinition is ScrFunctionSymbol || token.SenseDefinition is ScrMethodSymbol || token.SenseDefinition is ScrClassSymbol;
+        bool hasDefinitionSymbol = token.SenseDefinition is ScrFunctionSymbol || token.SenseDefinition is ScrMethodSymbol || token.SenseDefinition is ScrClassSymbol || token.SenseDefinition is ScrClassReferenceSymbol;
         bool isAddressOf = IsAddressOfIdentifier(token);
         if (!looksLikeCall && !isQualified && !hasDefinitionSymbol && !isAddressOf)
         {
@@ -984,7 +1054,7 @@ public class Script(DocumentUri ScriptUri, string languageId)
                 var targetUri = new Uri(normalized); return new Location() { Uri = targetUri, Range = loc.Value.Range };
             }
         }
-        string ns = DefinitionsTable?.CurrentNamespace ?? Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath);
+        string ns = GetEffectiveNamespace();
         var localLoc = DefinitionsTable?.GetFunctionLocation(ns, name)
                     ?? DefinitionsTable?.GetClassLocation(ns, name);
         if (localLoc is not null)
@@ -1242,7 +1312,7 @@ public class Script(DocumentUri ScriptUri, string languageId)
         }
 
         // Then script-defined (local or imported) using DefinitionsTable
-        string ns = qualifier ?? (DefinitionsTable?.CurrentNamespace ?? Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath));
+        string ns = qualifier ?? GetEffectiveNamespace();
         string[]? parms = DefinitionsTable?.GetFunctionParameters(ns, name) ?? DefinitionsTable?.GetFunctionParameters(qualifier ?? ns, name);
         string? doc = DefinitionsTable?.GetFunctionDoc(ns, name);
         if (parms is not null)
@@ -1311,161 +1381,6 @@ public class Script(DocumentUri ScriptUri, string languageId)
             }
         }
     }
-
-    // NOTE: This method has been replaced by argument count validation in ReachingDefinitionsAnalyser
-    // which properly handles vararg and runs during data flow analysis.
-    // Keeping this commented out for reference.
-    /*
-    private void EmitCallArityDiagnostics()
-    {
-        if (RootNode is null) return;
-        // Build known function param counts for local/dep functions
-        var localParamMap = new Dictionary<(string ns, string name), (int required, int total)>();
-        if (DefinitionsTable is not null)
-        {
-            foreach (var kv in DefinitionsTable.GetAllFunctionParameters())
-            {
-                var key = kv.Key;
-                var values = kv.Value ?? Array.Empty<string>();
-                int total = values.Length;
-                int required = 0;
-                foreach (var v in values)
-                {
-                    if (string.IsNullOrWhiteSpace(v)) continue;
-                    if (!v.Contains('=')) required++;
-                }
-                localParamMap[(key.Namespace, key.Name)] = (required, total);
-            }
-        }
-
-        // Walk all call nodes
-        foreach (var call in EnumerateCalls(RootNode))
-        {
-            string? ns = null;
-            string? name = null;
-            Range reportRange = call.Arguments.Range;
-
-            if (call is FunCallNode fcall)
-            {
-                switch (fcall.Function)
-                {
-                    case IdentifierExprNode id:
-                        name = id.Identifier;
-                        reportRange = fcall.Arguments.Range;
-                        break;
-                    case NamespacedMemberNode nsm:
-                        if (nsm.Namespace is IdentifierExprNode nsId && nsm.Member is IdentifierExprNode member)
-                        {
-                            ns = nsId.Identifier; name = member.Identifier; reportRange = fcall.Arguments.Range;
-                        }
-                        break;
-                }
-            }
-            // MethodCallNode also counts as a call, but we can't reliably infer name for arity; skip
-            if (name is null) continue;
-
-            int argCount = call.Arguments.Arguments.Count;
-
-            // Builtin API arity check
-            if (TryGetApi() is ScriptAnalyserData api)
-            {
-                try
-                {
-                    var apiFn = api.GetApiFunction(name);
-                    if (apiFn is not null && ns is null)
-                    {
-                        int minAny = int.MaxValue; int maxAny = int.MinValue; bool any = false;
-                        foreach (var ov in apiFn.Overloads)
-                        {
-                            int total = ov.Parameters.Count;
-                            int req = ov.Parameters.Count(p => p.Mandatory == true);
-                            minAny = Math.Min(minAny, req);
-                            maxAny = Math.Max(maxAny, total);
-                            any = true;
-                        }
-                        if (any)
-                        {
-                            // remove on purpose: too few arguments is very common due to optional params and overloads
-                            // TODO: both disabled due to API - re-enable when we're comfortable with the API or have some middle ground solution
-                            //if (argCount < minAny)
-                            //{
-                            //    Sense.AddSpaDiagnostic(reportRange, GSCErrorCodes.TooFewArguments, name, argCount, minAny);
-                            //    continue;
-                            //}
-                            // if (argCount > maxAny)
-                            // {
-                            //     Sense.AddSpaDiagnostic(reportRange, GSCErrorCodes.TooManyArguments, name, argCount, maxAny);
-                            //     continue;
-                            // }
-                            // If within some overload's min/max, we assume OK (type checking not implemented)
-                            continue;
-                        }
-                    }
-                }
-                catch { }
-            }
-
-            // Local/dep function arity check via DefinitionsTable
-            string lookupNs = ns ?? (DefinitionsTable?.CurrentNamespace ?? Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath));
-            (int required, int total) paramInfo;
-            if (!localParamMap.TryGetValue((lookupNs, name), out paramInfo))
-            {
-                // try any namespace entry for this name if not namespaced
-                if (ns is null && localParamMap.Count > 0)
-                {
-                    bool found = false;
-                    foreach (var kv in localParamMap)
-                    {
-                        if (string.Equals(kv.Key.name, name, StringComparison.OrdinalIgnoreCase))
-                        {
-                            paramInfo = kv.Value;
-                            lookupNs = kv.Key.ns;
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found)
-                    {
-                        continue; // unknown symbol; skip
-                    }
-                }
-                else
-                {
-                    continue;
-                }
-            }
-
-            // removed on purpose : too few arguments is very common due to optional params and overloads
-            //if (argCount < paramInfo.required)
-            //{
-            //    Sense.AddSpaDiagnostic(reportRange, GSCErrorCodes.TooFewArguments, name, argCount, paramInfo.required);
-            //}
-            //else 
-            if (paramInfo.total >= 0 && argCount > paramInfo.total)
-            {
-                Sense.AddSpaDiagnostic(reportRange, GSCErrorCodes.TooManyArguments, name, argCount, paramInfo.total);
-            }
-        }
-    }
-    */
-
-    // Now handled later in analysis
-    // private void EmitUnknownNamespaceDiagnostics()
-    // {
-    //     if (RootNode is null || DefinitionsTable is null) return;
-    //     HashSet<string> known = new(StringComparer.OrdinalIgnoreCase);
-    //     foreach (var kv in DefinitionsTable.GetAllFunctionLocations()) known.Add(kv.Key.Namespace);
-    //     foreach (var kv in DefinitionsTable.GetAllClassLocations()) known.Add(kv.Key.Namespace);
-    //     known.Add(DefinitionsTable.CurrentNamespace);
-
-    //     foreach (var nsm in EnumerateNamespacedMembers(RootNode))
-    //     {
-    //         if (nsm.Namespace is IdentifierExprNode nsId && !known.Contains(nsId.Identifier))
-    //         {
-    //             Sense.AddSpaDiagnostic(nsId.Range, GSCErrorCodes.UnknownNamespace, nsId.Identifier);
-    //         }
-    //     }
-    // }
 
     private void EmitUnusedUsingDiagnostics()
     {
@@ -1555,105 +1470,6 @@ public class Script(DocumentUri ScriptUri, string languageId)
         {
             CollectIdentifierCounts(child, into);
         }
-    }
-
-    private void EmitSwitchCaseDiagnostics()
-    {
-        if (RootNode is null) return;
-        foreach (var sw in EnumerateSwitches(RootNode))
-        {
-            HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
-            // bool defaultSeen = false;
-            var list = sw.Cases.Cases;
-            for (var node = list.First; node is not null; node = node.Next)
-            {
-                var cs = node.Value;
-                bool isLast = node.Next is null;
-                // Handle labels
-                foreach (var label in cs.Labels)
-                {
-                    // Now handled in CFA
-                    // if (label.NodeType == AstNodeType.DefaultLabel)
-                    // {
-                    //     if (defaultSeen)
-                    //     {
-                    //         // Multiple default labels
-                    //         Range r = GetCaseLabelOrBodyRange(cs, sw);
-                    //         Sense.AddSpaDiagnostic(r, GSCErrorCodes.MultipleDefaultLabels);
-                    //         // Also mark as unreachable
-                    //         Sense.AddSpaDiagnostic(r, GSCErrorCodes.UnreachableCase);
-                    //     }
-                    //     else
-                    //     {
-                    //         defaultSeen = true;
-                    //     }
-                    // }
-                    // else 
-                    // if (label.NodeType == AstNodeType.CaseLabel && label.Value is not null)
-                    // {
-                    //     if (TryEvaluateCaseLabelConstant(label.Value, out string key))
-                    //     {
-                    //         if (!seen.Add(key))
-                    //         {
-                    //             // Duplicate label value in the same switch
-                    //             Sense.AddSpaDiagnostic(label.Value.Range, GSCErrorCodes.DuplicateCaseLabel);
-                    //             Sense.AddSpaDiagnostic(label.Value.Range, GSCErrorCodes.UnreachableCase);
-                    //         }
-                    //     }
-                    // }
-                }
-
-                // Fallthrough detection: if not the last case and body does not terminate with break/return
-                // Needs to account for control flow, will be handled elsewhere.
-                // if (!isLast)
-                // {
-                //     if (!HasTerminatingBreakOrReturn(cs.Body))
-                //     {
-                //         Range r = GetCaseLabelOrBodyRange(cs, sw);
-                //         Sense.AddSpaDiagnostic(r, GSCErrorCodes.FallthroughCase);
-                //     }
-                // }
-            }
-        }
-    }
-
-    private static bool TryEvaluateCaseLabelConstant(ExprNode expr, out string key)
-    {
-        key = string.Empty;
-        if (expr is DataExprNode den)
-        {
-            // Encode type in key to avoid collisions between e.g., string "1" and int 1
-            key = den.Type switch
-            {
-                ScrDataTypes.Int => $"int:{den.Value}",
-                ScrDataTypes.Float => $"float:{den.Value}",
-                ScrDataTypes.String => $"str:{den.Value}",
-                ScrDataTypes.IString => $"istr:{den.Value}",
-                ScrDataTypes.Hash => $"hash:{den.Value}",
-                ScrDataTypes.Bool => $"bool:{den.Value}",
-                _ => string.Empty
-            };
-            return key.Length > 0;
-        }
-        return false;
-    }
-
-    private static bool HasTerminatingBreakOrReturn(StmtListNode body)
-    {
-        // First, check top-level statements in the case body
-        if (HasTopLevelTerminator(body))
-        {
-            return true;
-        }
-
-        // If the body is just a scoped brace block (e.g., case X: { ... })
-        // then recurse one level into that block and check its top-level statements
-        if (body.Statements.Count == 1 && body.Statements.First!.Value is StmtListNode inner)
-        {
-            return HasTopLevelTerminator(inner);
-        }
-
-        return false;
     }
 
     private static bool HasTopLevelTerminator(StmtListNode block)
@@ -1789,6 +1605,25 @@ public class Script(DocumentUri ScriptUri, string languageId)
     private void EmitAssignOnThreadDiagnostics()
     {
         if (RootNode is null) return;
+
+        // Early exit: Check if there are any thread calls in the entire file first
+        // This avoids expensive nested enumeration if there's nothing to check
+        bool hasAnyThreadCalls = false;
+        foreach (var node in EnumerateChildren(RootNode))
+        {
+            if (ContainsThreadCallQuickCheck(node))
+            {
+                hasAnyThreadCalls = true;
+                break;
+            }
+        }
+
+        if (!hasAnyThreadCalls)
+        {
+            return; // No thread calls in file, skip expensive analysis
+        }
+
+        // Proceed with full analysis only if thread calls exist
         var cache = new Dictionary<AstNode, bool>(ReferenceEqualityComparer.Instance);
         foreach (var fn in EnumerateFunctions(RootNode))
         {
@@ -1803,6 +1638,24 @@ public class Script(DocumentUri ScriptUri, string languageId)
                 }
             }
         }
+    }
+
+    // Quick shallow check for thread token without deep recursion
+    private static bool ContainsThreadCallQuickCheck(AstNode node)
+    {
+        if (node is PrefixExprNode pe && pe.Operation == TokenType.Thread)
+        {
+            return true;
+        }
+        // Only check immediate children, not deep recursion
+        foreach (var child in EnumerateChildren(node))
+        {
+            if (child is PrefixExprNode pec && pec.Operation == TokenType.Thread)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static IEnumerable<AstNode> EnumerateChildren(AstNode node)

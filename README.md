@@ -12,6 +12,10 @@ As GSCode is an indepedent implementation of a GSC language parser, it may not i
 
 With that in mind, if you encounter any situations where the GSC compiler (Linker) reports an error, but GSCode does not, this constitutes an issue. You can report these issues to the [issue tracker on GitHub](https://github.com/Blakintosh/gscode/issues); please provide the expected error and attach a script that can reproduce the issue. Issues reporting bugs in isolated script cases without attaching a script (snippet) will not be looked into!
 
+## Requirements
+
+GSCode's language server requires the .NET 10 Runtime, available at [Download .NET 10.0](https://dotnet.microsoft.com/download/dotnet/10.0). **You do not need the SDK.**
+
 ## Licence
 
 GSCode is open-source software licenced under the GNU General Public License v3.0.

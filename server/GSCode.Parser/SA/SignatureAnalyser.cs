@@ -88,6 +88,12 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         DefinitionsTable.AddClass(scrClass, classDefn);
 
         Sense.AddSenseToken(nameToken, new ScrClassSymbol(nameToken, scrClass));
+
+        // Enable GoTo Definition for base class name
+        if (classDefn.InheritsFromToken is Token baseClassToken)
+        {
+            Sense.AddSenseToken(baseClassToken, new ScrClassReferenceSymbol(baseClassToken, baseClassToken.Lexeme));
+        }
     }
 
     private void AnalyseClassFunction(ScrClass scrClass, FunDefnNode functionDefn)
@@ -121,7 +127,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
                 }
             ],
 
-            Flags = ["userdefined"],
+            Flags = [],
             Private = functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Private)
         };
 
@@ -134,8 +140,14 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         DefinitionsTable.RecordFunctionParameters(DefinitionsTable.CurrentNamespace, name, (function.Overloads[0].Parameters ?? new List<ScrFunctionArg>()).Select(a => a.Name));
         // Record flags (private, autoexec)
         var flags = new List<string>();
-        if (function.Private) flags.Add("private");
-        if (functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Autoexec)) flags.Add("autoexec");
+        if (function.Private)
+        {
+            flags.Add("private");
+        }
+        if (functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Autoexec))
+        {
+            flags.Add("autoexec");
+        }
         DefinitionsTable.RecordFunctionFlags(DefinitionsTable.CurrentNamespace, name, flags);
 
         // Record doc comment if present
@@ -247,7 +259,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
                     Vararg = functionDefn.Parameters.Vararg
                 }
             ],
-            Flags = ["userdefined"],
+            Flags = [],
             Private = functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Private),
             DocComment = ExtractDocCommentBefore(nameToken)
         };
@@ -261,8 +273,14 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         DefinitionsTable.RecordFunctionParameters(DefinitionsTable.CurrentNamespace, name, (function.Overloads[0].Parameters ?? new List<ScrFunctionArg>()).Select(a => a.Name));
         // Record flags (private, autoexec)
         var flags = new List<string>();
-        if (function.Private) flags.Add("private");
-        if (functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Autoexec)) flags.Add("autoexec");
+        if (function.Private)
+        {
+            flags.Add("private");
+        }
+        if (functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Autoexec))
+        {
+            flags.Add("autoexec");
+        }
         DefinitionsTable.RecordFunctionFlags(DefinitionsTable.CurrentNamespace, name, flags);
 
         // Record doc comment if present
@@ -645,6 +663,28 @@ internal record ScrClassSymbol(Token NameToken, ScrClass Source) : ISenseDefinit
             {
                 Kind = MarkupKind.Markdown,
                 Value = "```gsc\nclass " + Source.Name + "\n```"
+            })
+        };
+    }
+}
+
+internal record ScrClassReferenceSymbol(Token NameToken, string ClassName) : ISenseDefinition
+{
+    public bool IsFromPreprocessor { get; } = false;
+    public Range Range { get; } = NameToken.Range;
+
+    public string SemanticTokenType { get; } = "class";
+    public string[] SemanticTokenModifiers { get; } = [];
+
+    public Hover GetHover()
+    {
+        return new()
+        {
+            Range = Range,
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
+            {
+                Kind = MarkupKind.Markdown,
+                Value = "```gsc\nclass " + ClassName + "\n```"
             })
         };
     }

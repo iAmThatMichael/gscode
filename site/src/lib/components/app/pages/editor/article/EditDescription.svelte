@@ -30,16 +30,19 @@
 </script>
 
 {#if editing}
-	<Textarea
-		bind:ref={textareaRef}
-		value={functionEditor.function.description ?? ''}
-		oninput={(e) => functionEditor.setDescription(e.currentTarget.value)}
-		onblur={stopEditing}
-		onkeydown={handleKeydown}
-		placeholder="Add a description..."
-		rows={2}
-		class="text-base lg:text-xl text-muted-foreground resize-none"
-	/>
+	<div>
+		<Textarea
+			bind:ref={textareaRef}
+			value={functionEditor.function.description ?? ''}
+			oninput={(e) => functionEditor.setDescription(e.currentTarget.value)}
+			onblur={stopEditing}
+			onkeydown={handleKeydown}
+			placeholder="Add a description..."
+			rows={2}
+			class="text-base lg:text-xl text-muted-foreground resize-none"
+		/>
+		<p class="text-xs text-muted-foreground mt-1 px-2">Statement sentence in American English, ending with a period.</p>
+	</div>
 {:else}
 	<button
 		type="button"

@@ -183,7 +183,8 @@ export function activate(context: ExtensionContext) {
 
         // For certain settings that require reload, prompt the user
         if (e.affectsConfiguration('gscode.serverLogLevel') ||
-            e.affectsConfiguration('gscode.workspaceIndexingMode')) {
+            e.affectsConfiguration('gscode.workspaceIndexingMode') ||
+            e.affectsConfiguration('gscode.customRawPath')) {
 
           // Prevent multiple prompts
           if (pendingReload) {

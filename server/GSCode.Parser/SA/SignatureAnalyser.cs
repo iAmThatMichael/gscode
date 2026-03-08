@@ -107,9 +107,16 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         string name = nameToken.Lexeme;
 
-        // Extract doc comment if present and determine mandatory parameters
-        string? doc = ExtractDocCommentBefore(nameToken, DefinitionsTable.CurrentNamespace);
-        var mandatoryParams = ExtractMandatoryParameters(doc);
+        // Extract raw doc comment token
+        Token? docCommentToken = FindDocCommentTokenBefore(nameToken);
+
+        // Parse mandatory parameters from raw text
+        var mandatoryParams = ExtractMandatoryParametersFromRaw(docCommentToken?.Lexeme);
+
+        // Store the SANITIZED (but not markdown-formatted) doc comment
+        string? doc = docCommentToken != null 
+            ? DocCommentHelper.Sanitize(docCommentToken.Lexeme)
+            : null;
 
         // Analyze the parameter list with mandatory parameter information
         IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters, mandatoryParams);
@@ -179,7 +186,11 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
             return;
         }
 
-        string? doc = ExtractDocCommentBefore(nameToken, DefinitionsTable.CurrentNamespace);
+        // Extract raw doc comment token and sanitize it
+        Token? docCommentToken = FindDocCommentTokenBefore(nameToken);
+        string? doc = docCommentToken != null 
+            ? DocCommentHelper.Sanitize(docCommentToken.Lexeme)
+            : null;
 
         ScrMember member = new()
         {
@@ -245,9 +256,17 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         string name = nameToken.Lexeme;
 
-        // Extract doc comment to determine mandatory parameters
-        string? docComment = ExtractDocCommentBefore(nameToken, DefinitionsTable.CurrentNamespace);
-        var mandatoryParams = ExtractMandatoryParameters(docComment);
+        // Extract raw doc comment token
+        Token? docCommentToken = FindDocCommentTokenBefore(nameToken);
+
+        // Parse mandatory parameters from raw text
+        var mandatoryParams = ExtractMandatoryParametersFromRaw(docCommentToken?.Lexeme);
+
+        // Store the SANITIZED (but not markdown-formatted) doc comment
+        // The Documentation property will format it later when needed
+        string? docComment = docCommentToken != null 
+            ? DocCommentHelper.Sanitize(docCommentToken.Lexeme)
+            : null;
 
         // Analyze the parameter list with mandatory parameter information
         IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters, mandatoryParams);
@@ -348,42 +367,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         return result;
     }
 
-    private static HashSet<string> ExtractMandatoryParameters(string? docComment)
-    {
-        var mandatoryParams = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        if (string.IsNullOrWhiteSpace(docComment))
-        {
-            return mandatoryParams;
-        }
-
-        // Parse doc comment for MandatoryArg entries
-        string[] lines = docComment.Split('\n');
-        foreach (var line in lines)
-        {
-            var match = s_kv.Match(line);
-            if (!match.Success) continue;
-
-            string key = match.Groups["k"].Value.Trim().ToLowerInvariant();
-            string val = match.Groups["v"].Value.Trim();
-
-            if (key == "mandatoryarg")
-            {
-                var argMatch = s_argPattern.Match(val);
-                if (argMatch.Success)
-                {
-                    string paramName = argMatch.Groups["n"].Value.Trim();
-                    // Remove angle brackets and square brackets
-                    paramName = paramName.Replace("<", "").Replace(">", "").Replace("[", "").Replace("]", "");
-                    mandatoryParams.Add(paramName);
-                }
-            }
-        }
-
-        return mandatoryParams;
-    }
-
-    private static string? ExtractDocCommentBefore(Token nameToken, string? ns)
+    private static Token? FindDocCommentTokenBefore(Token nameToken)
     {
         while (nameToken.Range.Start.Line > 0 && nameToken.Type != TokenType.LineBreak)
         {
@@ -410,150 +394,46 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         if (nameToken.Previous.Type == TokenType.DocComment)
         {
-            return SanitizeDocForMarkdown(nameToken.Previous.Lexeme, ns);
+            return nameToken.Previous;
         }
 
         return null;
     }
 
-    private static string SanitizeDocForMarkdown(string lexeme, string? ns)
+    private static HashSet<string> ExtractMandatoryParametersFromRaw(string? rawDocComment)
     {
-        // Use shared doc comment sanitizer for initial cleanup
-        string[] lines = DocCommentHelper.Sanitize(lexeme).Split('\n');
+        var mandatoryParams = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Parse into fields
-        string? name = null, summary = null, module = null, callOn = null, spmp = null;
-        var mandatory = new List<(string Arg, string Desc)>();
-        var optional = new List<(string Arg, string Desc)>();
-        var examples = new List<string>();
-
-        foreach (var l in lines)
+        if (string.IsNullOrWhiteSpace(rawDocComment))
         {
-            var m = s_kv.Match(l);
-            if (!m.Success) continue;
-            string key = m.Groups["k"].Value.Trim().ToLowerInvariant();
-            string val = m.Groups["v"].Value.Trim();
+            return mandatoryParams;
+        }
 
-            switch (key)
+        // Parse RAW doc comment (before markdown formatting) for MandatoryArg entries
+        // Use DocCommentHelper.Sanitize to get clean lines but don't format to markdown yet
+        string[] lines = DocCommentHelper.Sanitize(rawDocComment).Split('\n');
+        foreach (var line in lines)
+        {
+            var match = s_kv.Match(line);
+            if (!match.Success) continue;
+
+            string key = match.Groups["k"].Value.Trim().ToLowerInvariant();
+            string val = match.Groups["v"].Value.Trim();
+
+            if (key == "mandatoryarg")
             {
-                case "name":
-                    name = val;
-                    break;
-                case "summary":
-                    summary = val;
-                    break;
-                case "module":
-                    module = val;
-                    break;
-                case "callon":
-                    callOn = string.IsNullOrWhiteSpace(val) ? "UNKNOWN" : val;
-                    break;
-                case "spmp":
-                    spmp = val;
-                    break;
-                case "mandatoryarg":
-                    {
-                        var am = s_argPattern.Match(val);
-                        if (am.Success)
-                        {
-                            string a = am.Groups["n"].Value.Trim();
-                            string d = am.Groups["d"].Value.Trim();
-
-                            a = a.Replace("<", "").Replace(">", "");
-                            a = a.Replace("[", "").Replace("]", "");
-
-                            mandatory.Add((a, d));
-                        }
-                        break;
-                    }
-                case "optionalarg":
-                    {
-                        var am = s_argPattern.Match(val);
-                        if (am.Success)
-                        {
-                            string a = am.Groups["n"].Value.Trim();
-                            string d = am.Groups["d"].Value.Trim();
-
-                            a = a.Replace("<", "").Replace(">", "");
-                            a = a.Replace("[", "").Replace("]", "");
-
-                            optional.Add((a, d));
-                        }
-                        break;
-                    }
-                case "example":
-                    examples.Add(val);
-                    break;
+                var argMatch = s_argPattern.Match(val);
+                if (argMatch.Success)
+                {
+                    string paramName = argMatch.Groups["n"].Value.Trim();
+                    // Remove angle brackets and square brackets
+                    paramName = paramName.Replace("<", "").Replace(">", "").Replace("[", "").Replace("]", "");
+                    mandatoryParams.Add(paramName);
+                }
             }
         }
 
-        // If parsing found nothing significant, fall back to cleaned plain text
-        if (name is null && summary is null && module is null && callOn is null && spmp is null && mandatory.Count == 0 && optional.Count == 0 && examples.Count == 0)
-        {
-            return string.Join('\n', lines).Trim();
-        }
-
-        // Render Markdown
-        StringBuilder sb = new();
-
-        if (!string.IsNullOrWhiteSpace(name))
-        {
-            sb.AppendLine("```gsc");
-            // Only add namespace prefix if name doesn't already contain it
-            if (!string.IsNullOrWhiteSpace(ns) && !name.StartsWith(ns + "::"))
-            {
-                sb.AppendLine(ns + "::" + name);
-            }
-            else
-            {
-                sb.AppendLine(name);
-            }
-            sb.AppendLine("```");
-            sb.AppendLine("---");
-        }
-
-        if (!string.IsNullOrWhiteSpace(summary))
-        {
-            sb.AppendLine(summary);
-            sb.AppendLine();
-            sb.AppendLine("---");
-        }
-
-        if (!string.IsNullOrWhiteSpace(module) || !string.IsNullOrWhiteSpace(callOn) || !string.IsNullOrWhiteSpace(spmp))
-        {
-            sb.AppendLine("Region:");
-            sb.AppendLine();
-            if (!string.IsNullOrWhiteSpace(callOn)) sb.AppendLine($"* Called on: `<{callOn}>`");
-            if (!string.IsNullOrWhiteSpace(spmp)) sb.AppendLine($"* SPMP: `{spmp}`");
-            if (!string.IsNullOrWhiteSpace(module)) sb.AppendLine($"* Module: `{module}`");
-            sb.AppendLine();
-            sb.AppendLine("---");
-        }
-
-        if (mandatory.Count > 0 || optional.Count > 0)
-        {
-            sb.AppendLine("Parameters:");
-            foreach (var (a, d) in mandatory)
-            {
-                sb.AppendLine($"* `<{a}>` {d}");
-            }
-            foreach (var (a, d) in optional)
-            {
-                sb.AppendLine($"* `[{a}]` {d}");
-            }
-            sb.AppendLine();
-            sb.AppendLine("---");
-        }
-
-        foreach (var ex in examples)
-        {
-            sb.AppendLine("Example:");
-            sb.AppendLine("```gsc");
-            sb.AppendLine(ex);
-            sb.AppendLine("```");
-        }
-
-        return sb.ToString().Trim();
+        return mandatoryParams;
     }
 
     private static string? BuildPrototype(string? ns, string name, IEnumerable<ScrFunctionArg>? args)
@@ -575,34 +455,7 @@ internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseD
 
     public virtual Hover GetHover()
     {
-        // Prefer user doc comment, if present
-        if (!string.IsNullOrWhiteSpace(Source.DocComment))
-        {
-            return new()
-            {
-                Range = Range,
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = Source.DocComment
-                })
-            };
-        }
-
-        StringBuilder builder = new();
-
-        builder.AppendLine("```gsc");
-        builder.Append($"function {Source.Name}(");
-
-        bool first = true;
-        foreach (ScrFunctionArg parameter in Source.Overloads[0].Parameters ?? [])
-        {
-            AppendParameter(builder, parameter, ref first);
-        }
-        builder.AppendLine(")");
-        builder.AppendLine("```");
-
-
+        // Always use the Documentation property which handles formatting
         return new()
         {
             Range = Range,
@@ -687,27 +540,14 @@ internal record ScrClassMemberSymbol(Token NameToken, ScrMember Source, ScrClass
 
     public Hover GetHover()
     {
-        // Prefer user doc comment, if present
-        if (!string.IsNullOrWhiteSpace(Source.DocComment))
-        {
-            return new()
-            {
-                Range = Range,
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = Source.DocComment
-                })
-            };
-        }
-
+        // Always use the Documentation property which handles formatting
         return new()
         {
             Range = Range,
             Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
             {
                 Kind = MarkupKind.Markdown,
-                Value = $"```gsc\n{ClassSource.Name}.{Source.Name}\n```"
+                Value = Source.Documentation
             })
         };
     }

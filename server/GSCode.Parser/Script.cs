@@ -583,14 +583,19 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         IHoverable? hoverable = Sense.HoverLibrary.Get(position);
         if (hoverable is not null)
         {
+            Log.Debug("[HOVER] Priority 0: Returning hoverable from library at position {Pos}", position);
             return hoverable.GetHover();
         }
 
         Token? token = Sense.Tokens.Get(position);
         if (token is null)
         {
+            Log.Debug("[HOVER] No token found at position {Pos}", position);
             return null;
         }
+
+        Log.Debug("[HOVER] Found token: Type={Type}, Lexeme='{Lexeme}' at position {Pos}", 
+            token.Type, token.Lexeme, position);
 
         // Priority 1: If inside a function call's parentheses, show signature with highlighted parameter
         // But NOT if we're hovering on the function name itself - that should show the normal hover
@@ -601,13 +606,20 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
             if (!isOnFunctionIdentifier)
             {
+                Log.Debug("[HOVER] Priority 1: Inside function call, building signature hover for '{Func}' with active param {Param}", 
+                    callIdToken?.Lexeme ?? "unknown", activeParam);
                 return BuildCallSignatureHover(callIdToken, activeParam);
+            }
+            else
+            {
+                Log.Debug("[HOVER] Priority 1: On function identifier itself, skipping signature hover");
             }
         }
 
         // Priority 2: If hovering on namespace qualifier, forward to the actual function
         if (token.Type == TokenType.Identifier && TryGetQualifiedFunctionToken(token, out Token? functionToken))
         {
+            Log.Debug("[HOVER] Priority 2: Namespace qualifier detected, forwarding to function token");
             token = functionToken;
         }
 
@@ -616,6 +628,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         hoverable = Sense.HoverLibrary.Get(token.Range.Start);
         if (hoverable is not null)
         {
+            Log.Debug("[HOVER] Priority 3: Returning hoverable for resolved token at position {Pos}", token.Range.Start);
             return hoverable.GetHover();
         }
 
@@ -670,32 +683,70 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     {
         var (qualifier, funcName) = ParseNamespaceQualifiedIdentifier(functionToken);
 
+        Log.Debug("[HOVER] BuildCallSignatureHover: funcName='{FuncName}', qualifier='{Qualifier}', token.SenseDefinition={SenseDefType}",
+            funcName, qualifier ?? "(none)", functionToken.SenseDefinition?.GetType().Name ?? "null");
+
         // Try to get the function definition to show its full documentation
         ScrFunction? function = null;
 
         // First, check if the function token has a SenseDefinition with the function
         if (functionToken.SenseDefinition is ScrFunctionSymbol funcSymbol)
         {
+            Log.Debug("[HOVER] Found function via ScrFunctionSymbol");
             function = funcSymbol.Source;
         }
         else if (functionToken.SenseDefinition is ScrMethodSymbol methodSymbol)
         {
+            Log.Debug("[HOVER] Found function via ScrMethodSymbol");
             function = methodSymbol.Source;
+        }
+        else if (functionToken.SenseDefinition is ScrFunctionReferenceSymbol refSymbol)
+        {
+            Log.Debug("[HOVER] Found ScrFunctionReferenceSymbol, looking up function in definitions table");
+            // Function reference doesn't contain the full function, need to look it up
+            string ns = qualifier ?? GetEffectiveNamespace();
+
+            // Try to get from local definitions first
+            var localFunc = DefinitionsTable?.LocalScopedFunctions
+                .FirstOrDefault(f => string.Equals(f.Item1.Name, funcName, StringComparison.OrdinalIgnoreCase) &&
+                                   string.Equals(f.Item1.Namespace, ns, StringComparison.OrdinalIgnoreCase));
+
+            if (localFunc != default)
+            {
+                Log.Debug("[HOVER] Found function in LocalScopedFunctions: ns={Ns}, name={Name}", ns, funcName);
+                function = localFunc.Item1;
+            }
+            else
+            {
+                // Try internal symbols (from other scripts)
+                string qualifiedName = string.IsNullOrEmpty(qualifier) ? funcName : $"{qualifier}::{funcName}";
+                if (DefinitionsTable?.InternalSymbols.TryGetValue(qualifiedName, out var symbol) == true && symbol is ScrFunction internalFunc)
+                {
+                    Log.Debug("[HOVER] Found function in InternalSymbols: qualifiedName={QualifiedName}", qualifiedName);
+                    function = internalFunc;
+                }
+            }
         }
 
         // If not in sense, check if it's a built-in API function
         if (function is null)
         {
+            Log.Debug("[HOVER] Trying API lookup for function '{FuncName}'", funcName);
             var api = TryGetApi();
             if (api is not null)
             {
                 function = api.GetApiFunction(funcName);
+                if (function is not null)
+                {
+                    Log.Debug("[HOVER] Found function in API");
+                }
             }
         }
 
         // If we found the function, use its full Documentation
         if (function is not null)
         {
+            Log.Information("[HOVER] Using function.Documentation for '{FuncName}'", funcName);
             return new Hover
             {
                 Range = functionToken.Range,
@@ -706,6 +757,8 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
                 })
             };
         }
+
+        Log.Debug("[HOVER] Function not found, falling back to BuildSignatureMarkdown");
 
         // Fallback: use simplified signature if function not found
         string? markdown = BuildSignatureMarkdown(funcName, qualifier, activeParam);

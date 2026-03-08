@@ -663,39 +663,35 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         string insertText = includeNamespace ? $"{function.Namespace}::{function.Name}" : function.Name;
 
         // Generate snippet-formatted parameters with tabstops
-        if (function.Overloads.First().Parameters.Count > 0)
+        // Only include mandatory parameters; skip optional parameters
+        var mandatoryParams = function.Overloads.First().Parameters
+            .Where(p => p.Mandatory.GetValueOrDefault(false))
+            .ToList();
+
+        if (mandatoryParams.Count > 0)
         {
             insertText += "(";
 
-            // Create snippet-formatted parameter list with tabstops
+            // Create snippet-formatted parameter list with tabstops for mandatory parameters only
             List<string> paramSnippets = new List<string>();
             int tabIndex = 1;
 
-            foreach (var param in function.Overloads.First().Parameters)
+            foreach (var param in mandatoryParams)
             {
-                // Add mandatory parameters with tabstops
-                if (param.Mandatory.GetValueOrDefault(false))
-                {
-                    paramSnippets.Add($"${{{tabIndex}:{param.Name ?? $"param{tabIndex}"}}}");
-                    tabIndex++;
-                }
-                // Optional parameters are added with brackets
-                else
-                {
-                    paramSnippets.Add($"${{{tabIndex}:[{param.Name ?? $"optionalParam{tabIndex}"}]}}");
-                    tabIndex++;
-                }
+                paramSnippets.Add($"${{{tabIndex}:{param.Name ?? $"param{tabIndex}"}}}");
+                tabIndex++;
             }
 
             insertText += string.Join(", ", paramSnippets);
-            insertText += ")";
 
-            // Add a final tabstop after the closing parenthesis
-            insertText += "$0";
+            // Place final tabstop inside parentheses (after mandatory params, before closing paren)
+            // This allows user to add optional params if desired
+            insertText += "$0)";
         }
         else
         {
-            insertText += "()$0";
+            // No mandatory parameters - put cursor inside empty parentheses
+            insertText += "($0)";
         }
 
         // Build detail and labelDetails for better differentiation

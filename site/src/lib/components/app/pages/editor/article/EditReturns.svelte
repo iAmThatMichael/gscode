@@ -79,6 +79,7 @@
 						oninput={(e) => functionEditor.setReturnsName(overloadIndex, e.currentTarget.value)}
 						placeholder="e.g. result, player, success"
 					/>
+					<p class="text-xs text-muted-foreground">camelCase, e.g. hasAmmo.</p>
 				</div>
 
 				<div class="flex flex-col gap-2">
@@ -92,6 +93,7 @@
 						rows={2}
 						class="resize-none"
 					/>
+					<p class="text-xs text-muted-foreground">Statement sentence in American English, ending with a period.</p>
 				</div>
 			</div>
 		{/if}

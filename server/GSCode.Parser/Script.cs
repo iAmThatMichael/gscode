@@ -37,6 +37,9 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     private Task? ParsingTask { get; set; } = null;
     private Task? AnalysisTask { get; set; } = null;
 
+    private readonly TaskCompletionSource _parseInitiated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _analysisInitiated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     private ScriptNode? RootNode { get; set; } = null;
 
     /// <summary>
@@ -94,6 +97,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     public async Task ParseAsync(string documentText)
     {
         ParsingTask = DoParseAsync(documentText);
+        _parseInitiated.TrySetResult();
         await ParsingTask;
     }
 
@@ -470,6 +474,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         await WaitUntilParsedAsync(cancellationToken);
 
         AnalysisTask = DoAnalyseAsync(exportedSymbols, cancellationToken);
+        _analysisInitiated.TrySetResult();
         await AnalysisTask;
     }
 
@@ -868,9 +873,9 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
         if (ParsingTask is null)
         {
-            throw new InvalidOperationException("The script has not been parsed yet.");
+            await _parseInitiated.Task.WaitAsync(cancellationToken);
         }
-        await ParsingTask;
+        await ParsingTask!;
         cancellationToken.ThrowIfCancellationRequested();
     }
 
@@ -882,9 +887,9 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
         if (AnalysisTask is null)
         {
-            throw new InvalidOperationException("The script has not been parsed yet.");
+            await _analysisInitiated.Task.WaitAsync(cancellationToken);
         }
-        await AnalysisTask;
+        await AnalysisTask!;
         cancellationToken.ThrowIfCancellationRequested();
     }
 

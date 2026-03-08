@@ -144,6 +144,9 @@ public class ScriptManager
     // Ensure only one analysis/merge per script at a time
     private readonly ConcurrentDictionary<DocumentUri, SemaphoreSlim> _analysisLocks = new();
 
+    // Editor priority gate: held during editor operations to pause the indexer dispatch loop
+    private readonly SemaphoreSlim _editorPriority = new(1, 1);
+
     public ScriptManager(ILogger<ScriptManager> logger, ILanguageServerFacade? facade = null)
     {
         _cache = new();
@@ -153,29 +156,45 @@ public class ScriptManager
 
     public async Task<IEnumerable<Diagnostic>> AddEditorAsync(TextDocumentItem document, CancellationToken cancellationToken = default)
     {
-        string content = _cache.AddToCache(document);
-        Script script = GetEditor(document);
+        await _editorPriority.WaitAsync(cancellationToken);
+        try
+        {
+            string content = _cache.AddToCache(document);
+            Script script = GetEditor(document);
 
-        return await ProcessEditorAsync(document.Uri.ToUri(), script, content, cancellationToken);
+            return await ProcessEditorAsync(document.Uri.ToUri(), script, content, cancellationToken);
+        }
+        finally
+        {
+            _editorPriority.Release();
+        }
     }
 
     public async Task<IEnumerable<Diagnostic>> UpdateEditorAsync(OptionalVersionedTextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes, CancellationToken cancellationToken = default)
     {
-        string updatedContent = _cache.UpdateCache(document, changes);
-
-        // Check if content actually changed using hash comparison
-        var docUri = document.Uri;
-        int contentHash = updatedContent.GetHashCode();
-
-        if (Scripts.TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
+        await _editorPriority.WaitAsync(cancellationToken);
+        try
         {
-            // Content unchanged, return cached diagnostics
-            return await cached.Script.GetDiagnosticsAsync(cancellationToken);
+            string updatedContent = _cache.UpdateCache(document, changes);
+
+            // Check if content actually changed using hash comparison
+            var docUri = document.Uri;
+            int contentHash = updatedContent.GetHashCode();
+
+            if (Scripts.TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
+            {
+                // Content unchanged, return cached diagnostics
+                return await cached.Script.GetDiagnosticsAsync(cancellationToken);
+            }
+
+            Script script = GetEditor(document);
+
+            return await ProcessEditorAsync(document.Uri.ToUri(), script, updatedContent, cancellationToken);
         }
-
-        Script script = GetEditor(document);
-
-        return await ProcessEditorAsync(document.Uri.ToUri(), script, updatedContent, cancellationToken);
+        finally
+        {
+            _editorPriority.Release();
+        }
     }
 
     private async Task<IEnumerable<Diagnostic>> ProcessEditorAsync(Uri documentUri, Script script, string content, CancellationToken cancellationToken = default)
@@ -626,6 +645,10 @@ public class ScriptManager
             perfTracker.Checkpoint("Start-Indexing");
             foreach (string file in filesList)
             {
+                // Yield to editor operations — pauses dispatch while an editor is being processed
+                await _editorPriority.WaitAsync(cancellationToken);
+                _editorPriority.Release();
+
                 await gate.WaitAsync(cancellationToken);
                 tasks.Add(Task.Run(async () =>
                 {

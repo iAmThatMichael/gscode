@@ -16,7 +16,7 @@ internal ref struct ControlFlowAnalyser(ParserIntelliSense sense, DefinitionsTab
     public DefinitionsTable DefinitionsTable { get; } = definitionsTable;
 
     public List<Tuple<ScrFunction, ControlFlowGraph>> FunctionGraphs { get; } = new();
-    public List<Tuple<ScrClass, ControlFlowGraph>> ClassGraphs { get; } = new();
+    public List<Tuple<ScrClass, List<ControlFlowGraph>>> ClassGraphs { get; } = new();
 
     public void Run()
     {
@@ -30,14 +30,27 @@ internal ref struct ControlFlowAnalyser(ParserIntelliSense sense, DefinitionsTab
             FunctionGraphs.Add(new(pair.Item1, functionGraph));
         }
 
-        // Evaluate & analyse all class bodies
+        // Evaluate & analyse all class bodies — produce independent CFGs per method
         foreach (Tuple<ScrClass, ClassDefnNode> pair in DefinitionsTable.LocalScopedClasses)
         {
-            // Produce a CFG for the class
-            ControlFlowGraph classGraph = ControlFlowGraph.ConstructClassGraph(pair.Item2, Sense);
+            List<ControlFlowGraph> methodGraphs = new();
 
-            // Add the CFG to the list
-            ClassGraphs.Add(new(pair.Item1, classGraph));
+            foreach (AstNode child in pair.Item2.Body.Definitions)
+            {
+                switch (child.NodeType)
+                {
+                    case AstNodeType.FunctionDefinition:
+                        methodGraphs.Add(ControlFlowGraph.ConstructFunctionGraph((FunDefnNode)child, Sense));
+                        break;
+                    case AstNodeType.Constructor:
+                    case AstNodeType.Destructor:
+                        methodGraphs.Add(ControlFlowGraph.ConstructStructorGraph((StructorDefnNode)child, Sense));
+                        break;
+                    // Member declarations (var) are handled via ScrClass.Members — no CFG needed
+                }
+            }
+
+            ClassGraphs.Add(new(pair.Item1, methodGraphs));
         }
     }
 }

@@ -384,21 +384,8 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             Log.Information("  InternalSymbol: Key='{Key}', Type={Type}", kvp.Key, kvp.Value.GetType().Name);
         }
 
-        // Check API functions first (they may have namespace qualifiers)
-        // Get ALL API functions - let the client handle filtering
-        var apiFunctions = _scriptAnalyserData?.GetApiFunctions(string.Empty) ?? [];
-        foreach (var apiFunc in apiFunctions)
-        {
-            // API functions typically don't have explicit namespaces in the definition
-            // But we still show them for any namespace
-            if (!seenIdentifiers.Contains(apiFunc.Name))
-            {
-                completions.Add(CreateCompletionItem(apiFunc, namespaceAlreadyTyped: true));
-                seenIdentifiers.Add(apiFunc.Name);
-            }
-        }
-
-        // Look for functions in the specified namespace
+        // When namespace is specified (e.g., util::), ONLY show functions from that namespace
+        // Do NOT include API functions, macros, or other unrelated completions
         // Try both exact namespace match and the combined key
         string qualifiedPrefix = $"{context.Namespace}::";
         Log.Information("Looking for symbols starting with prefix: '{Prefix}'", qualifiedPrefix);
@@ -712,15 +699,19 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         }
 
         // Build detail and labelDetails for better differentiation
+        string label;
         string detail;
+        string? filterText = null;
         CompletionItemLabelDetails? labelDetails = null;
         CompletionItemKind kind;
         string sortPrefix;
 
         if (includeNamespace)
         {
-            // Functions from other namespaces - show as Method with namespace badge
-            detail = $"function {function.Namespace}::{function.Name}()";
+            // Functions from other namespaces - show namespace::function in label and "function foo()" in detail
+            label = $"{function.Namespace}::{function.Name}";
+            detail = $"function {function.Name}()";
+            filterText = function.Name;  // Filter only on function name, not the namespace prefix
             labelDetails = new CompletionItemLabelDetails
             {
                 Description = function.Namespace  // Shows on right side like "util"
@@ -728,9 +719,19 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             kind = CompletionItemKind.Method;  // Different icon than local functions
             sortPrefix = "2_";  // Sort after local/API functions
         }
+        else if (namespaceAlreadyTyped)
+        {
+            // User already typed namespace::, so just show the function name
+            label = function.Name;
+            detail = $"function {function.Name}()";
+            filterText = function.Name;  // Filter on function name only
+            kind = CompletionItemKind.Function;
+            sortPrefix = "0_";  // Sort first
+        }
         else if (!string.IsNullOrEmpty(function.Description))
         {
             // API functions have descriptions - no badge needed
+            label = function.Name;
             detail = function.Description;
             kind = CompletionItemKind.Function;
             sortPrefix = "0_";  // Sort first
@@ -738,6 +739,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         else
         {
             // Local functions in current file
+            label = function.Name;
             detail = $"function {function.Name}()";
             kind = CompletionItemKind.Function;
             sortPrefix = "1_";  // Sort after API but before namespace functions
@@ -745,9 +747,10 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
         return new CompletionItem()
         {
-            Label = function.Name,
+            Label = label,
             LabelDetails = labelDetails,
             Detail = detail,
+            FilterText = filterText,  // Set FilterText to control VS Code's fuzzy matching
             Documentation = new StringOrMarkupContent(new MarkupContent()
             {
                 Kind = MarkupKind.Markdown,

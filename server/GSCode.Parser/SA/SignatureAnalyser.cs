@@ -107,11 +107,12 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         string name = nameToken.Lexeme;
 
-        // Analyze the parameter list
-        IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters);
-
-        // Extract doc comment if present
+        // Extract doc comment if present and determine mandatory parameters
         string? doc = ExtractDocCommentBefore(nameToken, DefinitionsTable.CurrentNamespace);
+        var mandatoryParams = ExtractMandatoryParameters(doc);
+
+        // Analyze the parameter list with mandatory parameter information
+        IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters, mandatoryParams);
 
         // TODO: Probably needs to be a ScrMethod instead.
         ScrFunction function = new()
@@ -244,9 +245,12 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         string name = nameToken.Lexeme;
 
-        // Analyze the parameter list
-        IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters);
+        // Extract doc comment to determine mandatory parameters
+        string? docComment = ExtractDocCommentBefore(nameToken, DefinitionsTable.CurrentNamespace);
+        var mandatoryParams = ExtractMandatoryParameters(docComment);
 
+        // Analyze the parameter list with mandatory parameter information
+        IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters, mandatoryParams);
 
         ScrFunction function = new()
         {
@@ -263,7 +267,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
             ],
             Flags = [],
             Private = functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Private),
-            DocComment = ExtractDocCommentBefore(nameToken, DefinitionsTable.CurrentNamespace)
+            DocComment = docComment
         };
 
         // Produce a definition for our function
@@ -307,7 +311,8 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
                 Name = parameter.Name,
                 Description = null, // TODO: Check the DOC COMMENT
                 Type = null, // TODO: Check the DOC COMMENT
-                Mandatory = parameter.Default is null,
+                // Read the Mandatory flag directly from the ScrParameter
+                Mandatory = parameter.Mandatory,
                 Default = null // Not sure we can populate this
             });
         }
@@ -315,7 +320,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         return result;
     }
 
-    private List<ScrParameter> AnalyseFunctionParameters(ParamListNode parameters)
+    private List<ScrParameter> AnalyseFunctionParameters(ParamListNode parameters, HashSet<string> mandatoryParams)
     {
         List<ScrParameter> result = new();
         foreach (ParamNode parameter in parameters.Parameters)
@@ -327,18 +332,55 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
             string name = parameter.Name.Lexeme;
             bool byRef = parameter.ByRef;
+            // Check if this parameter is marked as mandatory in the doc comment
+            bool isMandatory = mandatoryParams.Contains(name);
 
             if (parameter.Default is null)
             {
-                result.Add(new ScrParameter(name, nameToken, nameToken.Range, byRef));
+                result.Add(new ScrParameter(name, nameToken, nameToken.Range, byRef, Default: null, Mandatory: isMandatory));
                 continue;
             }
 
             // TODO: do we need to handle defaults now, or leave till later?
-            result.Add(new ScrParameter(name, nameToken, nameToken.Range, byRef, parameter.Default));
+            result.Add(new ScrParameter(name, nameToken, nameToken.Range, byRef, parameter.Default, Mandatory: isMandatory));
         }
 
         return result;
+    }
+
+    private static HashSet<string> ExtractMandatoryParameters(string? docComment)
+    {
+        var mandatoryParams = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (string.IsNullOrWhiteSpace(docComment))
+        {
+            return mandatoryParams;
+        }
+
+        // Parse doc comment for MandatoryArg entries
+        string[] lines = docComment.Split('\n');
+        foreach (var line in lines)
+        {
+            var match = s_kv.Match(line);
+            if (!match.Success) continue;
+
+            string key = match.Groups["k"].Value.Trim().ToLowerInvariant();
+            string val = match.Groups["v"].Value.Trim();
+
+            if (key == "mandatoryarg")
+            {
+                var argMatch = s_argPattern.Match(val);
+                if (argMatch.Success)
+                {
+                    string paramName = argMatch.Groups["n"].Value.Trim();
+                    // Remove angle brackets and square brackets
+                    paramName = paramName.Replace("<", "").Replace(">", "").Replace("[", "").Replace("]", "");
+                    mandatoryParams.Add(paramName);
+                }
+            }
+        }
+
+        return mandatoryParams;
     }
 
     private static string? ExtractDocCommentBefore(Token nameToken, string? ns)

@@ -1,5 +1,6 @@
 using GSCode.Parser.Configuration;
 using GSCode.Parser.Lexical;
+using GSCode.Parser.SA;
 using GSCode.Parser.SPA;
 using OmniSharp.Extensions.JsonRpc;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -7,6 +8,7 @@ using Serilog;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace GSCode.Parser.Data;
@@ -26,6 +28,11 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
     /// </summary>
     public string? ScriptPath { get; } = scriptPath;
 
+    /// <summary>
+    /// Definitions table to lookup function and class definitions.
+    /// </summary>
+    public DefinitionsTable? DefinitionsTable { get; set; }
+
     // Use shared API instance to avoid redundant allocations
     private readonly ScriptAnalyserData? _scriptAnalyserData = ScriptAnalyserData.GetShared(languageId);
 
@@ -35,7 +42,21 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
         if (token is null)
         {
+            Log.Warning("GetCompletionsFromPosition: No token found at position {Position}", position);
             return new CompletionList(isIncomplete: false);
+        }
+
+        Log.Information("GetCompletionsFromPosition: Found token '{Lexeme}' type={Type} at position {Position}", 
+            token.Lexeme, token.Type, position);
+
+        // Log previous tokens for context
+        Token? prevToken = token.Previous;
+        int count = 0;
+        while (prevToken != null && count < 5)
+        {
+            Log.Information("  Previous token [{Index}]: '{Lexeme}' type={Type}", count, prevToken.Lexeme, prevToken.Type);
+            prevToken = prevToken.Previous;
+            count++;
         }
 
         // If the token is a LineBreak, we're likely typing on a new line
@@ -60,8 +81,78 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         // Check if we're typing a path in a directive (e.g., #using scripts\)
         var directivePathContext = GetDirectivePathContext(token);
 
-        // Build the filter string - include # prefix for directives
+        // Look backwards to find the actual identifier being typed and check for namespace qualifier
+        // This handles cases like:
+        // 1. util::empt() - cursor on '(' or ')'
+        // 2. util:: - cursor right after ::, no identifier yet
+        string? namespaceQualifier = null;
         string filter = token.Lexeme;
+        Token? identifierToken = null;
+
+        // First, look backwards to skip whitespace and find the nearest significant token
+        Token? prev = token.PreviousNonWhitespace();
+
+        // Case 1: Current token is an identifier (e.g., typing "util::emp|")
+        if (token.Type == TokenType.Identifier)
+        {
+            identifierToken = token;
+            filter = token.Lexeme;
+        }
+        // Case 2: Previous token (after skipping whitespace) is :: - we're right after scope resolution
+        // (e.g., "util::|" where cursor is after ::)
+        else if (prev?.Type == TokenType.ScopeResolution)
+        {
+            // No identifier yet, empty filter
+            filter = "";
+            identifierToken = null;
+
+            // Look for namespace before the ::
+            Token? nsToken = prev.PreviousNonWhitespace();
+
+            if (nsToken?.Type == TokenType.Identifier)
+            {
+                namespaceQualifier = nsToken.Lexeme;
+                Log.Information("Detected namespace qualifier: {Namespace} (right after ::, no identifier yet)", 
+                    namespaceQualifier);
+            }
+        }
+        // Case 3: Previous token is an identifier - might be a function call with parens
+        else if (prev?.Type == TokenType.Identifier)
+        {
+            identifierToken = prev;
+            filter = prev.Lexeme;
+        }
+        // Case 4: Current token is OpenParen - look back further
+        else if (token.Type == TokenType.OpenParen)
+        {
+            // prev is already set from above, look for identifier before (
+            if (prev?.Type == TokenType.Identifier)
+            {
+                identifierToken = prev;
+                filter = prev.Lexeme;
+            }
+        }
+
+        // Now check if there's a namespace qualifier before the identifier
+        // (only if we didn't already detect it in Case 2)
+        if (identifierToken != null && namespaceQualifier == null)
+        {
+            Token? beforeIdent = identifierToken.PreviousNonWhitespace();
+
+            if (beforeIdent?.Type == TokenType.ScopeResolution)
+            {
+                Token? nsToken = beforeIdent.PreviousNonWhitespace();
+
+                if (nsToken?.Type == TokenType.Identifier)
+                {
+                    namespaceQualifier = nsToken.Lexeme;
+                    Log.Information("Detected namespace qualifier: {Namespace} for identifier: {Identifier}", 
+                        namespaceQualifier, identifierToken.Lexeme);
+                }
+            }
+        }
+
+        // Handle directive filter prefix
         if (isDirectiveContext && !filter.StartsWith("#"))
         {
             // We're in directive context but the current token doesn't have #
@@ -69,8 +160,8 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             filter = "#" + filter;
         }
 
-        Log.Information("Completion at position {Position}: token='{Lexeme}' type={Type}, filter='{Filter}', insideFunc={InsideFunc}, isDirective={IsDirective}, pathContext={PathContext}, prevToken={PrevType}", 
-            position, token.Lexeme, token.Type, filter, isInsideFunctionBlock, isDirectiveContext, directivePathContext != null, token.Previous?.Type);
+        Log.Information("Completion at position {Position}: token='{Lexeme}' type={Type}, filter='{Filter}', namespace={Namespace}, insideFunc={InsideFunc}, isDirective={IsDirective}, pathContext={PathContext}, prevToken={PrevType}", 
+            position, token.Lexeme, token.Type, filter, namespaceQualifier ?? "(none)", isInsideFunctionBlock, isDirectiveContext, directivePathContext != null, token.Previous?.Type);
 
         // If NOT inside a function block and NOT typing a directive, return empty completions
         // (top-level code can only have directives and function definitions, not statements)
@@ -81,14 +172,17 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         }
 
         // For the moment, we'll just support Identifier completions.
-        // CompletionContext context = AnalyseCompletionContext(token, position);
         CompletionContext context = new()
         {
-            Type = CompletionContextType.GlobalScope,
+            Type = namespaceQualifier != null ? CompletionContextType.FunctionCall : CompletionContextType.GlobalScope,
             Filter = filter,
+            Namespace = namespaceQualifier,
             IsDirectiveContext = isDirectiveContext,
             IsInsideFunctionBlock = isInsideFunctionBlock
         };
+        Log.Information("Created context: Type={Type}, Namespace={Namespace}, Filter={Filter}", 
+            context.Type, context.Namespace ?? "(none)", context.Filter);
+
         List<CompletionItem> completions = new();
 
         // If we're typing a path in a directive, show path completions
@@ -109,21 +203,30 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         }
 
         // Otherwise, show normal completions (only when inside a function block)
-        Log.Information("Showing normal completions (insideFunc={IsInsideFunc})", isInsideFunctionBlock);
+        Log.Information("Showing normal completions (insideFunc={IsInsideFunc}, namespace={Namespace})", isInsideFunctionBlock, context.Namespace);
         switch (context.Type)
         {
             case CompletionContextType.GlobalScope:
                 completions = GetGlobalScopeCompletions(context);
                 Log.Information("After GetGlobalScopeCompletions: {Count} completions", completions.Count);
                 break;
+            case CompletionContextType.FunctionCall:
+                // Namespace-qualified function call (e.g., namespace::func)
+                completions = GetNamespacedFunctionCompletions(context);
+                Log.Information("After GetNamespacedFunctionCompletions: {Count} completions", completions.Count);
+                break;
         }
 
         // Get the completions from the definition.
 
         // Generate completions from identifiers that occur inside of the file, as well.
-        var fileScopeCompletions = GetFileScopeCompletions(context);
-        Log.Information("GetFileScopeCompletions returned {Count} completions", fileScopeCompletions.Count);
-        completions.AddRange(fileScopeCompletions);
+        // But skip this for namespace-qualified contexts (we only want namespace functions there)
+        if (context.Type != CompletionContextType.FunctionCall || string.IsNullOrEmpty(context.Namespace))
+        {
+            var fileScopeCompletions = GetFileScopeCompletions(context);
+            Log.Information("GetFileScopeCompletions returned {Count} completions", fileScopeCompletions.Count);
+            completions.AddRange(fileScopeCompletions);
+        }
 
         Log.Information("Returning total of {Count} completions", completions.Count);
         // return token.SenseDefinition?.GetCompletions();
@@ -183,11 +286,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         }
 
         // Check if previous non-whitespace token is a hash
-        Token? prev = token.Previous;
-        while (prev != null && prev.IsWhitespacey())
-        {
-            prev = prev.Previous;
-        }
+        Token? prev = token.PreviousNonWhitespace();
 
         if (prev?.Type == TokenType.Hash)
         {
@@ -250,6 +349,104 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         return completions;
     }
 
+    private List<CompletionItem> GetNamespacedFunctionCompletions(CompletionContext context)
+    {
+        List<CompletionItem> completions = new();
+        HashSet<string> seenIdentifiers = new(StringComparer.OrdinalIgnoreCase);
+
+        if (string.IsNullOrEmpty(context.Namespace))
+        {
+            Log.Warning("GetNamespacedFunctionCompletions: Namespace is null or empty");
+            return completions;
+        }
+
+        if (DefinitionsTable is null)
+        {
+            Log.Warning("GetNamespacedFunctionCompletions: DefinitionsTable is null");
+            return completions;
+        }
+
+        Log.Information("Looking for functions in namespace: {Namespace}, InternalSymbols count: {Count}", 
+            context.Namespace, DefinitionsTable.InternalSymbols.Count);
+
+        // Log all internal symbols for debugging
+        foreach (var kvp in DefinitionsTable.InternalSymbols)
+        {
+            Log.Information("  InternalSymbol: Key='{Key}', Type={Type}", kvp.Key, kvp.Value.GetType().Name);
+        }
+
+        // Check API functions first (they may have namespace qualifiers)
+        var apiFunctions = _scriptAnalyserData?.GetApiFunctions(context.Filter) ?? [];
+        foreach (var apiFunc in apiFunctions)
+        {
+            // API functions typically don't have explicit namespaces in the definition
+            // But we still show them for any namespace
+            if (!seenIdentifiers.Contains(apiFunc.Name))
+            {
+                completions.Add(CreateCompletionItem(apiFunc));
+                seenIdentifiers.Add(apiFunc.Name);
+            }
+        }
+
+        // Look for functions in the specified namespace
+        // Try both exact namespace match and the combined key
+        string qualifiedPrefix = $"{context.Namespace}::";
+        Log.Information("Looking for symbols starting with prefix: '{Prefix}'", qualifiedPrefix);
+
+        // Check internal symbols with the namespace:: prefix
+        int matchCount = 0;
+        foreach (var kvp in DefinitionsTable.InternalSymbols)
+        {
+            if (kvp.Value is ScrFunction function)
+            {
+                // Check if this symbol key starts with the namespace prefix
+                if (kvp.Key.StartsWith(qualifiedPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchCount++;
+                    // Extract the function name (after the ::)
+                    string functionName = function.Name;
+
+                    Log.Information("  Found matching function: Key='{Key}', Name='{Name}', Filter='{Filter}'", 
+                        kvp.Key, functionName, context.Filter ?? "(none)");
+
+                    if (!seenIdentifiers.Contains(functionName) && 
+                        (string.IsNullOrEmpty(context.Filter) || functionName.StartsWith(context.Filter, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        completions.Add(CreateCompletionItem(function));
+                        seenIdentifiers.Add(functionName);
+                        Log.Information("  Added function: {Name}", functionName);
+                    }
+                    else
+                    {
+                        Log.Information("  Skipped function: {Name} (already seen or doesn't match filter)", functionName);
+                    }
+                }
+            }
+        }
+
+        // Also check local functions that match the namespace
+        foreach (var functionTuple in DefinitionsTable.LocalScopedFunctions)
+        {
+            var function = functionTuple.Item1;
+            // Check if function's namespace matches
+            if (string.Equals(function.Namespace, context.Namespace, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(DefinitionsTable.CurrentNamespace, context.Namespace, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!seenIdentifiers.Contains(function.Name) &&
+                    (string.IsNullOrEmpty(context.Filter) || function.Name.StartsWith(context.Filter, StringComparison.OrdinalIgnoreCase)))
+                {
+                    completions.Add(CreateCompletionItem(function));
+                    seenIdentifiers.Add(function.Name);
+                    Log.Information("  Added local function: {Name} from namespace {Namespace}", function.Name, function.Namespace);
+                }
+            }
+        }
+
+        Log.Information("Found {MatchCount} namespace matches, returning {Count} namespaced functions for {Namespace}", 
+            matchCount, completions.Count, context.Namespace);
+        return completions;
+    }
+
     private List<CompletionItem> GetFileScopeCompletions(CompletionContext context)
     {
         List<CompletionItem> completions = new();
@@ -276,6 +473,37 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             }
         }
 
+        // Add functions from the definitions table (both local and imported)
+        if (DefinitionsTable is not null)
+        {
+            // Add locally defined functions
+            foreach (var functionTuple in DefinitionsTable.LocalScopedFunctions)
+            {
+                var function = functionTuple.Item1;
+                if (!seenIdentifiers.Contains(function.Name))
+                {
+                    completions.Add(CreateCompletionItem(function));
+                    seenIdentifiers.Add(function.Name);
+                }
+            }
+
+            // Add internal symbols (functions from current namespace and dependencies)
+            foreach (var kvp in DefinitionsTable.InternalSymbols)
+            {
+                if (kvp.Value is ScrFunction function)
+                {
+                    // Skip if already added or is an API function
+                    if (seenIdentifiers.Contains(function.Name) || _scriptAnalyserData?.GetApiFunction(function.Name) is not null)
+                    {
+                        continue;
+                    }
+
+                    completions.Add(CreateCompletionItem(function));
+                    seenIdentifiers.Add(function.Name);
+                }
+            }
+        }
+
         // Generate completions from identifiers that occur inside of the file
         foreach (Token token in Tokens.GetAll())
         {
@@ -289,6 +517,28 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
                 // Skip identifiers that are from preprocessor expansion
                 if (token.IsFromPreprocessor)
+                {
+                    continue;
+                }
+
+                // Check if this identifier is a function in the definitions table
+                bool isFunction = false;
+                if (DefinitionsTable is not null)
+                {
+                    // Check if it's a local function
+                    isFunction = DefinitionsTable.LocalScopedFunctions.Any(f => 
+                        string.Equals(f.Item1.Name, token.Lexeme, StringComparison.OrdinalIgnoreCase));
+
+                    // Check if it's in internal symbols
+                    if (!isFunction)
+                    {
+                        isFunction = DefinitionsTable.InternalSymbols.TryGetValue(token.Lexeme, out var symbol) 
+                            && symbol is ScrFunction;
+                    }
+                }
+
+                // If already added as a function, skip
+                if (isFunction)
                 {
                     continue;
                 }

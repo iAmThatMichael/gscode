@@ -148,6 +148,9 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         // Gather signatures for all functions and classes.
         DefinitionsTable = new(ScriptFileName, GlobalSymbolProvider);
 
+        // Set the DefinitionsTable in the completions library
+        Sense.SetDefinitionsTable(DefinitionsTable);
+
         SignatureAnalyser signatureAnalyser = new(RootNode, DefinitionsTable, Sense);
         try
         {
@@ -188,23 +191,13 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Token? PreviousNonTrivia(Token? token)
     {
-        Token? t = token?.Previous;
-        while (t is not null && (t.IsWhitespacey() || t.IsComment()))
-        {
-            t = t.Previous;
-        }
-        return t;
+        return token?.PreviousNonTrivia();
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Token? NextNonTrivia(Token? token)
     {
-        Token? t = token?.Next;
-        while (t is not null && (t.IsWhitespacey() || t.IsComment()))
-        {
-            t = t.Next;
-        }
-        return t;
+        return token?.NextNonTrivia();
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -469,13 +462,19 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             if (symbol.Type == ExportedSymbolType.Function)
             {
                 ScrFunction function = (ScrFunction)symbol;
-                allSymbols.TryAdd($"{function.Namespace}::{function.Name}", symbol);
+                string qualifiedName = $"{function.Namespace}::{function.Name}";
+                allSymbols.TryAdd(qualifiedName, symbol);
+                // Also add to DefinitionsTable.InternalSymbols for completion
+                DefinitionsTable.InternalSymbols.TryAdd(qualifiedName, symbol);
                 if (!function.Implicit)
                 {
                     continue;
                 }
             }
-            allSymbols.TryAdd(symbol.Name, symbol);
+            string symbolName = symbol.Name;
+            allSymbols.TryAdd(symbolName, symbol);
+            // Also add to DefinitionsTable.InternalSymbols for completion
+            DefinitionsTable.InternalSymbols.TryAdd(symbolName, symbol);
         }
 
         // Build set of known namespaces from function and class definitions

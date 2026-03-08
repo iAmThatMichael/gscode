@@ -126,6 +126,11 @@ internal sealed class ParserIntelliSense
         MacroOutlines.Add(new MacroOutlineItem(name, range, sourceDisplay));
     }
 
+    public void SetDefinitionsTable(SA.DefinitionsTable? definitionsTable)
+    {
+        Completions.DefinitionsTable = definitionsTable;
+    }
+
     public void AddSenseToken(Token token, ISenseDefinition definition)
     {
         // Suppress during dataflow worklist phase to avoid recording incomplete type info.

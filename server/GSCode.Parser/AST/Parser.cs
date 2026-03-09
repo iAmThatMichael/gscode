@@ -10,13 +10,14 @@ namespace GSCode.Parser.AST;
 /// <summary>
 /// An implementation of an LL(1) recursive descent parser for the GSC & CSC languages.
 /// </summary>
-internal ref struct Parser(Token startToken, ParserIntelliSense sense, string languageId)
+internal ref struct Parser(LinkedToken startNode, ParserIntelliSense sense, string languageId)
 {
-    public Token PreviousToken { get; private set; } = startToken;
-    public Token CurrentToken { get; private set; } = startToken;
+    public LinkedToken PreviousNode { get; private set; } = startNode;
+    public LinkedToken CurrentNode { get; private set; } = startNode;
 
-    public readonly TokenType CurrentTokenType => CurrentToken.Type;
-    public readonly Range CurrentTokenRange => CurrentToken.Range;
+    public Token CurrentToken => CurrentNode.Token;
+    public readonly TokenType CurrentTokenType => CurrentNode.Type;
+    public readonly Range CurrentTokenRange => CurrentNode.Range;
 
     [Flags]
     private enum ParserContextFlags
@@ -39,7 +40,7 @@ internal ref struct Parser(Token startToken, ParserIntelliSense sense, string la
     /// <summary>
     /// Used by fault recovery strategies to allow them to attempt parsing in a fault state.
     /// </summary>
-    public Token SnapshotToken { get; private set; } = startToken;
+    public LinkedToken SnapshotNode { get; private set; } = startNode;
 
     /// <summary>
     /// Suppresses all error messages issued when active, which aids with error recovery.
@@ -168,7 +169,7 @@ internal ref struct Parser(Token startToken, ParserIntelliSense sense, string la
         }
 
         // Path is whitespace-sensitive, so we'll advance manually.
-        CurrentToken = CurrentToken.Next;
+        CurrentNode = CurrentNode.Next;
 
         PathNode? partial = PathPartial();
 
@@ -197,7 +198,7 @@ internal ref struct Parser(Token startToken, ParserIntelliSense sense, string la
         }
 
         // Path is whitespace-sensitive, so we'll advance manually.
-        CurrentToken = CurrentToken.Next;
+        CurrentNode = CurrentNode.Next;
 
         Token segmentToken = CurrentToken;
         if (CurrentTokenType != TokenType.Identifier)
@@ -209,7 +210,7 @@ internal ref struct Parser(Token startToken, ParserIntelliSense sense, string la
         }
 
         // Path is whitespace-sensitive, so we'll advance manually.
-        CurrentToken = CurrentToken.Next;
+        CurrentNode = CurrentNode.Next;
 
         // Get any further segments, then we'll prepend the current one.
         PathNode? partial = PathPartial();
@@ -2951,7 +2952,7 @@ internal ref struct Parser(Token startToken, ParserIntelliSense sense, string la
         if (!ConsumeIfType(TokenType.CloseParen, out Token? lastToken))
         {
             AddError(GSCErrorCodes.ExpectedToken, ')', CurrentToken.Lexeme);
-            lastToken = CurrentToken.Previous;
+            lastToken = PreviousNode.Token;
         }
 
         argsList.Range = RangeHelper.From(openParen.Range.Start, lastToken.Range.End);
@@ -3208,7 +3209,7 @@ internal ref struct Parser(Token startToken, ParserIntelliSense sense, string la
     private void EnterRecovery()
     {
         Silent = true;
-        SnapshotToken = CurrentToken;
+        SnapshotNode = CurrentNode;
     }
 
     private void ExitRecovery()
@@ -3220,10 +3221,10 @@ internal ref struct Parser(Token startToken, ParserIntelliSense sense, string la
 
     private void Advance()
     {
-        PreviousToken = CurrentToken;
+        PreviousNode = CurrentNode;
         do
         {
-            CurrentToken = CurrentToken.Next;
+            CurrentNode = CurrentNode.Next!;
         }
         // Ignore all whitespace and comments.
         while (
@@ -3256,7 +3257,7 @@ internal ref struct Parser(Token startToken, ParserIntelliSense sense, string la
     // next: This is not my preferred method of emitting folding ranges, may move to SPA later.
     private void EmitFoldingRangeIfPossible(Token? openToken, Token? closeToken)
     {
-        if (openToken is null || closeToken is null)
+        if (!Sense.IsEditorMode || openToken is null || closeToken is null)
         {
             return;
         }
@@ -3266,8 +3267,8 @@ internal ref struct Parser(Token startToken, ParserIntelliSense sense, string la
             StartLine = openToken.Range.End.Line,
             StartCharacter = openToken.Range.End.Character,
 
-            EndLine = closeToken.Previous.Range.Start.Line,
-            EndCharacter = closeToken.Previous.Range.Start.Character
+            EndLine = closeToken.Range.Start.Line,
+            EndCharacter = closeToken.Range.Start.Character
         });
     }
 
@@ -3303,7 +3304,7 @@ internal ref struct Parser(Token startToken, ParserIntelliSense sense, string la
             return;
         }
 
-        Sense.AddAstDiagnostic(RangeHelper.From(new Position(PreviousToken.Range.End.Line, Math.Max(0, PreviousToken.Range.End.Character - 1)), PreviousToken.Range.End), errorCode, args);
+        Sense.AddAstDiagnostic(RangeHelper.From(new Position(PreviousNode.Range.End.Line, Math.Max(0, PreviousNode.Range.End.Character - 1)), PreviousNode.Range.End), errorCode, args);
     }
 }
 

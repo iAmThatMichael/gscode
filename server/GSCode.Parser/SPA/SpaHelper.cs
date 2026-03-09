@@ -21,7 +21,7 @@ public class ScrVariableSymbol : ISenseDefinition
     public string SemanticTokenType { get; } = "variable";
 
     public string[] SemanticTokenModifiers { get; private set; } = [];
-    public bool IsFromPreprocessor { get; } = false;
+
 
     internal Token IdentifierToken { get; }
     internal string TypeString { get; }
@@ -135,16 +135,16 @@ public class ScrFieldSymbol : ISenseDefinition
     public string SemanticTokenType { get; } = "field";
 
     public string[] SemanticTokenModifiers { get; private set; } = [];
-    public bool IsFromPreprocessor { get; } = false;
 
-    internal IdentifierExprNode Node { get; }
+
+    internal string IdentifierName { get; }
     internal string TypeString { get; }
 
     public bool ReadOnly { get; private set; } = false;
 
     internal ScrFieldSymbol(IdentifierExprNode node, ScrData data, bool isReadOnly = false)
     {
-        Node = node;
+        IdentifierName = node.Identifier;
         Range = node.Range;
         TypeString = data.TypeToString();
         if (!isReadOnly)
@@ -165,7 +165,7 @@ public class ScrFieldSymbol : ISenseDefinition
             {
                 Kind = MarkupKind.Markdown,
                 Value = string.Format("```gsc\n(field) /@ {0} @/ {1}\n```",
-                   typeValue, Node.Identifier!)
+                   typeValue, IdentifierName)
             })
         };
     }
@@ -178,9 +178,9 @@ public class ScrClassPropertySymbol : ISenseDefinition
     public string SemanticTokenType { get; } = "property";
 
     public string[] SemanticTokenModifiers { get; private set; } = [];
-    public bool IsFromPreprocessor { get; } = false;
 
-    internal IdentifierExprNode Node { get; }
+
+    internal string IdentifierName { get; }
     internal string TypeString { get; }
     internal ScrClass ClassSource { get; }
 
@@ -188,7 +188,7 @@ public class ScrClassPropertySymbol : ISenseDefinition
 
     internal ScrClassPropertySymbol(IdentifierExprNode node, ScrData data, ScrClass classSource, bool isReadOnly = false)
     {
-        Node = node;
+        IdentifierName = node.Identifier;
         Range = node.Range;
         TypeString = data.TypeToString();
         ClassSource = classSource;
@@ -210,7 +210,7 @@ public class ScrClassPropertySymbol : ISenseDefinition
             {
                 Kind = MarkupKind.Markdown,
                 Value = string.Format("```gsc\n(property) /@ {0} @/ {1}.{2}\n```",
-                   typeValue, ClassSource.Name, Node.Identifier!)
+                   typeValue, ClassSource.Name, IdentifierName)
             })
         };
     }
@@ -223,14 +223,12 @@ public class ScrNamespaceScopeSymbol : ISenseDefinition
     public string SemanticTokenType { get; } = "namespace";
 
     public string[] SemanticTokenModifiers { get; private set; } = [];
-    public bool IsFromPreprocessor { get; } = false;
 
-    internal IdentifierExprNode Node { get; }
+
     internal string NamespaceName { get; }
 
     internal ScrNamespaceScopeSymbol(IdentifierExprNode node)
     {
-        Node = node;
         Range = node.Range;
         NamespaceName = node.Identifier;
     }
@@ -257,7 +255,7 @@ public class ScrFunctionReferenceSymbol : ISenseDefinition
     public string SemanticTokenType { get; } = "function";
 
     public string[] SemanticTokenModifiers { get; private set; } = [];
-    public bool IsFromPreprocessor { get; } = false;
+
 
     internal ScrFunction Source { get; }
 
@@ -288,7 +286,7 @@ public class ScrMethodReferenceSymbol : ISenseDefinition
     public string SemanticTokenType { get; } = "method";
 
     public string[] SemanticTokenModifiers { get; private set; } = [];
-    public bool IsFromPreprocessor { get; } = false;
+
 
     internal ScrFunction Source { get; }
     internal ScrClass ClassSource { get; }
@@ -343,7 +341,7 @@ public class ScrReservedFunctionSymbol : ISenseDefinition
     public string SemanticTokenType { get; } = "keyword";
 
     public string[] SemanticTokenModifiers { get; private set; } = [];
-    public bool IsFromPreprocessor { get; } = false;
+
 
     internal ScrFunction? Source { get; }
 

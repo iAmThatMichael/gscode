@@ -2977,43 +2977,28 @@ file static class DataFlowAnalyserExtensions
 {
     public static void MergeTables(this Dictionary<string, ScrVariable> target, Dictionary<string, ScrVariable> source, int maxScope)
     {
-        try
+        // Iterate source only — keys only in target stay as-is (nothing to merge from source).
+        // This eliminates the HashSet allocation + union that the old implementation used.
+        foreach (var kvp in source)
         {
-            // Get keys that are present in either
-            HashSet<string> fields = new();
+            if (kvp.Value.LexicalScope > maxScope) continue;
 
-            fields.UnionWith(target.Keys);
-            fields.UnionWith(source.Keys);
-
-            foreach (string field in fields)
+            if (target.TryGetValue(kvp.Key, out ScrVariable? targetData))
             {
-                // Shouldn't carry over anything that's not higher than this in scope, it's not accessible
-                if (source.TryGetValue(field, out ScrVariable? sourceData) && sourceData.LexicalScope <= maxScope)
+                if (kvp.Value != targetData)
                 {
-                    // Also present in target, and are different. Merge them
-                    if (target.TryGetValue(field, out ScrVariable? targetData))
+                    target[kvp.Key] = kvp.Value with
                     {
-                        if (sourceData != targetData)
-                        {
-                            target[field] = sourceData with
-                            {
-                                Data = ScrData.Merge(targetData.Data, sourceData.Data),
-                                IsConstant = sourceData.IsConstant && targetData.IsConstant,
-                                SourceLocation = sourceData.SourceLocation ?? targetData.SourceLocation
-                            };
-                        }
-                        continue;
-                    }
-
-                    // Otherwise just copy one
-                    target[field] = sourceData with { Data = sourceData.Data.Copy() };
+                        Data = ScrData.Merge(targetData.Data, kvp.Value.Data),
+                        IsConstant = kvp.Value.IsConstant && targetData.IsConstant,
+                        SourceLocation = kvp.Value.SourceLocation ?? targetData.SourceLocation
+                    };
                 }
             }
-        }
-        catch (StackOverflowException ex)
-        {
-            Log.Error(ex, "Stack overflow occurred while merging tables. Original target: {target}, source: {source}", target, source);
-            throw;
+            else
+            {
+                target[kvp.Key] = kvp.Value with { Data = kvp.Value.Data.Copy() };
+            }
         }
     }
 

@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using GSCode.Parser;
+using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using GSCode.Parser.Data;
 
@@ -105,8 +106,8 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
                 Name = key.Name,
                 Detail = key.Namespace,
                 Kind = LspSymbolKind.Class,
-                Range = val.Range,
-                SelectionRange = val.Range,
+                Range = val.Range.ToRange(),
+                SelectionRange = val.Range.ToRange(),
                 Children = new List<DocumentSymbol>()
             });
         }
@@ -128,8 +129,8 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
                 Name = BuildFunctionLabel(key.Name, key.Namespace, parameters, flags),
                 Detail = key.Namespace,
                 Kind = LspSymbolKind.Function,
-                Range = val.Range,
-                SelectionRange = val.Range
+                Range = val.Range.ToRange(),
+                SelectionRange = val.Range.ToRange()
             });
         }
 

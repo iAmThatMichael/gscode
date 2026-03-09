@@ -12,12 +12,13 @@ using System.Threading.Tasks;
 
 namespace GSCode.Parser.Pre;
 
-internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense sense)
+internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSense sense)
 {
-    private Token CurrentToken { get; set; } = startToken;
+    private LinkedToken CurrentNode { get; set; } = startNode;
 
-    private readonly TokenType CurrentTokenType => CurrentToken.Type;
-    private readonly Range CurrentTokenRange => CurrentToken.Range;
+    private Token CurrentToken => CurrentNode.Token;
+    private readonly TokenType CurrentTokenType => CurrentNode.Type;
+    private readonly Range CurrentTokenRange => CurrentNode.Range;
 
     private ParserIntelliSense Sense { get; } = sense;
 
@@ -25,18 +26,24 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
 
     public void Process()
     {
-        Token startToken = CurrentToken;
+        LinkedToken startToken = CurrentNode;
 
         // pass 1 - expand all system-defined macros, track all defines and apply inserts.
         // pass 2 - evaluate all #if/#elif directives.
         // pass 3 - expand all user-defined macros and system-defined macros as a result of those (if necessary).
         FirstPass();
-        CurrentToken = startToken;
+        CurrentNode = startToken;
 
         SecondPass();
-        CurrentToken = startToken;
+        CurrentNode = startToken;
 
         ThirdPass();
+
+        // Release LinkedToken chains from macro definitions — snippet strings are already cached.
+        foreach (MacroDefinition macro in Defines.Values)
+        {
+            macro.ReleaseTokenLists();
+        }
     }
 
     /// <summary>
@@ -57,7 +64,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
                 default:
                     // is it a system macro reference?
                     if((CurrentTokenType == TokenType.Identifier || CurrentToken.IsKeyword()) &&
-                        TryGetSystemDefinedMacroDefinition(CurrentToken, out MacroDefinition? macro))
+                        TryGetSystemDefinedMacroDefinition(CurrentNode, out MacroDefinition? macro))
                     {
                         Macro(macro);
                         break;
@@ -88,7 +95,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
                     AddError(GSCErrorCodes.MisplacedPreprocessorDirective, CurrentToken.Lexeme);
 
                     // Delete the directive so it doesn't cause further issues
-                    ConnectTokens(CurrentToken.Previous, CurrentToken.Next);
+                    ConnectTokens(CurrentNode.Previous!, CurrentNode.Next!);
                     Advance();
                     break;
                 default:
@@ -104,7 +111,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         while(CurrentTokenType != TokenType.Eof)
         {
             if((CurrentTokenType == TokenType.Identifier || CurrentToken.IsKeyword()) &&
-                TryGetMacroDefinition(CurrentToken, out MacroDefinition? macro))
+                TryGetMacroDefinition(CurrentNode, out MacroDefinition? macro))
             {
                 Macro(macro);
                 continue;
@@ -119,10 +126,10 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     private void Define()
     {
         // Pass over DEFINE
-        Token defineToken = Consume();
+        LinkedToken defineToken = Consume();
 
         // Get the macro name
-        Token nameToken = CurrentToken;
+        LinkedToken nameToken = CurrentNode;
 
         // Macros can be either keywords or identifiers
         if (CurrentTokenType != TokenType.Identifier && !CurrentToken.IsKeyword())
@@ -130,8 +137,8 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
             AddError(GSCErrorCodes.ExpectedMacroIdentifier, CurrentToken.Lexeme);
             return;
         }
-        
-        CurrentToken = CurrentToken.Next;
+
+        CurrentNode = CurrentNode.Next!;
 
         string macroName = nameToken.Lexeme;
 
@@ -139,51 +146,46 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         LinkedList<Token>? parameters = ParamList();
 
         // In order to exclude backslashes/linebreaks, we'll have to create a copy of the token list for the expansion
-        Token? firstExpansionToken = null;
-        Token? lastExpansionToken = null;
-        Token? previousToken = null;
-        Token current = CurrentToken;
+        LinkedToken? firstExpansionNode = null;
+        LinkedToken? lastExpansionNode = null;
+        LinkedToken? previousNode = null;
+        LinkedToken current = CurrentNode;
 
         while (current.Type != TokenType.LineBreak && current.Type != TokenType.Eof)
         {
             // Handle backslash here, which must immediately precede a line break if encountered
             if (current.Type == TokenType.Backslash)
             {
-                if (current.Next.Type != TokenType.LineBreak)
+                if (current.Next!.Type != TokenType.LineBreak)
                 {
                     AddError(GSCErrorCodes.InvalidLineContinuation, "\\");
                 }
                 else
                 {
                     // Skip both the backslash and linebreak
-                    current = current.Next.Next;  // Skip past backslash and linebreak
+                    current = current.Next!.Next!;  // Skip past backslash and linebreak
                     continue;  // Continue to next token without adding these to expansion
                 }
             }
 
             // Clone the current token and link it
-            var newToken = current with { };
+            var newNode = new LinkedToken(current.Token with { });
 
-            firstExpansionToken ??= newToken;
-            newToken.Previous = previousToken ?? newToken;
-            if (previousToken is not null)
+            firstExpansionNode ??= newNode;
+            newNode.Previous = previousNode ?? newNode;
+            if (previousNode is not null)
             {
-                previousToken.Next = newToken;
+                previousNode.Next = newNode;
             }
 
-            previousToken = newToken;
-            lastExpansionToken = newToken;
-            current = current.Next;
+            previousNode = newNode;
+            lastExpansionNode = newNode;
+            current = current.Next!;
         }
-        CurrentToken = defineToken.Previous;
-
-        if (firstExpansionToken is not null)
-        {
-            lastExpansionToken = current;
-        }
+        CurrentNode = defineToken.Previous!;
 
         // Consume skips comments, so if there is one at the end of this expansion we can get it directly from working backwards from CurrentToken
-        Token documentationToken = current.Previous;
+        LinkedToken documentationToken = current.Previous!;
         string? documentation = null;
 
         // TODO: this currently doesn't remove the //, etc.
@@ -193,15 +195,15 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         }
 
         // Remove the define directive from the script.
-        ConnectTokens(defineToken.Previous, current.Next);
+        ConnectTokens(defineToken.Previous!, current.Next!);
 
         // Create the macro
         MacroDefinition definition = new(
-            nameToken,
-            DefineTokens: new TokenList(defineToken, current),
-            ExpansionTokens: new TokenList(firstExpansionToken, lastExpansionToken),
-            Parameters: parameters,
-            Documentation: documentation
+            nameToken.Token,
+            new TokenList(defineToken, current),
+            new TokenList(firstExpansionNode, lastExpansionNode),
+            parameters,
+            documentation
             );
 
         // GSC doesn't allow redefinitions of existing macros.
@@ -226,7 +228,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
             }
             Sense.AddMacroOutline(macroName, nameToken.Range, srcDisplay);
         }
-        Sense.AddSenseToken(nameToken, definition);
+        Sense.AddSenseToken(nameToken.Token, definition);
 
         static string GetRelativeDisplay(string fullPath)
         {
@@ -250,8 +252,8 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     /// </summary>
     private void SkipMisplacedDirective()
     {
-        Token startToken = CurrentToken;
-        Token current = CurrentToken;
+        LinkedToken startToken = CurrentNode;
+        LinkedToken current = CurrentNode;
 
         // Scan until newline or EOF
         while (current.Next is not null && current.Next.Type != TokenType.LineBreak && current.Next.Type != TokenType.Eof)
@@ -260,11 +262,11 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         }
 
         // Remove the directive and condition tokens but preserve the newline/EOF
-        Token endToken = current;
-        ConnectTokens(startToken.Previous, endToken.Next!);
+        LinkedToken endToken = current;
+        ConnectTokens(startToken.Previous!, endToken.Next!);
 
         // Update current token to point after the removed section
-        CurrentToken = endToken.Next!;
+        CurrentNode = endToken.Next!;
     }
 
     /// <summary>
@@ -300,15 +302,15 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         HashSet<string> set = [];
 
         // Zero parameters
-        if (!ConsumeIfType(TokenType.Identifier, out Token? parameterToken))
+        if (!ConsumeIfType(TokenType.Identifier, out LinkedToken? parameterNode))
         {
             return [];
         }
 
-        set.Add(parameterToken.Lexeme);
+        set.Add(parameterNode.Lexeme);
 
         LinkedList<Token> rest = ParamsRhs(set);
-        rest.AddFirst(parameterToken);
+        rest.AddFirst(parameterNode.Token);
 
         return rest;
     }
@@ -320,7 +322,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     private LinkedList<Token> ParamsRhs(HashSet<string> set)
     {
         // End of parameter list
-        if (!ConsumeIfType(TokenType.Comma, out Token? commaToken))
+        if (!ConsumeIfType(TokenType.Comma, out LinkedToken? commaToken))
         {
             return [];
         }
@@ -331,20 +333,20 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
             AddError(GSCErrorCodes.ExpectedMacroParameter, CurrentToken.Lexeme);
             return [];
         }
-        Token parameterToken = Consume();
+        LinkedToken parameterNode = Consume();
 
         // Duplicate parameter
-        bool isDuplicate = !set.Add(parameterToken.Lexeme);
+        bool isDuplicate = !set.Add(parameterNode.Lexeme);
         if(isDuplicate)
         {
-            AddErrorAtToken(GSCErrorCodes.DuplicateMacroParameter, parameterToken, parameterToken.Lexeme);
+            AddErrorAtLinkedToken(GSCErrorCodes.DuplicateMacroParameter, parameterNode, parameterNode.Lexeme);
         }
 
         // Recurse
         LinkedList<Token> rest = ParamsRhs(set);
         if(!isDuplicate)
         {
-            rest.AddFirst(parameterToken);
+            rest.AddFirst(parameterNode.Token);
         }
 
         return rest;
@@ -359,17 +361,17 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     private void Insert()
     {
         // Pass over INSERT
-        Token insertToken = Consume();
+        LinkedToken insertToken = Consume();
 
         // Continously consume tokens until we get to a semicolon or line break.
-        TokenList path = Path(out Token? terminatorToken);
+        TokenList path = Path(out LinkedToken? terminatorToken);
 
         if(path.IsEmpty)
         {
             // Pass over semicolon so we can remove it too - if it's the others, we don't want to remove those.
             AdvanceIfType(TokenType.Semicolon);
 
-            ConnectTokens(insertToken.Previous, CurrentToken);
+            ConnectTokens(insertToken.Previous!, CurrentNode);
             return;
         }
 
@@ -381,15 +383,15 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
 
             if(terminatorToken!.Type == TokenType.Semicolon)
             {
-                ConnectTokens(insertToken.Previous, terminatorToken.Next);
+                ConnectTokens(insertToken.Previous!, terminatorToken.Next!);
                 return;
             }
-            ConnectTokens(insertToken.Previous, terminatorToken!.Previous);
+            ConnectTokens(insertToken.Previous!, terminatorToken!.Previous!);
             return;
         }
 
         // Record hover on the #insert path text for navigation
-        Sense.HoverLibrary.Add(new InsertDirectiveHover(filePath, path.Range!));
+        Sense.HoverLibrary?.Add(new InsertDirectiveHover(filePath, path.Range!));
         // Track insert region and its resolved path to later attribute definitions
         string? resolvedInsertPath = Sense.ResolveInsertPath(filePath, path.Range!);
         Sense.AddInsertRegion(path.Range!, filePath, resolvedInsertPath);
@@ -404,7 +406,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         TokenList? insertTokensResult;
         try
         {
-            insertTokensResult = Sense.GetFileTokens(filePath, path.Range);
+            insertTokensResult = Sense.GetFileTokens(filePath, path.Range is Range r ? TokenRange.FromRange(r) : null);
         }
         catch(Exception ex)
         {
@@ -428,26 +430,47 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
             // Empty file - skip past the insert directive
             if (terminatorToken!.Type == TokenType.Semicolon)
             {
-                ConnectTokens(insertToken.Previous, terminatorToken.Next);
-                CurrentToken = terminatorToken.Next;
+                ConnectTokens(insertToken.Previous!, terminatorToken.Next!);
+                CurrentNode = terminatorToken.Next!;
                 return;
             }
-            ConnectTokens(insertToken.Previous, terminatorToken);
-            CurrentToken = terminatorToken;
+            ConnectTokens(insertToken.Previous!, terminatorToken);
+            CurrentNode = terminatorToken;
             return;
         }
 
+        // Mark all inserted tokens as from preprocessor to prevent duplicate semantic highlights
+        MarkTokenListAsPreprocessor(insertTokens);
+
         // Otherwise, it's a unique instance so connect its boundaries (exc. the SOF and EOF) to the insert directive
-        ConnectTokens(insertToken.Previous, insertTokens.Start!.Next);
-        CurrentToken = insertTokens.Start.Next;
+        ConnectTokens(insertToken.Previous!, insertTokens.Start!.Next!);
+        CurrentNode = insertTokens.Start.Next!;
 
         // Connect past semicolon - otherwise directly to the terminator
         if (terminatorToken!.Type == TokenType.Semicolon)
         {
-            ConnectTokens(insertTokens.End!.Previous, terminatorToken.Next);
+            ConnectTokens(insertTokens.End!.Previous!, terminatorToken.Next!);
             return;
         }
-        ConnectTokens(insertTokens.End!.Previous, terminatorToken);
+        ConnectTokens(insertTokens.End!.Previous!, terminatorToken);
+    }
+
+    /// <summary>
+    /// Marks all tokens in a token list as originating from preprocessor expansion.
+    /// </summary>
+    private static void MarkTokenListAsPreprocessor(TokenList tokenList)
+    {
+        if (tokenList.Start is null || tokenList.End is null)
+            return;
+
+        LinkedToken current = tokenList.Start;
+        while (current != null)
+        {
+            current.Token.IsFromPreprocessor = true;
+            if (current == tokenList.End)
+                break;
+            current = current.Next!;
+        }
     }
 
     /// <summary>
@@ -459,22 +482,22 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         if (tokenList.Start is null || tokenList.End is null)
             return;
 
-        Token current = tokenList.Start.Next!; // Skip SOF
+        LinkedToken current = tokenList.Start.Next!; // Skip SOF
         while (current != tokenList.End)
         {
-            Token next = current.Next;
+            LinkedToken next = current.Next!;
 
             if (current.IsComment())
             {
                 // Unlink the comment token
-                ConnectTokens(current.Previous, next);
+                ConnectTokens(current.Previous!, next);
             }
 
             current = next;
         }
     }
 
-    private TokenList Path(out Token? terminatorIfMatched)
+    private TokenList Path(out LinkedToken? terminatorIfMatched)
     {
         // Empty path
         if(CurrentTokenType == TokenType.Semicolon || CurrentTokenType == TokenType.LineBreak || CurrentTokenType == TokenType.Eof)
@@ -484,8 +507,8 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
             return TokenList.Empty;
         }
 
-        Token start = Consume();
-        Token current = start;
+        LinkedToken start = Consume();
+        LinkedToken current = start;
 
         while(CurrentTokenType != TokenType.Semicolon && CurrentTokenType != TokenType.LineBreak && CurrentTokenType != TokenType.Eof)
         {
@@ -497,7 +520,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
 
         if(terminatorIfMatched.Type == TokenType.LineBreak || terminatorIfMatched.Type == TokenType.Eof)
         {
-            AddErrorAtToken(GSCErrorCodes.ExpectedPreprocessorToken, terminatorIfMatched, ';', terminatorIfMatched.Lexeme);
+            AddErrorAtLinkedToken(GSCErrorCodes.ExpectedPreprocessorToken, terminatorIfMatched, ';', terminatorIfMatched.Lexeme);
         }
 
         return new TokenList(start, terminatorIfMatched.Previous);
@@ -515,30 +538,30 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
 
     private void MacroWithoutArgs(MacroDefinition macroDefinition)
     {
-        Token macroToken = Consume();
+        LinkedToken macroToken = Consume();
 
         // Clone the expansion, adding them with the macro token's range
-        TokenList expansion = macroDefinition.ExpansionTokens.CloneList(macroToken.Range);
+        TokenList expansion = macroDefinition.ExpansionTokens.CloneList(macroToken.TokenRange, markAsPreprocessor: true);
 
         // Connect them to the surrounding tokens
-        expansion.ConnectToTokens(macroToken.Previous, macroToken.Next);
+        expansion.ConnectToTokens(macroToken.Previous!, macroToken.Next!);
 
         // Make sure we're at the beginning, as macros can contain macros.
-        CurrentToken = macroToken.Previous;
+        CurrentNode = macroToken.Previous!;
 
         // Finally, add the macro reference to IntelliSense
-        Sense.AddSenseToken(macroToken, new ScriptMacro(macroToken, macroDefinition, expansion));
+        Sense.AddSenseToken(macroToken.Token, new ScriptMacro(macroToken.Token, macroDefinition, expansion));
     }
 
     private void MacroWithArgs(MacroDefinition macroDefinition)
     {
         // Get the macro token
-        Token macroToken = Consume();
+        LinkedToken macroToken = Consume();
 
         // The macro should have an arguments list but doesn't, so it'll be ignored.
         if (!AdvanceIfType(TokenType.OpenParen))
         {
-            AddErrorAtToken(GSCErrorCodes.MissingMacroParameterList, macroToken, macroToken.Lexeme);
+            AddErrorAtLinkedToken(GSCErrorCodes.MissingMacroParameterList, macroToken, macroToken.Lexeme);
             return;
         }
 
@@ -550,13 +573,13 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         {
             AddError(GSCErrorCodes.ExpectedPreprocessorToken, ")", CurrentToken.Lexeme);
         }
-        Token endAnchorToken = CurrentToken;
+        LinkedToken endAnchorToken = CurrentNode;
 
         // Start with a cloned expansion, then replace references to parameters with the argument expansions.
-        TokenList expansion = macroDefinition.ExpansionTokens.CloneList(macroToken.Range);
+        TokenList expansion = macroDefinition.ExpansionTokens.CloneList(macroToken.TokenRange, markAsPreprocessor: true);
 
         // Before doing anything to it, connect it to the macro token
-        expansion.ConnectToTokens(macroToken.Previous, endAnchorToken);
+        expansion.ConnectToTokens(macroToken.Previous!, endAnchorToken);
 
         // To do this, we'll need to map identifier names to their argument expansions.
         Dictionary<string, TokenList?> argumentMappings = new();
@@ -573,7 +596,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         }
 
         // Replace parameter references with their argument expansions.
-        Token? current = expansion.Start;
+        LinkedToken? current = expansion.Start;
         while(current is not null)
         {
             // Curren token is a ref
@@ -582,8 +605,8 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
                 // It's left blank, so just remove the identifier
                 if(parameterExpansionResult is not TokenList parameterExpansion)
                 {
-                    Token next = current.Next;
-                    ConnectTokens(current.Previous, next);
+                    LinkedToken next = current.Next!;
+                    ConnectTokens(current.Previous!, next);
 
                     // Update expansion.Start if needed
                     if (current == expansion.Start)
@@ -604,7 +627,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
                 // Otherwise, clone the expansion then connect it to where the identifier formerly was
                 TokenList clonedExpansion = parameterExpansion.CloneList();
 
-                clonedExpansion.ConnectToTokens(current.Previous, current.Next);
+                clonedExpansion.ConnectToTokens(current.Previous!, current.Next!);
 
                 // Going to current.Next is fine as it's still one-way connected to beyond the end of the expansion
                 if (current == expansion.Start)
@@ -626,14 +649,14 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         }
 
         // Then finally, connect the macro token to the expansion
-        expansion.ConnectToTokens(macroToken.Previous, endAnchorToken);
+        expansion.ConnectToTokens(macroToken.Previous!, endAnchorToken);
 
         // Make sure we're at the beginning, as macros can contain macros.
-        CurrentToken = macroToken.Previous;
+        CurrentNode = macroToken.Previous!;
 
         // Job done (who knew with args would be so much more complex!)
         // Finally, add the macro reference to IntelliSense
-        Sense.AddSenseToken(macroToken, new ScriptMacro(macroToken, macroDefinition, expansion));
+        Sense.AddSenseToken(macroToken.Token, new ScriptMacro(macroToken.Token, macroDefinition, expansion));
     }
 
     /// <summary>
@@ -642,7 +665,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     /// <param name="macroToken"></param>
     /// <param name="parameters"></param>
     /// <returns></returns>
-    private LinkedList<TokenList?> MacroArgs(Token macroToken, IEnumerable<Token> parameters)
+    private LinkedList<TokenList?> MacroArgs(LinkedToken macroToken, IEnumerable<Token> parameters)
     {
         // Get the first argument
         TokenList? argument = MacroArgExpansion();
@@ -662,12 +685,12 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     /// <param name="index"></param>
     /// <param name="alreadyErroredAboutArgumentCount"></param>
     /// <returns></returns>
-    private LinkedList<TokenList?> MacroArgsRhs(Token macroToken, IEnumerable<Token> parameters, int index, bool alreadyErroredAboutArgumentCount = false)
+    private LinkedList<TokenList?> MacroArgsRhs(LinkedToken macroToken, IEnumerable<Token> parameters, int index, bool alreadyErroredAboutArgumentCount = false)
     {
         int expectedParameterCount = parameters.Count();
 
         // At the end of the argument list
-        if (!ConsumeIfType(TokenType.Comma, out Token? commaToken))
+        if (!ConsumeIfType(TokenType.Comma, out LinkedToken? commaToken))
         {
             // But we didn't get enough arguments
             if(expectedParameterCount != index)
@@ -681,7 +704,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         if(index + 1 > expectedParameterCount && !alreadyErroredAboutArgumentCount)
         {
             alreadyErroredAboutArgumentCount = true;
-            AddErrorAtToken(GSCErrorCodes.TooManyMacroArguments, commaToken!, macroToken.Lexeme, expectedParameterCount);
+            AddErrorAtLinkedToken(GSCErrorCodes.TooManyMacroArguments, commaToken!, macroToken.Lexeme, expectedParameterCount);
         }
 
         // Get the next argument
@@ -702,8 +725,8 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     {
         ExpansionState state = new();
 
-        Token start = CurrentToken;
-        Token? current = null;
+        LinkedToken start = CurrentNode;
+        LinkedToken? current = null;
 
         while(!state.ShouldEndExpansion(CurrentTokenType))
         {
@@ -769,7 +792,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     private void IfDirective()
     {
         // The #if, expand to the right of it
-        Token startAnchorToken = CurrentToken;
+        LinkedToken startAnchorToken = CurrentNode;
         Advance();
 
         // The condition
@@ -784,10 +807,10 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
             Advance();
         }
 
-        Token endAnchorToken = CurrentToken;
+        LinkedToken endAnchorToken = CurrentNode;
 
         // We can now "delete" the if directive entirely.
-        ConnectTokens(startAnchorToken.Previous, endAnchorToken);
+        ConnectTokens(startAnchorToken.Previous!, endAnchorToken);
 
         // Track nesting level of #if directives
         int nestingLevel = 1;
@@ -823,21 +846,21 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         // If we're at the end of the file, we've got an error.
         if(CurrentTokenType == TokenType.Eof)
         {
-            AddErrorAtToken(GSCErrorCodes.UnterminatedPreprocessorDirective, CurrentToken.Previous, "#if");
+            AddErrorAtLinkedToken(GSCErrorCodes.UnterminatedPreprocessorDirective, CurrentNode.Previous!, "#if");
             return;
         }
 
         // If the condition was not met, delete the whole branch.
         if(!conditionMet)
         {
-            AddErrorAtRange(GSCErrorCodes.InactivePreprocessorBranch, RangeHelper.From(endAnchorToken.Next.Range.Start, CurrentToken.Previous.Range.End));
-            ConnectTokens(startAnchorToken.Previous, CurrentToken);
+            AddErrorAtRange(GSCErrorCodes.InactivePreprocessorBranch, RangeHelper.From(endAnchorToken.Next!.Range.Start, CurrentNode.Previous!.Range.End));
+            ConnectTokens(startAnchorToken.Previous!, CurrentNode);
         }
 
         // If we're at #endif, we're done and need to delete it.
         if(CurrentTokenType == TokenType.PreEndIf)
         {
-            ConnectTokens(startAnchorToken.Previous, CurrentToken.Next);
+            ConnectTokens(startAnchorToken.Previous!, CurrentNode.Next!);
             Advance();
             return;
         }
@@ -851,13 +874,13 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         ElifDirective(conditionMet);
 
         // Finally, go back to the start of the directive so nested ones can be processed.
-        CurrentToken = startAnchorToken.Previous;
+        CurrentNode = startAnchorToken.Previous!;
     }
 
     private void ElifDirective(bool conditionAlreadyMet)
     {
         // Store the elif token to delete it later.
-        Token startAnchorToken = CurrentToken;
+        LinkedToken startAnchorToken = CurrentNode;
         Advance();
 
         // Parse the condition.
@@ -870,10 +893,10 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
             Advance();
         }
 
-        Token endAnchorToken = CurrentToken;
+        LinkedToken endAnchorToken = CurrentNode;
 
         // We can now "delete" the elif directive entirely.
-        ConnectTokens(startAnchorToken.Previous, endAnchorToken);
+        ConnectTokens(startAnchorToken.Previous!, endAnchorToken);
 
         // Track nesting level of #if directives
         int nestingLevel = 1;
@@ -909,21 +932,21 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         // If we're at the end of the file, we've got an error.
         if(CurrentTokenType == TokenType.Eof)
         {
-            AddErrorAtToken(GSCErrorCodes.UnterminatedPreprocessorDirective, CurrentToken.Previous, "#elif");
+            AddErrorAtLinkedToken(GSCErrorCodes.UnterminatedPreprocessorDirective, CurrentNode.Previous!, "#elif");
             return;
         }
 
         // If the condition was not met, delete the whole branch.
         if(!conditionMet)
         {
-            AddErrorAtRange(GSCErrorCodes.InactivePreprocessorBranch, RangeHelper.From(endAnchorToken.Next.Range.Start, CurrentToken.Previous.Range.End));
-            ConnectTokens(startAnchorToken.Previous, CurrentToken);
+            AddErrorAtRange(GSCErrorCodes.InactivePreprocessorBranch, RangeHelper.From(endAnchorToken.Next!.Range.Start, CurrentNode.Previous!.Range.End));
+            ConnectTokens(startAnchorToken.Previous!, CurrentNode);
         }
 
         // If we're at #endif, we're done and need to delete it.
         if(CurrentTokenType == TokenType.PreEndIf)
         {
-            ConnectTokens(startAnchorToken.Previous, CurrentToken.Next);
+            ConnectTokens(startAnchorToken.Previous!, CurrentNode.Next!);
             Advance();
             return;
         }
@@ -940,10 +963,10 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     private void ElseDirective(bool conditionAlreadyMet)
     {
         // Store the else token to delete it later.
-        Token startAnchorToken = CurrentToken;
+        LinkedToken startAnchorToken = CurrentNode;
         Advance();
 
-        Token endAnchorToken = CurrentToken;
+        LinkedToken endAnchorToken = CurrentNode;
 
         // Track nesting level of #if directives
         int nestingLevel = 1;
@@ -971,7 +994,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         // If we're at the end of the file, we've got an error.
         if(CurrentTokenType == TokenType.Eof)
         {
-            AddErrorAtToken(GSCErrorCodes.UnterminatedPreprocessorDirective, CurrentToken.Previous, "#else");
+            AddErrorAtLinkedToken(GSCErrorCodes.UnterminatedPreprocessorDirective, CurrentNode.Previous!, "#else");
         }
 
         // Otherwise we're at the #endif
@@ -979,18 +1002,18 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         // Delete the whole branch if a previous condition was met
         if(conditionAlreadyMet)
         {
-            AddErrorAtRange(GSCErrorCodes.InactivePreprocessorBranch, RangeHelper.From(endAnchorToken.Next.Range.Start, CurrentToken.Previous.Range.End));
-            ConnectTokens(startAnchorToken.Previous, CurrentToken.Next);
+            AddErrorAtRange(GSCErrorCodes.InactivePreprocessorBranch, RangeHelper.From(endAnchorToken.Next!.Range.Start, CurrentNode.Previous!.Range.End));
+            ConnectTokens(startAnchorToken.Previous!, CurrentNode.Next!);
             Advance();
             return;
         }
 
         // Otherwise, delete the #else and the #endif but keep the rest.
-        ConnectTokens(startAnchorToken.Previous, startAnchorToken.Next);
+        ConnectTokens(startAnchorToken.Previous!, startAnchorToken.Next!);
 
         if(CurrentTokenType == TokenType.PreEndIf)
         {
-            ConnectTokens(CurrentToken.Previous, CurrentToken.Next);
+            ConnectTokens(CurrentNode.Previous!, CurrentNode.Next!);
             Advance();
         }
     }
@@ -1181,16 +1204,16 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         }
 
         // Got an integer we can work with
-        if(ConsumeIfType(TokenType.Integer, out Token? integerToken))
+        if(ConsumeIfType(TokenType.Integer, out LinkedToken? integerNode))
         {
-            return int.Parse(integerToken.Lexeme);
+            return int.Parse(integerNode.Lexeme);
         }
 
         // Token isn't supported - whole expression fails.
         return null;
     }
 
-    private void ConnectTokens(Token left, Token right)
+    private void ConnectTokens(LinkedToken left, LinkedToken right)
     {
         left.Next = right;
         right.Previous = left;
@@ -1206,6 +1229,12 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     {
         Sense.AddPreDiagnostic(token.Range, errorCode, args);
     }
+
+    private void AddErrorAtLinkedToken(GSCErrorCodes errorCode, LinkedToken token, params object?[] args)
+    {
+        Sense.AddPreDiagnostic(token.Range, errorCode, args);
+    }
+
     private void AddErrorAtRange(GSCErrorCodes errorCode, Range range, params object?[] args)
     {
         Sense.AddPreDiagnostic(range, errorCode, args);
@@ -1215,7 +1244,7 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     {
         do
         {
-            CurrentToken = CurrentToken.Next;
+            CurrentNode = CurrentNode.Next!;
         }
         // Ignore all whitespace and comments, but don't ignore line breaks.
         while (
@@ -1225,9 +1254,9 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
             CurrentTokenType == TokenType.DocComment);
     }
 
-    private Token Consume()
+    private LinkedToken Consume()
     {
-        Token consumed = CurrentToken;
+        LinkedToken consumed = CurrentNode;
         Advance();
 
         return consumed;
@@ -1244,9 +1273,9 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         return false;
     }
 
-    private bool ConsumeIfType(TokenType type, [NotNullWhen(true)] out Token? consumed)
+    private bool ConsumeIfType(TokenType type, [NotNullWhen(true)] out LinkedToken? consumed)
     {
-        Token current = CurrentToken;
+        LinkedToken current = CurrentNode;
         if (AdvanceIfType(type))
         {
             consumed = current;
@@ -1257,14 +1286,14 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
         return false;
     }
 
-    private readonly bool TryGetMacroDefinition(Token token, [NotNullWhen(true)] out MacroDefinition? definition)
+    private readonly bool TryGetMacroDefinition(LinkedToken token, [NotNullWhen(true)] out MacroDefinition? definition)
     {
         // Only expand user-defined macros in the third pass.
         // Lookup built-in macros first, because they exist in user-defined space only as placeholders.
         return TryGetSystemDefinedMacroDefinition(token, out definition) || Defines.TryGetValue(token.Lexeme, out definition);
     }
 
-    private readonly bool TryGetSystemDefinedMacroDefinition(Token token, [NotNullWhen(true)] out MacroDefinition? definition)
+    private readonly bool TryGetSystemDefinedMacroDefinition(LinkedToken token, [NotNullWhen(true)] out MacroDefinition? definition)
     {
         // Built-in macros are expanded first and third passes.
         switch (token.Lexeme)
@@ -1289,11 +1318,11 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
 
     private static MacroDefinition LineMacro(int line)
     {
-        return MacroDefinition.BuiltInMacroDefinition("__LINE__", new Token(TokenType.Integer, RangeHelper.Empty, line.ToString()));
+        return MacroDefinition.BuiltInMacroDefinition("__LINE__", new LexemeToken(TokenType.Integer, TokenRange.Empty, line.ToString()));
     }
 
-    private static MacroDefinition XFileVersionMacro { get; } = MacroDefinition.BuiltInMacroDefinition("XFILE_VERSION", new Token(TokenType.Integer, RangeHelper.Empty, "593"));
+    private static MacroDefinition XFileVersionMacro { get; } = MacroDefinition.BuiltInMacroDefinition("XFILE_VERSION", new LexemeToken(TokenType.Integer, TokenRange.Empty, "593"));
 
-    private static MacroDefinition FileMacro { get; } = MacroDefinition.BuiltInMacroDefinition("__FILE__", new Token(TokenType.Identifier, RangeHelper.Empty, "these_wont_work_how_you_hope_them_to_sad_face"));
-    private static MacroDefinition FastFileMacro { get; } = MacroDefinition.BuiltInMacroDefinition("FASTFILE", new Token(TokenType.Identifier, RangeHelper.Empty, "these_wont_work_how_you_hope_them_to_sad_face"));
+    private static MacroDefinition FileMacro { get; } = MacroDefinition.BuiltInMacroDefinition("__FILE__", new LexemeToken(TokenType.Identifier, TokenRange.Empty, "these_wont_work_how_you_hope_them_to_sad_face"));
+    private static MacroDefinition FastFileMacro { get; } = MacroDefinition.BuiltInMacroDefinition("FASTFILE", new LexemeToken(TokenType.Identifier, TokenRange.Empty, "these_wont_work_how_you_hope_them_to_sad_face"));
 }

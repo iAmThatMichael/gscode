@@ -9,6 +9,7 @@ using GSCode.Parser.CFA;
 using GSCode.Parser.Data;
 using GSCode.Parser.DFA;
 using GSCode.Parser.Lexical;
+using GSCode.Parser.Lexical;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using Xunit;
 
@@ -62,7 +63,7 @@ public class CfaTests
             Parameters = new(),
             Body = StmtListNodeFromList([
                 new ExprStmtNode(null),
-                new IfStmtNode(DataExprNode.From(new Token(TokenType.True, RangeHelper.From(0, 0, 0, 1), "true")))
+                new IfStmtNode(DataExprNode.From(new Token(TokenType.True, new TokenRange(0, 0, 0, 1))))
                 {
                     Then = new ExprStmtNode(null),
                     Else = null,
@@ -105,7 +106,7 @@ public class CfaTests
             Parameters = new(),
             Body = StmtListNodeFromList([
                 new ExprStmtNode(null), // logic
-                new IfStmtNode(DataExprNode.From(new Token(TokenType.True, RangeHelper.From(0, 0, 0, 1), "true")))
+                new IfStmtNode(DataExprNode.From(new Token(TokenType.True, new TokenRange(0, 0, 0, 1))))
                 {
                     Then = new ExprStmtNode(null), // then
                     Else = new IfStmtNode(null)
@@ -257,8 +258,8 @@ public class CfaTests
     {
         return new CaseLabelNode(
             AstNodeType.CaseLabel,
-            new Token(TokenType.Case, RangeHelper.From(0, 0, 0, 4), "case"),
-            DataExprNode.From(new Token(TokenType.Integer, RangeHelper.From(0, 0, 0, 1), value.ToString()))
+            new Token(TokenType.Case, new TokenRange(0, 0, 0, 4)),
+            DataExprNode.From(new LexemeToken(TokenType.Integer, new TokenRange(0, 0, 0, 1), value.ToString()))
         );
     }
 
@@ -269,7 +270,7 @@ public class CfaTests
     {
         return new CaseLabelNode(
             AstNodeType.DefaultLabel,
-            new Token(TokenType.Default, RangeHelper.From(0, 0, 0, 7), "default"),
+            new Token(TokenType.Default, new TokenRange(0, 0, 0, 7)),
             null
         );
     }
@@ -287,7 +288,7 @@ public class CfaTests
 
         return new SwitchStmtNode()
         {
-            Expression = expression ?? DataExprNode.From(new Token(TokenType.Integer, RangeHelper.From(0, 0, 0, 1), "1")),
+            Expression = expression ?? DataExprNode.From(new LexemeToken(TokenType.Integer, new TokenRange(0, 0, 0, 1), "1")),
             Cases = caseList
         };
     }
@@ -320,7 +321,7 @@ public class CfaTests
     {
         return new ControlFlowActionNode(
             AstNodeType.BreakStmt,
-            new Token(TokenType.Break, RangeHelper.From(0, 0, 0, 5), "break")
+            new Token(TokenType.Break, new TokenRange(0, 0, 0, 5))
         );
     }
 
@@ -331,7 +332,7 @@ public class CfaTests
     {
         return new ControlFlowActionNode(
             AstNodeType.ContinueStmt,
-            new Token(TokenType.Continue, RangeHelper.From(0, 0, 0, 8), "continue")
+            new Token(TokenType.Continue, new TokenRange(0, 0, 0, 8))
         );
     }
 

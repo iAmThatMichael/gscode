@@ -24,7 +24,7 @@ namespace GSCode.Parser;
 
 using SymbolKindSA = GSCode.Parser.SA.SymbolKind;
 
-public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationProvider? globalSymbolProvider = null)
+public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationProvider? globalSymbolProvider = null, ScriptMode mode = ScriptMode.Editor)
 {
     public bool Failed { get; private set; } = false;
     public bool Parsed { get; private set; } = false;
@@ -53,6 +53,10 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     // Expose macro outlines for outliner without exposing Sense outside assembly
     public IReadOnlyList<MacroOutlineItem> MacroOutlines => Sense == null ? Array.Empty<MacroOutlineItem>() : (IReadOnlyList<MacroOutlineItem>)Sense.MacroOutlines;
+
+    // Precomputed function scope data (populated after analysis, before AST disposal)
+    private sealed record FunctionScopeInfo(string? FunctionName, Range BodyRange, List<(string Name, Range Range)> Parameters);
+    private List<FunctionScopeInfo>? _functionScopes;
 
     // Reference index: map from symbol key to all ranges in this file
     private readonly Dictionary<SymbolKey, List<Range>> _references = new();
@@ -103,13 +107,40 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     public Task DoParseAsync(string documentText)
     {
-        Token startToken;
-        Token endToken;
+        // Guard: reject files that exceed ushort range limits for TokenRange
+        {
+            int lineCount = 1;
+            int lineLength = 0;
+            foreach (char c in documentText)
+            {
+                if (c == '\n')
+                {
+                    lineCount++;
+                    lineLength = 0;
+                }
+                else
+                {
+                    lineLength++;
+                }
+
+                if (lineCount > TokenRange.MaxLine || lineLength > TokenRange.MaxChar)
+                {
+                    Failed = true;
+                    Sense = new(0, ScriptUri, LanguageId, mode);
+                    Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledLexError,
+                        $"File too large to parse ({lineCount} lines, max line length {lineLength})");
+                    return Task.CompletedTask;
+                }
+            }
+        }
+
+        LinkedToken startNode;
+        LinkedToken endNode;
         try
         {
             // Transform the document text into a token sequence
             Lexer lexer = new(documentText.AsSpan());
-            (startToken, endToken) = lexer.Transform();
+            (startNode, endNode) = lexer.Transform();
         }
         catch (Exception ex)
         {
@@ -118,16 +149,16 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             Log.Error(ex, "Failed to tokenise script.");
 
             // Create a dummy IntelliSense container so we can provide an error to the IDE.
-            Sense = new(0, ScriptUri, LanguageId);
+            Sense = new(0, ScriptUri, LanguageId, mode);
             Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledLexError, ex.GetType().Name);
 
             return Task.CompletedTask;
         }
 
-        ParserIntelliSense sense = Sense = new(endLine: endToken.Range.End.Line, ScriptUri, LanguageId);
+        ParserIntelliSense sense = Sense = new(endLine: endNode.TokenRange.EndLine, ScriptUri, LanguageId, mode);
 
         // Preprocess the tokens.
-        Preprocessor preprocessor = new(startToken, sense);
+        Preprocessor preprocessor = new(startNode, sense);
         try
         {
             preprocessor.Process();
@@ -142,10 +173,10 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         }
 
         // Build a library of tokens so IntelliSense can quickly lookup a token at a given position.
-        Sense.CommitTokens(startToken);
+        Sense.CommitTokens(startNode);
 
         // Build the AST.
-        AST.Parser parser = new(startToken, sense, LanguageId);
+        AST.Parser parser = new(startNode, sense, LanguageId);
 
         try
         {
@@ -177,51 +208,227 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             return Task.CompletedTask;
         }
 
-        // Analyze folding ranges from the token stream
-        UserRegionsAnalyser foldingRangeAnalyser = new(startToken, Sense);
-        try
+        // Editor-only: folding ranges and reference index
+        if (Sense.IsEditorMode)
         {
-            foldingRangeAnalyser.Analyse();
-        }
-        catch (Exception ex)
-        {
-            Failed = true;
-            Console.Error.WriteLine($"Failed to analyse folding ranges: {ex.Message}");
+            // Analyze folding ranges from the token stream
+            UserRegionsAnalyser foldingRangeAnalyser = new(startNode, Sense);
+            try
+            {
+                foldingRangeAnalyser.Analyse();
+            }
+            catch (Exception ex)
+            {
+                Failed = true;
+                Console.Error.WriteLine($"Failed to analyse folding ranges: {ex.Message}");
 
-            Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSaError, ex.GetType().Name);
-            return Task.CompletedTask;
-        }
+                Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSaError, ex.GetType().Name);
+                return Task.CompletedTask;
+            }
 
-        // Build references index from token stream
-        BuildReferenceIndex();
+            // Build references index from token stream
+            BuildReferenceIndex();
+        }
 
 
         Parsed = true;
         return Task.CompletedTask;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Token? PreviousNonTrivia(Token? token)
+    // --- Index-based helpers ---
+
+    /// <summary>
+    /// Index-based: checks if identifier token is preceded by &amp; (address-of operator).
+    /// </summary>
+    private bool IsAddressOfIdentifierByIndex(int tokenIndex)
     {
-        Token? t = token?.Previous;
-        while (t is not null && (t.IsWhitespacey() || t.IsComment()))
+        var tokens = Sense.Tokens;
+        int leftMostIdx = tokenIndex;
+        // Check for ns::name pattern
+        int prevIdx = tokens.PrevNonTriviaIndex(leftMostIdx);
+        if (prevIdx >= 0 && tokens.GetAt(prevIdx)!.Type == TokenType.ScopeResolution)
         {
-            t = t.Previous;
+            int nsIdx = tokens.PrevNonTriviaIndex(prevIdx);
+            if (nsIdx >= 0 && tokens.GetAt(nsIdx)!.Type == TokenType.Identifier)
+            {
+                leftMostIdx = nsIdx;
+            }
         }
-        return t;
+        int beforeIdx = tokens.PrevNonTriviaIndex(leftMostIdx);
+        return beforeIdx >= 0 && tokens.GetAt(beforeIdx)!.Type == TokenType.BitAnd;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsAddressOfIdentifier(Token identifier)
+    /// <summary>
+    /// Index-based: parse namespace::name or just name from a token at the given index.
+    /// </summary>
+    private (string? qualifier, string name) ParseNamespaceQualifiedIdentifierByIndex(int tokenIndex)
     {
-        // identifier may be part of ns::name; find left-most identifier
-        Token leftMost = identifier;
-        if (identifier.Previous is { Type: TokenType.ScopeResolution } scope && scope.Previous is { Type: TokenType.Identifier } ns)
+        var tokens = Sense.Tokens;
+        Token token = tokens.GetAt(tokenIndex)!;
+        int prevIdx = tokens.PrevNonTriviaIndex(tokenIndex);
+        if (prevIdx >= 0)
         {
-            leftMost = ns;
+            Token prev = tokens.GetAt(prevIdx)!;
+            if (prev.Type == TokenType.ScopeResolution)
+            {
+                int nsIdx = tokens.PrevNonTriviaIndex(prevIdx);
+                if (nsIdx >= 0)
+                {
+                    Token nsToken = tokens.GetAt(nsIdx)!;
+                    if (nsToken.Type == TokenType.Identifier)
+                    {
+                        return (nsToken.Lexeme, token.Lexeme);
+                    }
+                }
+            }
         }
-        Token? prev = PreviousNonTrivia(leftMost);
-        return prev is not null && prev.Type == TokenType.BitAnd;
+        return (null, token.Lexeme);
+    }
+
+    /// <summary>
+    /// Index-based: checks if token is a namespace qualifier (followed by :: and identifier),
+    /// and returns the function token index after the ::.
+    /// </summary>
+    private bool TryGetQualifiedFunctionTokenByIndex(int tokenIndex, out int functionTokenIndex)
+    {
+        var tokens = Sense.Tokens;
+        functionTokenIndex = -1;
+
+        int nextIdx = tokens.NextNonWhitespaceIndex(tokenIndex);
+        if (nextIdx < 0) return false;
+        Token next = tokens.GetAt(nextIdx)!;
+        if (next.Type != TokenType.ScopeResolution) return false;
+
+        int afterScopeIdx = tokens.NextNonWhitespaceIndex(nextIdx);
+        if (afterScopeIdx < 0) return false;
+        Token afterScope = tokens.GetAt(afterScopeIdx)!;
+        if (afterScope.Type != TokenType.Identifier) return false;
+
+        functionTokenIndex = afterScopeIdx;
+        return true;
+    }
+
+    /// <summary>
+    /// Index-based: find the call context (function identifier + active parameter index) from a token position.
+    /// </summary>
+    private bool TryGetCallInfoByIndex(int tokenIndex, out int idTokenIndex, out int activeParam)
+    {
+        var tokens = Sense.Tokens;
+        idTokenIndex = -1;
+        activeParam = 0;
+
+        // Scan left to find the nearest unmatched '('
+        int cursorIdx = tokenIndex;
+        int parenDepth = 0;
+        while (cursorIdx >= 0)
+        {
+            Token cursor = tokens.GetAt(cursorIdx)!;
+            if (cursor.Type == TokenType.CloseParen) parenDepth++;
+            if (cursor.Type == TokenType.OpenParen)
+            {
+                if (parenDepth == 0) break;
+                parenDepth--;
+            }
+            cursorIdx--;
+        }
+        if (cursorIdx < 0)
+            return false;
+
+        // Find the identifier before this '('
+        int idIdx = tokens.PrevNonTriviaIndex(cursorIdx);
+        if (idIdx < 0) return false;
+        Token id = tokens.GetAt(idIdx)!;
+        if (id.Type != TokenType.Identifier) return false;
+
+        idTokenIndex = idIdx;
+
+        // Count commas between '(' and cursor position, respecting nesting
+        int depthParen = 0, depthBracket = 0, depthBrace = 0;
+        int index = 0;
+        for (int i = cursorIdx + 1; i <= tokenIndex; i++)
+        {
+            Token walker = tokens.GetAt(i)!;
+            if (walker.Type == TokenType.OpenParen) depthParen++;
+            else if (walker.Type == TokenType.CloseParen)
+            {
+                if (depthParen == 0) break;
+                depthParen--;
+            }
+            else if (walker.Type == TokenType.OpenBracket) depthBracket++;
+            else if (walker.Type == TokenType.CloseBracket && depthBracket > 0) depthBracket--;
+            else if (walker.Type == TokenType.OpenBrace) depthBrace++;
+            else if (walker.Type == TokenType.CloseBrace && depthBrace > 0) depthBrace--;
+            else if (walker.Type == TokenType.Comma && depthParen == 0 && depthBracket == 0 && depthBrace == 0)
+            {
+                index++;
+            }
+        }
+        activeParam = index;
+        return true;
+    }
+
+    /// <summary>
+    /// Index-based: checks if token is on a #using line and extracts the path.
+    /// </summary>
+    private bool IsOnUsingLineByIndex(int tokenIndex, out string? usingPath, out Range? usingRange)
+    {
+        var tokens = Sense.Tokens;
+        usingPath = null;
+        usingRange = null;
+
+        Token token = tokens.GetAt(tokenIndex)!;
+        int line = token.Range.Start.Line;
+
+        // Walk to start of line
+        int cursorIdx = tokenIndex;
+        while (cursorIdx > 0)
+        {
+            Token prev = tokens.GetAt(cursorIdx - 1)!;
+            if (prev.Range.End.Line != line) break;
+            cursorIdx--;
+        }
+
+        // Find #using on this line
+        int usingIdx = -1;
+        for (int i = cursorIdx; i < tokens.Count; i++)
+        {
+            Token t = tokens.GetAt(i)!;
+            if (t.Range.Start.Line != line) break;
+            if (t.Lexeme == "#using")
+            {
+                usingIdx = i;
+                break;
+            }
+        }
+        if (usingIdx < 0) return false;
+
+        // Collect tokens after #using up to ; or EOL
+        int startIdx = tokens.NextNonWhitespaceIndex(usingIdx);
+        if (startIdx < 0 || tokens.GetAt(startIdx)!.Range.Start.Line != line) return false;
+
+        Token startToken = tokens.GetAt(startIdx)!;
+        Token endToken = startToken;
+        for (int i = startIdx; i < tokens.Count; i++)
+        {
+            Token t = tokens.GetAt(i)!;
+            if (t.Range.Start.Line != line) break;
+            if (t.Type == TokenType.Semicolon || t.Type == TokenType.LineBreak) break;
+            endToken = t;
+        }
+
+        var sb = new StringBuilder();
+        for (int i = startIdx; ; i++)
+        {
+            Token t = tokens.GetAt(i)!;
+            if (t.Range.Start.Line != line) break;
+            if (t.Type == TokenType.Semicolon || t.Type == TokenType.LineBreak) break;
+            if (!t.IsWhitespacey()) sb.Append(t.Lexeme);
+            if (ReferenceEquals(t, endToken)) break;
+        }
+
+        usingPath = sb.ToString();
+        usingRange = RangeHelper.From(startToken.Range.Start, endToken.Range.End);
+        return true;
     }
 
     private static string NormalizeDocComment(string raw)
@@ -268,18 +475,21 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     {
         _references.Clear();
         var api = TryGetApi();
-        foreach (var token in Sense.Tokens.GetAll())
+        var tokens = Sense.Tokens;
+        for (int i = 0; i < tokens.Count; i++)
         {
+            Token token = tokens.GetAt(i)!;
             if (token.Type != TokenType.Identifier) continue;
 
             // Recognize definition identifiers
-            if (token.SenseDefinition is ScrFunctionSymbol)
+            var senseDef = Sense.GetSenseDefinition(token);
+            if (senseDef is ScrFunctionSymbol)
             {
                 var defNamespace = GetEffectiveNamespace();
                 AddRef(new SymbolKey(SymbolKindSA.Function, defNamespace, token.Lexeme), token.Range);
                 continue;
             }
-            if (token.SenseDefinition is ScrClassSymbol)
+            if (senseDef is ScrClassSymbol)
             {
                 var defNamespace = GetEffectiveNamespace();
                 AddRef(new SymbolKey(SymbolKindSA.Class, defNamespace, token.Lexeme), token.Range);
@@ -287,14 +497,16 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             }
 
             // Recognize call-site or qualified references, or address-of '&name' / '&ns::name'
-            Token? next = token.Next;
-            while (next is not null && next.IsWhitespacey()) next = next.Next;
-            bool looksLikeCall = next is not null && next.Type == TokenType.OpenParen;
-            bool isQualified = token.Previous is not null && token.Previous.Type == TokenType.ScopeResolution && token.Previous.Previous is not null && token.Previous.Previous.Type == TokenType.Identifier;
-            bool isAddressOf = IsAddressOfIdentifier(token);
+            int nextIdx = tokens.NextNonWhitespaceIndex(i);
+            bool looksLikeCall = nextIdx >= 0 && tokens.GetAt(nextIdx)!.Type == TokenType.OpenParen;
+            int prevIdx = tokens.PrevNonTriviaIndex(i);
+            bool isQualified = prevIdx >= 0 && tokens.GetAt(prevIdx)!.Type == TokenType.ScopeResolution
+                && tokens.PrevNonTriviaIndex(prevIdx) is int nsPrevIdx && nsPrevIdx >= 0
+                && tokens.GetAt(nsPrevIdx)!.Type == TokenType.Identifier;
+            bool isAddressOf = IsAddressOfIdentifierByIndex(i);
             if (!looksLikeCall && !isQualified && !isAddressOf) continue;
 
-            var (qual, name) = ParseNamespaceQualifiedIdentifier(token);
+            var (qual, name) = ParseNamespaceQualifiedIdentifierByIndex(i);
 
             // Skip builtin
             if (api is not null)
@@ -319,11 +531,49 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         }
     }
 
+    /// <summary>
+    /// Precomputes function scope info from the AST before it's disposed.
+    /// </summary>
+    private void PrecomputeFunctionScopes()
+    {
+        if (RootNode is null) return;
+        _functionScopes = new List<FunctionScopeInfo>();
+        foreach (var fn in EnumerateFunctions(RootNode))
+        {
+            string? name = fn.Name?.Lexeme;
+            Range bodyRange = GetStmtListRange(fn.Body);
+            var parameters = new List<(string Name, Range Range)>();
+            foreach (var p in fn.Parameters.Parameters)
+            {
+                if (p.Name is not null)
+                {
+                    parameters.Add((p.Name.Lexeme, p.Name.Range));
+                }
+            }
+            _functionScopes.Add(new FunctionScopeInfo(name, bodyRange, parameters));
+        }
+    }
+
     public async Task<string?> GetEnclosingFunctionScopeIdAsync(Position position, CancellationToken cancellationToken = default)
     {
         await WaitUntilParsedAsync(cancellationToken);
-        if (RootNode is null) return null;
 
+        // Use precomputed scopes if available (post-analysis, AST disposed)
+        if (_functionScopes is not null)
+        {
+            foreach (var scope in _functionScopes)
+            {
+                if (scope.FunctionName is null) continue;
+                if (IsPositionInsideRange(position, scope.BodyRange))
+                {
+                    return $"{GetEffectiveNamespace()}::{scope.FunctionName}";
+                }
+            }
+            return null;
+        }
+
+        // Fallback: use AST directly (pre-analysis)
+        if (RootNode is null) return null;
         foreach (var fn in EnumerateFunctions(RootNode))
         {
             if (fn.Name is not Token nameTok) continue;
@@ -480,6 +730,11 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     public Task DoAnalyseAsync(IEnumerable<IExportedSymbol> exportedSymbols, CancellationToken cancellationToken = default)
     {
+        if (Failed || DefinitionsTable is null)
+        {
+            return Task.CompletedTask;
+        }
+
 #if FLAG_PERFORMANCE_TRACKING
         var sw = System.Diagnostics.Stopwatch.StartNew();
 #endif
@@ -489,7 +744,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 #endif
 
         // Get a comprehensive list of symbols available in this context.
-        Dictionary<string, IExportedSymbol> allSymbols = new(DefinitionsTable!.InternalSymbols, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, IExportedSymbol> allSymbols = new(DefinitionsTable.InternalSymbols, StringComparer.OrdinalIgnoreCase);
         foreach (IExportedSymbol symbol in exportedSymbols)
         {
             // Add dependency symbols, but don't overwrite local symbols (local takes precedence).
@@ -551,32 +806,35 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         Log.Debug("[PERF CHECKPOINT] SPA-Analysis - Pre-BasicDiagnostics: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
         // TODO: fit this within the analysers above, or a later step.
-        // Basic SPA diagnostics
-        try
+        // Basic SPA diagnostics (editor-only: rely on _references and Sense.Tokens)
+        if (Sense.IsEditorMode)
         {
-            EmitUnusedParameterDiagnostics();
+            try
+            {
+                EmitUnusedParameterDiagnostics();
 #if FLAG_PERFORMANCE_TRACKING
-            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedParameter: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+                Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedParameter: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
-            // EmitCallArityDiagnostics(); // Now handled in ReachingDefinitionsAnalyser
-            // EmitUnknownNamespaceDiagnostics(); // Now handled in ReachingDefinitionsAnalyser
-            EmitUnusedUsingDiagnostics();
+                // EmitCallArityDiagnostics(); // Now handled in ReachingDefinitionsAnalyser
+                // EmitUnknownNamespaceDiagnostics(); // Now handled in ReachingDefinitionsAnalyser
+                EmitUnusedUsingDiagnostics();
 #if FLAG_PERFORMANCE_TRACKING
-            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedUsing: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+                Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedUsing: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
-            EmitUnusedVariableDiagnostics();
+                EmitUnusedVariableDiagnostics();
 #if FLAG_PERFORMANCE_TRACKING
-            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedVariable: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+                Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedVariable: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
-            EmitAssignOnThreadDiagnostics();
+                EmitAssignOnThreadDiagnostics();
 #if FLAG_PERFORMANCE_TRACKING
-            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-AssignOnThread: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+                Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-AssignOnThread: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
-        }
-        catch (Exception ex)
-        {
-            // Do not fail analysis entirely; surface as SPA failure
-            Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
+            }
+            catch (Exception ex)
+            {
+                // Do not fail analysis entirely; surface as SPA failure
+                Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
+            }
         }
 
 #if FLAG_PERFORMANCE_TRACKING
@@ -584,6 +842,22 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         sw.Stop();
         Log.Debug("[PERF END] SPA-Analysis completed in {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
+
+        // === Memory compaction ===
+        if (Sense.IsEditorMode)
+        {
+            Sense.FinalizeSemanticTokens();
+            PrecomputeFunctionScopes();
+        }
+        else
+        {
+            // Index mode: token list was needed for SignatureAnalyser but can be freed now
+            Sense.Tokens.Clear();
+            // Analysis-time data duplicates the global symbol registry — free it
+            DefinitionsTable!.StripAnalysisData();
+        }
+        DefinitionsTable!.StripAstReferences();
+        RootNode = null;
 
         Analysed = true;
         return Task.CompletedTask;
@@ -600,6 +874,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     public async Task PushSemanticTokensAsync(SemanticTokensBuilder builder, CancellationToken cancellationToken)
     {
+        if (!Sense.IsEditorMode) return;
         await WaitUntilAnalysedAsync(cancellationToken);
 
         int count = 0;
@@ -612,49 +887,40 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     public async Task<Hover?> GetHoverAsync(Position position, CancellationToken cancellationToken)
     {
+        if (!Sense.IsEditorMode) return null;
         await WaitUntilAnalysedAsync(cancellationToken);
 
         // Check if position is on a namespace qualifier (followed by :: and identifier)
         // If so, forward to the function token for hover resolution
-        Token? initialToken = Sense.Tokens.Get(position);
+        int initialIdx = Sense.Tokens.GetIndex(position);
+        Token? initialToken = Sense.Tokens.GetAt(initialIdx);
         if (initialToken is not null && initialToken.Type == TokenType.Identifier)
         {
-            Token? nextNonWsCheck = initialToken.Next;
-            while (nextNonWsCheck is not null && nextNonWsCheck.IsWhitespacey())
+            if (TryGetQualifiedFunctionTokenByIndex(initialIdx, out int funcIdx))
             {
-                nextNonWsCheck = nextNonWsCheck.Next;
-            }
-            if (nextNonWsCheck is not null && nextNonWsCheck.Type == TokenType.ScopeResolution)
-            {
-                Token? afterScopeCheck = nextNonWsCheck.Next;
-                while (afterScopeCheck is not null && afterScopeCheck.IsWhitespacey())
-                {
-                    afterScopeCheck = afterScopeCheck.Next;
-                }
-                if (afterScopeCheck is not null && afterScopeCheck.Type == TokenType.Identifier)
-                {
-                    // Forward position to the function token for hover lookup
-                    position = afterScopeCheck.Range.Start;
-                }
+                // Forward position to the function token for hover lookup
+                position = Sense.Tokens.GetAt(funcIdx)!.Range.Start;
             }
         }
 
-        IHoverable? result = Sense.HoverLibrary.Get(position);
+        IHoverable? result = Sense.HoverLibrary!.Get(position);
         if (result is not null)
         {
             return result.GetHover();
         }
 
-        Token? token = Sense.Tokens.Get(position);
+        int tokenIdx = Sense.Tokens.GetIndex(position);
+        Token? token = Sense.Tokens.GetAt(tokenIdx);
         if (token is null)
         {
             return null;
         }
 
         // If cursor is inside a call's argument list, synthesize a signature-like hover with current parameter highlighted
-        if (TryGetCallInfo(token, out Token idToken, out int activeParam))
+        if (TryGetCallInfoByIndex(tokenIdx, out int idTokenIdx, out int activeParam))
         {
-            var (q, funcName) = ParseNamespaceQualifiedIdentifier(idToken);
+            Token idToken = Sense.Tokens.GetAt(idTokenIdx)!;
+            var (q, funcName) = ParseNamespaceQualifiedIdentifierByIndex(idTokenIdx);
             string? md = BuildSignatureMarkdown(funcName, q, activeParam);
             if (md is not null)
             {
@@ -677,7 +943,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             return null;
         }
 
-        var (qualifier, name) = ParseNamespaceQualifiedIdentifier(token);
+        var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(tokenIdx);
 
         // Exclude builtin API functions
         if (IsBuiltinFunction(name))
@@ -800,69 +1066,16 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         return sb.ToString();
     }
 
-    private static bool TryGetCallInfo(Token token, out Token idToken, out int activeParam)
-    {
-        idToken = default!;
-        activeParam = 0;
-
-        // Find the nearest '(' that starts the current argument list
-        Token? cursor = token;
-        int parenDepth = 0;
-        while (cursor is not null)
-        {
-            if (cursor.Type == TokenType.CloseParen) parenDepth++;
-            if (cursor.Type == TokenType.OpenParen)
-            {
-                if (parenDepth == 0) break;
-                parenDepth--;
-            }
-            cursor = cursor.Previous;
-        }
-        if (cursor is null)
-            return false; // not in a call
-
-        // The identifier before this '('
-        Token? id = cursor.Previous;
-        while (id is not null && (id.IsWhitespacey() || id.IsComment())) id = id.Previous;
-        if (id is null || id.Type != TokenType.Identifier)
-            return false;
-
-        idToken = id;
-
-        // Count commas to determine parameter index; ignore nested parens/brackets/braces
-        Token? walker = cursor.Next;
-        int depthParen = 0, depthBracket = 0, depthBrace = 0;
-        int index = 0;
-        while (walker is not null && walker != token.Next)
-        {
-            if (walker.Type == TokenType.OpenParen) depthParen++;
-            else if (walker.Type == TokenType.CloseParen)
-            {
-                if (depthParen == 0) break;
-                depthParen--;
-            }
-            else if (walker.Type == TokenType.OpenBracket) depthBracket++;
-            else if (walker.Type == TokenType.CloseBracket && depthBracket > 0) depthBracket--;
-            else if (walker.Type == TokenType.OpenBrace) depthBrace++;
-            else if (walker.Type == TokenType.CloseBrace && depthBrace > 0) depthBrace--;
-            else if (walker.Type == TokenType.Comma && depthParen == 0 && depthBracket == 0 && depthBrace == 0)
-            {
-                index++;
-            }
-            walker = walker.Next;
-        }
-        activeParam = index;
-        return true;
-    }
-
     public async Task<CompletionList?> GetCompletionAsync(Position position, CancellationToken cancellationToken)
     {
+        if (!Sense.IsEditorMode) return null;
         await WaitUntilAnalysedAsync(cancellationToken);
-        return Sense.Completions.GetCompletionsFromPosition(position);
+        return Sense.Completions!.GetCompletionsFromPosition(position);
     }
 
     public async Task<IEnumerable<FoldingRange>> GetFoldingRangesAsync(CancellationToken cancellationToken = default)
     {
+        if (!Sense.IsEditorMode) return [];
         await WaitUntilParsedAsync(cancellationToken);
         return Sense.FoldingRanges;
     }
@@ -897,24 +1110,12 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     {
         await WaitUntilParsedAsync(cancellationToken);
 
-        var functions = DefinitionsTable!.ExportedFunctions ?? [];
-        var classes = DefinitionsTable!.ExportedClasses ?? [];
-        return functions.Cast<IExportedSymbol>().Concat(classes);
-    }
+        if (DefinitionsTable is null)
+            return [];
 
-    /// <summary>
-    /// Helper to parse namespace-qualified identifiers: namespace::name or just name.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static (string? qualifier, string name) ParseNamespaceQualifiedIdentifier(Token token)
-    {
-        // If the previous token is '::' and the one before is an identifier, treat as namespace::name
-        if (token.Previous is { Lexeme: "::" } sep && sep.Previous is { Type: TokenType.Identifier } nsToken)
-        {
-            return (nsToken.Lexeme, token.Lexeme);
-        }
-        // Otherwise, no qualifier
-        return (null, token.Lexeme);
+        var functions = DefinitionsTable.ExportedFunctions ?? [];
+        var classes = DefinitionsTable.ExportedClasses ?? [];
+        return functions.Cast<IExportedSymbol>().Concat(classes);
     }
 
     private static string NormalizeFilePathForUri(string filePath)
@@ -946,11 +1147,12 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     public async Task<Location?> GetDefinitionAsync(Position position, CancellationToken cancellationToken = default)
     {
+        if (!Sense.IsEditorMode) return null;
         await WaitUntilParsedAsync(cancellationToken);
 
         // First, allow preprocessor macro definitions/usages to resolve even if the original macro token was removed
-        IHoverable? hoverable = Sense.HoverLibrary.Get(position);
-        if (hoverable is Pre.MacroDefinition macroDef && !macroDef.IsFromPreprocessor)
+        IHoverable? hoverable = Sense.HoverLibrary!.Get(position);
+        if (hoverable is Pre.MacroDefinition macroDef && !macroDef.IsBuiltIn)
         {
             string normalized = NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
             return new Location() { Uri = new Uri(normalized), Range = macroDef.Range };
@@ -961,12 +1163,13 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             return new Location() { Uri = new Uri(normalized), Range = scriptMacro.DefineSource.Range };
         }
 
-        Token? token = Sense.Tokens.Get(position);
+        int tokenIdx = Sense.Tokens.GetIndex(position);
+        Token? token = Sense.Tokens.GetAt(tokenIdx);
         if (token is null)
             return null;
 
         // If the token has an IntelliSense definition pointing at a dependency, return that file location.
-        if (token.SenseDefinition is ScrDependencySymbol dep)
+        if (Sense.GetSenseDefinition(token) is ScrDependencySymbol dep)
         {
             string resolvedPath = dep.Path;
             if (!File.Exists(resolvedPath))
@@ -977,7 +1180,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             return new Location() { Uri = targetUri, Range = RangeHelper.From(0, 0, 0, 0) };
         }
 
-        if (IsOnUsingLine(token, out string? usingPath, out Range? usingRange))
+        if (IsOnUsingLineByIndex(tokenIdx, out string? usingPath, out Range? usingRange))
         {
             string? resolved = Sense.GetDependencyPath(usingPath!, usingRange!);
             if (resolved is not null && File.Exists(resolved))
@@ -1006,40 +1209,26 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         {
             return null;
         }
-        // Helper: get next non-whitespace/comment token
-        Token? nextNonWs = token.Next;
-        while (nextNonWs is not null && nextNonWs.IsWhitespacey())
-        {
-            nextNonWs = nextNonWs.Next;
-        }
         // If current token is namespace qualifier (followed by :: and identifier), forward to the function token
-        if (nextNonWs is not null && nextNonWs.Type == TokenType.ScopeResolution)
+        if (TryGetQualifiedFunctionTokenByIndex(tokenIdx, out int defFuncIdx))
         {
-            Token? afterScope = nextNonWs.Next;
-            while (afterScope is not null && afterScope.IsWhitespacey())
-            {
-                afterScope = afterScope.Next;
-            }
-            if (afterScope is not null && afterScope.Type == TokenType.Identifier)
-            {
-                token = afterScope;
-                // Re-evaluate nextNonWs for the new token
-                nextNonWs = token.Next;
-                while (nextNonWs is not null && nextNonWs.IsWhitespacey())
-                {
-                    nextNonWs = nextNonWs.Next;
-                }
-            }
+            tokenIdx = defFuncIdx;
+            token = Sense.Tokens.GetAt(tokenIdx)!;
         }
+        int nextNonWsIdx = Sense.Tokens.NextNonWhitespaceIndex(tokenIdx);
+        Token? nextNonWs = Sense.Tokens.GetAt(nextNonWsIdx);
         bool looksLikeCall = nextNonWs is not null && nextNonWs.Type == TokenType.OpenParen;
-        bool isQualified = token.Previous is not null && token.Previous.Type == TokenType.ScopeResolution && token.Previous.Previous is not null && token.Previous.Previous.Type == TokenType.Identifier;
-        bool hasDefinitionSymbol = token.SenseDefinition is ScrFunctionSymbol || token.SenseDefinition is ScrMethodSymbol || token.SenseDefinition is ScrClassSymbol || token.SenseDefinition is ScrClassReferenceSymbol;
-        bool isAddressOf = IsAddressOfIdentifier(token);
+        int prevNonTrivIdx = Sense.Tokens.PrevNonTriviaIndex(tokenIdx);
+        Token? prevNonTriv = Sense.Tokens.GetAt(prevNonTrivIdx);
+        bool isQualified = prevNonTriv is not null && prevNonTriv.Type == TokenType.ScopeResolution;
+        var tokenSenseDef = Sense.GetSenseDefinition(token);
+        bool hasDefinitionSymbol = tokenSenseDef is ScrFunctionSymbol || tokenSenseDef is ScrMethodSymbol || tokenSenseDef is ScrClassSymbol || tokenSenseDef is ScrClassReferenceSymbol;
+        bool isAddressOf = IsAddressOfIdentifierByIndex(tokenIdx);
         if (!looksLikeCall && !isQualified && !hasDefinitionSymbol && !isAddressOf)
         {
             return null;
         }
-        var (qualifier, name) = ParseNamespaceQualifiedIdentifier(token);
+        var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(tokenIdx);
         if (IsBuiltinFunction(name))
         {
             return null;
@@ -1051,7 +1240,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             if (loc is not null)
             {
                 string normalized = NormalizeFilePathForUri(loc.Value.FilePath);
-                var targetUri = new Uri(normalized); return new Location() { Uri = targetUri, Range = loc.Value.Range };
+                var targetUri = new Uri(normalized); return new Location() { Uri = targetUri, Range = loc.Value.Range.ToRange() };
             }
         }
         string ns = GetEffectiveNamespace();
@@ -1061,7 +1250,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         {
             string normalized = NormalizeFilePathForUri(localLoc.Value.FilePath);
             var targetUri = new Uri(normalized);
-            return new Location() { Uri = targetUri, Range = localLoc.Value.Range };
+            return new Location() { Uri = targetUri, Range = localLoc.Value.Range.ToRange() };
         }
         var anyLoc = DefinitionsTable?.GetFunctionLocationAnyNamespace(name)
                   ?? DefinitionsTable?.GetClassLocationAnyNamespace(name);
@@ -1069,100 +1258,24 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         {
             string normalized = NormalizeFilePathForUri(anyLoc.Value.FilePath);
             var targetUri = new Uri(normalized);
-            return new Location() { Uri = targetUri, Range = anyLoc.Value.Range };
+            return new Location() { Uri = targetUri, Range = anyLoc.Value.Range.ToRange() };
         }
         return null;
     }
 
-    private static bool IsOnUsingLine(Token token, out string? usingPath, out Range? usingRange)
-    {
-        usingPath = null;
-        usingRange = null;
-
-        int line = token.Range.Start.Line;
-
-        // Move to the first token of the line
-        Token? cursor = token;
-        while (cursor.Previous is not null && cursor.Previous.Range.End.Line == line)
-        {
-            cursor = cursor.Previous;
-        }
-
-        // Find '#using' token on the next line (since this is EOL)
-        Token? usingToken = null;
-        Token? iter = cursor.Next;
-        int guard = 0;
-        while (iter is not null && iter.Range.Start.Line == line)
-        {
-            if (iter.Lexeme == "#using")
-            {
-                usingToken = iter;
-                break;
-            }
-            // Advance; break if no progress or if guard trips to avoid infinite loops
-            Token? prev = iter;
-            iter = iter.Next;
-            if (ReferenceEquals(iter, prev))
-            {
-                break;
-            }
-            if (++guard > 10000)
-            {
-                break;
-            }
-        }
-
-        if (usingToken is null)
-        {
-            return false;
-        }
-
-        // Collect tokens after '#using' up to ';' or EOL
-        Token? start = usingToken.Next;
-        while (start is not null && start.IsWhitespacey()) start = start.Next;
-        if (start is null || start.Range.Start.Line != line)
-        {
-            return false;
-        }
-        Token? end = start;
-        Token? walker = start;
-        while (walker is not null && walker.Range.Start.Line == line)
-        {
-            if (walker.Type == TokenType.Semicolon || walker.Type == TokenType.LineBreak)
-            {
-                break;
-            }
-            end = walker;
-            walker = walker.Next;
-        }
-        if (end is null)
-        {
-            return false;
-        }
-
-        // Build path using raw source between start and end
-        var list = new TokenList(start, end);
-        string raw = list.ToRawString();
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return false;
-        }
-        usingPath = raw.Trim();
-        usingRange = RangeHelper.From(start.Range.Start, end.Range.End);
-        return true;
-    }
-
     public async Task<(string? qualifier, string name)?> GetQualifiedIdentifierAtAsync(Position position, CancellationToken cancellationToken = default)
     {
+        if (!Sense.IsEditorMode) return null;
         await WaitUntilParsedAsync(cancellationToken);
 
-        Token? token = Sense.Tokens.Get(position);
+        int idx = Sense.Tokens.GetIndex(position);
+        Token? token = Sense.Tokens.GetAt(idx);
         if (token is null)
         {
             return null;
         }
 
-        return ParseNamespaceQualifiedIdentifier(token);
+        return ParseNamespaceQualifiedIdentifierByIndex(idx);
     }
 
     private static string? ExtractParameterDocFromDoc(string? doc, string paramName, int paramIndex)
@@ -1224,70 +1337,24 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     public async Task<SignatureHelp?> GetSignatureHelpAsync(Position position, CancellationToken cancellationToken)
     {
+        if (!Sense.IsEditorMode) return null;
         await WaitUntilParsedAsync(cancellationToken);
 
-        Token? token = Sense.Tokens.Get(position);
+        var tokens = Sense.Tokens;
+        int tokenIdx = tokens.GetIndex(position);
+        Token? token = tokens.GetAt(tokenIdx);
         if (token is null)
             return null;
 
-        // Determine if we're inside a call: find identifier before '(' and count comma-separated args
-        // Scan left to find the nearest '(' that starts the current argument list
-        Token? cursor = token;
-        int parenDepth = 0;
-        while (cursor is not null)
-        {
-            if (cursor.Type == TokenType.CloseParen) parenDepth++;
-            if (cursor.Type == TokenType.OpenParen)
-            {
-                if (parenDepth == 0) break;
-                parenDepth--;
-            }
-            if (cursor.Type == TokenType.Identifier && cursor.Next.Type == TokenType.OpenParen && parenDepth == 0)
-            {
-                cursor = cursor.Next;
-                break;
-            }
-            if (cursor.Type == TokenType.Semicolon || cursor.Type == TokenType.LineBreak)
-            {
-                // Hit end of statement without finding '('
-                cursor = null;
-                break;
-            }
-            cursor = cursor.Previous;
-        }
-        if (cursor is null)
-            return null; // not in a call
-
-        // Find the identifier before this '('
-        Token? id = cursor.Previous;
-        while (id is not null && (id.IsWhitespacey() || id.IsComment())) id = id.Previous;
-        if (id is null || id.Type != TokenType.Identifier)
+        // Use index-based call info detection
+        if (!TryGetCallInfoByIndex(tokenIdx, out int idIdx, out int activeParam))
             return null;
 
-        var (qualifier, name) = ParseNamespaceQualifiedIdentifier(id);
+        Token? id = tokens.GetAt(idIdx);
+        if (id is null)
+            return null;
 
-        // Count arguments index by scanning commas from cursor to current position, without nesting into inner parens/brackets/braces
-        int activeParam = 0;
-        Token? walker = cursor.Next;
-        int depthParen = 0, depthBracket = 0, depthBrace = 0;
-        while (walker is not null && walker != token.Next)
-        {
-            if (walker.Type == TokenType.OpenParen) depthParen++;
-            else if (walker.Type == TokenType.CloseParen)
-            {
-                if (depthParen == 0) break; // end of this call
-                depthParen--;
-            }
-            else if (walker.Type == TokenType.OpenBracket) depthBracket++;
-            else if (walker.Type == TokenType.CloseBracket && depthBracket > 0) depthBracket--;
-            else if (walker.Type == TokenType.OpenBrace) depthBrace++;
-            else if (walker.Type == TokenType.CloseBrace && depthBrace > 0) depthBrace--;
-            else if (walker.Type == TokenType.Comma && depthParen == 0 && depthBracket == 0 && depthBrace == 0)
-            {
-                activeParam++;
-            }
-            walker = walker.Next;
-        }
+        var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(idIdx);
 
         // Try builtin API first
         List<SignatureInformation> signatures = new();
@@ -1753,6 +1820,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     public async Task<IReadOnlyList<Range>> GetLocalVariableReferencesAsync(Position position, bool includeDeclaration, CancellationToken cancellationToken = default)
     {
+        if (!Sense.IsEditorMode) return Array.Empty<Range>();
         await WaitUntilParsedAsync(cancellationToken);
 
         // Acquire the token under the cursor
@@ -1763,40 +1831,76 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         }
         string target = token.Lexeme;
 
-        // Find the enclosing function that either contains the position in its body
-        // or, if the token matches a parameter name, the function that declares it.
-        FunDefnNode? enclosing = null;
-        foreach (var fn in EnumerateFunctions(RootNode!))
+        // Find the enclosing function scope
+        FunctionScopeInfo? enclosingScope = null;
+
+        if (_functionScopes is not null)
         {
-            var bodyRange = GetStmtListRange(fn.Body);
-            if (IsPositionInsideRange(position, bodyRange))
+            // Post-analysis: use precomputed scopes
+            foreach (var scope in _functionScopes)
             {
-                enclosing = fn;
-                break;
-            }
-            // If the position is not inside body, check if it's on a parameter name
-            foreach (var p in fn.Parameters.Parameters)
-            {
-                if (p.Name is null) continue;
-                if (ComparePosition(position, p.Name.Range.Start) >= 0 && ComparePosition(p.Name.Range.End, position) >= 0)
+                if (IsPositionInsideRange(position, scope.BodyRange))
                 {
-                    enclosing = fn;
+                    enclosingScope = scope;
                     break;
                 }
+                foreach (var (pName, pRange) in scope.Parameters)
+                {
+                    if (ComparePosition(position, pRange.Start) >= 0 && ComparePosition(pRange.End, position) >= 0)
+                    {
+                        enclosingScope = scope;
+                        break;
+                    }
+                }
+                if (enclosingScope is not null) break;
             }
-            if (enclosing is not null) break;
+        }
+        else if (RootNode is not null)
+        {
+            // Pre-analysis fallback: compute from AST
+            foreach (var fn in EnumerateFunctions(RootNode))
+            {
+                var bodyRange = GetStmtListRange(fn.Body);
+                if (IsPositionInsideRange(position, bodyRange))
+                {
+                    var parms = new List<(string Name, Range Range)>();
+                    foreach (var p in fn.Parameters.Parameters)
+                    {
+                        if (p.Name is not null) parms.Add((p.Name.Lexeme, p.Name.Range));
+                    }
+                    enclosingScope = new FunctionScopeInfo(fn.Name?.Lexeme, bodyRange, parms);
+                    break;
+                }
+                foreach (var p in fn.Parameters.Parameters)
+                {
+                    if (p.Name is null) continue;
+                    if (ComparePosition(position, p.Name.Range.Start) >= 0 && ComparePosition(p.Name.Range.End, position) >= 0)
+                    {
+                        var parms = new List<(string Name, Range Range)>();
+                        foreach (var pp in fn.Parameters.Parameters)
+                        {
+                            if (pp.Name is not null) parms.Add((pp.Name.Lexeme, pp.Name.Range));
+                        }
+                        enclosingScope = new FunctionScopeInfo(fn.Name?.Lexeme, GetStmtListRange(fn.Body), parms);
+                        break;
+                    }
+                }
+                if (enclosingScope is not null) break;
+            }
         }
 
-        if (enclosing is null)
+        if (enclosingScope is null)
         {
             return Array.Empty<Range>();
         }
 
-        // Compute function body range and collect identifier tokens within it matching the name
-        Range body = GetStmtListRange(enclosing.Body);
+        // Collect identifier tokens within function body matching the name
+        Range body = enclosingScope.BodyRange;
         var results = new List<Range>();
-        foreach (var t in Sense.Tokens.GetAll())
+        var tokensLib = Sense.Tokens;
+        for (int i = 0; i < tokensLib.Count; i++)
         {
+            Token t = tokensLib.GetAt(i)!;
             if (t.Type != TokenType.Identifier) continue;
             // Restrict to tokens in the same function body
             if (!(ComparePosition(t.Range.Start, body.Start) >= 0 && ComparePosition(body.End, t.Range.End) >= 0))
@@ -1804,12 +1908,10 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             // Match name (case-insensitive to be consistent with SPA checks)
             if (!string.Equals(t.Lexeme, target, StringComparison.OrdinalIgnoreCase)) continue;
             // Exclude namespace-qualified identifiers or function calls
-            Token? prev = t.Previous;
-            while (prev is not null && prev.IsWhitespacey()) prev = prev.Previous;
-            if (prev is not null && prev.Type == TokenType.ScopeResolution) continue;
-            Token? next = t.Next;
-            while (next is not null && next.IsWhitespacey()) next = next.Next;
-            if (next is not null && next.Type == TokenType.OpenParen) continue; // looks like a call
+            int prevIdx = tokensLib.PrevNonTriviaIndex(i);
+            if (prevIdx >= 0 && tokensLib.GetAt(prevIdx)!.Type == TokenType.ScopeResolution) continue;
+            int nextIdx = tokensLib.NextNonWhitespaceIndex(i);
+            if (nextIdx >= 0 && tokensLib.GetAt(nextIdx)!.Type == TokenType.OpenParen) continue;
 
             results.Add(t.Range);
         }
@@ -1817,12 +1919,11 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         // Optionally include declaration site (parameter declaration)
         if (includeDeclaration)
         {
-            foreach (var p in enclosing.Parameters.Parameters)
+            foreach (var (pName, pRange) in enclosingScope.Parameters)
             {
-                if (p.Name is null) continue;
-                if (string.Equals(p.Name.Lexeme, target, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(pName, target, StringComparison.OrdinalIgnoreCase))
                 {
-                    results.Add(p.Name.Range);
+                    results.Add(pRange);
                 }
             }
         }

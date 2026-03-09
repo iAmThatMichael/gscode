@@ -1,4 +1,4 @@
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using GSCode.Parser.Lexical;
 
 namespace GSCode.Parser.SA;
 
@@ -9,57 +9,11 @@ namespace GSCode.Parser.SA;
 /// </summary>
 public interface ISymbolLocationProvider
 {
-    /// <summary>
-    /// Finds a function location by namespace and name.
-    /// </summary>
-    /// <param name="ns">The namespace to search in, or null to search all namespaces.</param>
-    /// <param name="name">The function name.</param>
-    /// <returns>The file path and range if found, null otherwise.</returns>
-    (string FilePath, Range Range)? FindFunctionLocation(string? ns, string name);
-
-    /// <summary>
-    /// Finds a class location by namespace and name.
-    /// </summary>
-    /// <param name="ns">The namespace to search in, or null to search all namespaces.</param>
-    /// <param name="name">The class name.</param>
-    /// <returns>The file path and range if found, null otherwise.</returns>
-    (string FilePath, Range Range)? FindClassLocation(string? ns, string name);
-
-    /// <summary>
-    /// Finds a function location by name only, searching across all namespaces.
-    /// </summary>
-    /// <param name="name">The function name.</param>
-    /// <returns>The file path and range if found, null otherwise.</returns>
-    (string FilePath, Range Range)? FindFunctionLocationAnyNamespace(string name);
-
-    /// <summary>
-    /// Finds a class location by name only, searching across all namespaces.
-    /// </summary>
-    /// <param name="name">The class name.</param>
-    /// <returns>The file path and range if found, null otherwise.</returns>
-    (string FilePath, Range Range)? FindClassLocationAnyNamespace(string name);
-
-    /// <summary>
-    /// Gets the parameters for a function by namespace and name.
-    /// </summary>
-    /// <param name="ns">The namespace.</param>
-    /// <param name="name">The function name.</param>
-    /// <returns>The parameter names if found, null otherwise.</returns>
+    (string FilePath, TokenRange Range)? FindFunctionLocation(string? ns, string name);
+    (string FilePath, TokenRange Range)? FindClassLocation(string? ns, string name);
+    (string FilePath, TokenRange Range)? FindFunctionLocationAnyNamespace(string name);
+    (string FilePath, TokenRange Range)? FindClassLocationAnyNamespace(string name);
     string[]? GetFunctionParameters(string ns, string name);
-
-    /// <summary>
-    /// Gets the flags for a function by namespace and name.
-    /// </summary>
-    /// <param name="ns">The namespace.</param>
-    /// <param name="name">The function name.</param>
-    /// <returns>The flags if found, null otherwise.</returns>
     string[]? GetFunctionFlags(string ns, string name);
-
-    /// <summary>
-    /// Gets the documentation for a function by namespace and name.
-    /// </summary>
-    /// <param name="ns">The namespace.</param>
-    /// <param name="name">The function name.</param>
-    /// <returns>The documentation if found, null otherwise.</returns>
     string? GetFunctionDoc(string ns, string name);
 }

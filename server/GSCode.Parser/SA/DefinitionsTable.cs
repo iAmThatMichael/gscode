@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -24,8 +24,8 @@ public class DefinitionsTable
     public List<Uri> Dependencies { get; } = new();
 
     // Local dictionaries for symbols defined in THIS file only (used for merging/exporting)
-    private readonly Dictionary<(string Namespace, string Name), (string FilePath, Range Range)> _functionLocations = new();
-    private readonly Dictionary<(string Namespace, string Name), (string FilePath, Range Range)> _classLocations = new();
+    private readonly Dictionary<(string Namespace, string Name), (string FilePath, TokenRange Range)> _functionLocations = new();
+    private readonly Dictionary<(string Namespace, string Name), (string FilePath, TokenRange Range)> _classLocations = new();
 
     private readonly Dictionary<(string Namespace, string Name), string[]> _functionParameters = new();
     private readonly Dictionary<(string Namespace, string Name), string[]> _functionFlags = new();
@@ -104,12 +104,12 @@ public class DefinitionsTable
         Dependencies.Add(new Uri(scriptPath));
     }
 
-    public void AddFunctionLocation(string ns, string name, string filePath, Range range)
+    public void AddFunctionLocation(string ns, string name, string filePath, TokenRange range)
     {
         _functionLocations[NK(ns, name)] = (StringPool.Intern(filePath), range);
     }
 
-    public void AddClassLocation(string ns, string name, string filePath, Range range)
+    public void AddClassLocation(string ns, string name, string filePath, TokenRange range)
     {
         _classLocations[NK(ns, name)] = (StringPool.Intern(filePath), range);
     }
@@ -168,7 +168,7 @@ public class DefinitionsTable
         return _functionDocs.TryGetValue(NK(ns, name), out var doc) ? doc : null;
     }
 
-    public (string FilePath, Range Range)? GetFunctionLocation(string ns, string name)
+    public (string FilePath, TokenRange Range)? GetFunctionLocation(string ns, string name)
     {
         // Try global provider first for O(1) lookup
         if (_globalProvider is not null)
@@ -185,7 +185,7 @@ public class DefinitionsTable
         return null;
     }
 
-    public (string FilePath, Range Range)? GetClassLocation(string ns, string name)
+    public (string FilePath, TokenRange Range)? GetClassLocation(string ns, string name)
     {
         // Try global provider first for O(1) lookup
         if (_globalProvider is not null)
@@ -202,7 +202,7 @@ public class DefinitionsTable
         return null;
     }
 
-    public (string FilePath, Range Range)? GetFunctionLocationAnyNamespace(string name)
+    public (string FilePath, TokenRange Range)? GetFunctionLocationAnyNamespace(string name)
     {
         // Try global provider first for O(1) lookup
         if (_globalProvider is not null)
@@ -223,7 +223,7 @@ public class DefinitionsTable
         return null;
     }
 
-    public (string FilePath, Range Range)? GetClassLocationAnyNamespace(string name)
+    public (string FilePath, TokenRange Range)? GetClassLocationAnyNamespace(string name)
     {
         // Try global provider first for O(1) lookup
         if (_globalProvider is not null)
@@ -244,12 +244,12 @@ public class DefinitionsTable
         return null;
     }
 
-    public IEnumerable<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>> GetAllFunctionLocations()
+    public IEnumerable<KeyValuePair<(string Namespace, string Name), (string FilePath, TokenRange Range)>> GetAllFunctionLocations()
     {
         return _functionLocations.ToList();
     }
 
-    public IEnumerable<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>> GetAllClassLocations()
+    public IEnumerable<KeyValuePair<(string Namespace, string Name), (string FilePath, TokenRange Range)>> GetAllClassLocations()
     {
         return _classLocations.ToList();
     }
@@ -263,5 +263,29 @@ public class DefinitionsTable
     public IEnumerable<KeyValuePair<(string Namespace, string Name), string?>> GetAllFunctionDocs()
     {
         return _functionDocs.ToList();
+    }
+
+    /// <summary>
+    /// Releases AST node references from LocalScopedFunctions/Classes.
+    /// Should be called after CFA/DFA analysis completes and these are no longer needed.
+    /// </summary>
+    internal void StripAstReferences()
+    {
+        LocalScopedFunctions.Clear();
+        LocalScopedClasses.Clear();
+    }
+
+    /// <summary>
+    /// Releases analysis-time data that's only needed during this script's own analysis.
+    /// ExportedFunctions/Classes and location dictionaries are kept — other scripts' indexing
+    /// may still read them via IssueExportedSymbolsAsync / GetAllFunctionLocations.
+    /// </summary>
+    internal void StripAnalysisData()
+    {
+        _functionParameters.Clear();
+        _functionFlags.Clear();
+        _functionDocs.Clear();
+        InternalSymbols.Clear();
+        ExportedSymbols.Clear();
     }
 }

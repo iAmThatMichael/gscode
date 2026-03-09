@@ -1,4 +1,5 @@
 using GSCode.Parser;
+using GSCode.Parser.Lexical;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
@@ -86,10 +87,10 @@ internal sealed class DocumentHighlightHandler(
         string name = qid.Value.name;
 
         // Collect declaration highlight if in this document
-        Range? declRange = script.DefinitionsTable?.GetFunctionLocation(ns, name)?.Range
-                        ?? script.DefinitionsTable?.GetClassLocation(ns, name)?.Range
-                        ?? script.DefinitionsTable?.GetFunctionLocationAnyNamespace(name)?.Range
-                        ?? script.DefinitionsTable?.GetClassLocationAnyNamespace(name)?.Range;
+        Range? declRange = script.DefinitionsTable?.GetFunctionLocation(ns, name)?.Range.ToRange()
+                        ?? script.DefinitionsTable?.GetClassLocation(ns, name)?.Range.ToRange()
+                        ?? script.DefinitionsTable?.GetFunctionLocationAnyNamespace(name)?.Range.ToRange()
+                        ?? script.DefinitionsTable?.GetClassLocationAnyNamespace(name)?.Range.ToRange();
 
         var highlights = new List<DocumentHighlight>();
         if (declRange is Range dr)

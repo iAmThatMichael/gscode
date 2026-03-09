@@ -1,4 +1,4 @@
-﻿using GSCode.Data;
+using GSCode.Data;
 using GSCode.Parser.AST;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
@@ -1059,33 +1059,6 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         return true;
     }
 
-    private static string NormalizeFilePathForUri(string filePath)
-    {
-        if (string.IsNullOrEmpty(filePath)) return filePath;
-
-        // Some paths are produced like "/g:/path/..." on Windows; remove leading slash if followed by drive letter
-        if (filePath.Length >= 3 && filePath[0] == '/' && char.IsLetter(filePath[1]) && filePath[2] == ':')
-        {
-            filePath = filePath.Substring(1);
-        }
-
-        // Convert forward slashes to platform directory separator to be safe
-        if (Path.DirectorySeparatorChar == '\\')
-        {
-            filePath = filePath.Replace('/', Path.DirectorySeparatorChar);
-        }
-
-        // Return full path if possible
-        try
-        {
-            return Path.GetFullPath(filePath);
-        }
-        catch
-        {
-            return filePath;
-        }
-    }
-
     public async Task<Location?> GetDefinitionAsync(Position position, CancellationToken cancellationToken = default)
     {
         await WaitUntilParsedAsync(cancellationToken);
@@ -1097,13 +1070,13 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         if (hoverable is Pre.MacroDefinition macroDef && !macroDef.IsFromPreprocessor)
         {
             Log.Debug("GetDefinitionAsync: Found MacroDefinition at position");
-            string normalized = NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
+            string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
             return new Location() { Uri = new Uri(normalized), Range = macroDef.Range };
         }
         if (hoverable is Pre.ScriptMacro scriptMacro)
         {
             Log.Debug("GetDefinitionAsync: Found ScriptMacro at position, navigating to definition");
-            string normalized = NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
+            string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
             return new Location() { Uri = new Uri(normalized), Range = scriptMacro.DefineSource.Range };
         }
 
@@ -1137,7 +1110,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         {
             Log.Debug("GetDefinitionAsync: Token is a variable reference, navigating to definition");
             // Navigate to the definition (the identifier token where it was first declared)
-            string normalized = NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
+            string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
             // Use the Range from the definition source's identifier token (stored in the variable symbol)
             // We need to find the declaration token - for now, use the identifier token from definition source
             Range targetRange = varSymbol.DefinitionSource switch
@@ -1157,7 +1130,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         {
             Log.Debug("GetDefinitionAsync: Token is a parameter reference, navigating to definition");
             // Navigate to the parameter definition
-            string normalized = NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
+            string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
             // For parameters, use the token from the ParamNode
             Range targetRange = paramSymbol.DefinitionSource switch
             {
@@ -1177,7 +1150,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
                 Log.Debug("GetDefinitionAsync: Dependency file does not exist: {Path}", resolvedPath);
                 return null;
             }
-            string normalized = NormalizeFilePathForUri(resolvedPath);
+            string normalized = ScriptFileResolver.NormalizeFilePathForUri(resolvedPath);
             var targetUri = new Uri(normalized);
             // Navigate to start of file in the target document
             return new Location() { Uri = targetUri, Range = RangeHelper.From(0, 0, 0, 0) };
@@ -1188,7 +1161,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             string? resolved = Sense.GetDependencyPath(usingPath!, usingRange!);
             if (resolved is not null && File.Exists(resolved))
             {
-                string normalized = NormalizeFilePathForUri(resolved);
+                string normalized = ScriptFileResolver.NormalizeFilePathForUri(resolved);
                 var targetUri = new Uri(normalized);
                 return new Location() { Uri = targetUri, Range = RangeHelper.From(0, 0, 0, 0) };
             }
@@ -1201,7 +1174,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             string? resolved = Sense.ResolveInsertPath(ih.RawPath, ih.Range);
             if (resolved is not null && File.Exists(resolved))
             {
-                string normalized = NormalizeFilePathForUri(resolved);
+                string normalized = ScriptFileResolver.NormalizeFilePathForUri(resolved);
                 var targetUri = new Uri(normalized);
                 return new Location() { Uri = targetUri, Range = RangeHelper.From(0, 0, 0, 0) };
             }
@@ -1271,8 +1244,8 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             if (loc is not null)
             {
                 Log.Debug("GetDefinitionAsync: Found qualified definition at {File}:{Range}", loc.Value.FilePath, loc.Value.Range);
-                string normalized = NormalizeFilePathForUri(loc.Value.FilePath);
-                var targetUri = new Uri(normalized); return new Location() { Uri = targetUri, Range = loc.Value.Range };
+                string currentScriptPath = ScriptUri.ToUri().LocalPath;
+                return ScriptFileResolver.ResolveDefinitionLocation(currentScriptPath, loc.Value.FilePath, loc.Value.Range);
             }
             Log.Debug("GetDefinitionAsync: Qualified lookup failed");
         }
@@ -1283,9 +1256,8 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         if (localLoc is not null)
         {
             Log.Debug("GetDefinitionAsync: Found local definition at {File}:{Range}", localLoc.Value.FilePath, localLoc.Value.Range);
-            string normalized = NormalizeFilePathForUri(localLoc.Value.FilePath);
-            var targetUri = new Uri(normalized);
-            return new Location() { Uri = targetUri, Range = localLoc.Value.Range };
+            string currentScriptPath = ScriptUri.ToUri().LocalPath;
+            return ScriptFileResolver.ResolveDefinitionLocation(currentScriptPath, localLoc.Value.FilePath, localLoc.Value.Range);
         }
         Log.Debug("GetDefinitionAsync: Local namespace lookup failed, trying any namespace");
         var anyLoc = DefinitionsTable?.GetFunctionLocationAnyNamespace(name)
@@ -1293,9 +1265,8 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         if (anyLoc is not null)
         {
             Log.Debug("GetDefinitionAsync: Found definition in any namespace at {File}:{Range}", anyLoc.Value.FilePath, anyLoc.Value.Range);
-            string normalized = NormalizeFilePathForUri(anyLoc.Value.FilePath);
-            var targetUri = new Uri(normalized);
-            return new Location() { Uri = targetUri, Range = anyLoc.Value.Range };
+            string currentScriptPath = ScriptUri.ToUri().LocalPath;
+            return ScriptFileResolver.ResolveDefinitionLocation(currentScriptPath, anyLoc.Value.FilePath, anyLoc.Value.Range);
         }
         Log.Debug("GetDefinitionAsync: All lookups failed, returning null");
         return null;
@@ -1566,9 +1537,9 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         {
             var key = kv.Key;
             var fLoc = DefinitionsTable.GetFunctionLocation(key.Namespace, key.Name);
-            if (fLoc is not null) { referencedFiles.Add(NormalizeFilePathForUri(fLoc.Value.FilePath)); continue; }
+            if (fLoc is not null) { referencedFiles.Add(ScriptFileResolver.NormalizeFilePathForUri(fLoc.Value.FilePath)); continue; }
             var cLoc = DefinitionsTable.GetClassLocation(key.Namespace, key.Name);
-            if (cLoc is not null) { referencedFiles.Add(NormalizeFilePathForUri(cLoc.Value.FilePath)); continue; }
+            if (cLoc is not null) { referencedFiles.Add(ScriptFileResolver.NormalizeFilePathForUri(cLoc.Value.FilePath)); continue; }
         }
 
         // For each using directive, if no referenced symbol comes from that dependency file, mark unused

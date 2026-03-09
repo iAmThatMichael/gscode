@@ -1,4 +1,4 @@
-﻿using GSCode.Data.Models;
+using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.SA;
@@ -314,22 +314,8 @@ public class ScriptManager
             }
         }
 
-        // Snapshot dependency locations while locking each dependency individually
-        var mergeFuncLocs = new List<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>>();
-        var mergeClassLocs = new List<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>>();
-        foreach (Uri dependency in dependencies)
-        {
-            var depDoc = DocumentUri.From(dependency);
-            if (!Scripts.TryGetValue(depDoc, out CachedScript? depScript)) continue;
-            await WithAnalysisLockAsync(depDoc, async () =>
-            {
-                var depTable = depScript.Script.DefinitionsTable;
-                if (depTable is null) return;
-                mergeFuncLocs.AddRange(depTable.GetAllFunctionLocations());
-                mergeClassLocs.AddRange(depTable.GetAllClassLocations());
-                await Task.CompletedTask;
-            }, cancellationToken);
-        }
+        // Merge symbols from dependencies (filtering, deduplication, conversion to relative paths)
+        var (mergeFuncLocs, mergeClassLocs) = await MergeDependencySymbolsAsync(dependencies, filePath, cancellationToken);
 
         perfTracker.Checkpoint("Pre-Analysis");
         // Merge + analyse under this script's analysis lock
@@ -340,13 +326,15 @@ public class ScriptManager
             {
                 foreach (var kv in mergeFuncLocs)
                 {
-                    var key = kv.Key; var val = kv.Value;
-                    script.DefinitionsTable.AddFunctionLocation(key.Namespace, key.Name, val.FilePath, val.Range);
+                    var (ns, name) = kv.Key;
+                    var (filePath, range) = kv.Value;
+                    script.DefinitionsTable.AddFunctionLocation(ns, name, filePath, range);
                 }
                 foreach (var kv in mergeClassLocs)
                 {
-                    var key = kv.Key; var val = kv.Value;
-                    script.DefinitionsTable.AddClassLocation(key.Namespace, key.Name, val.FilePath, val.Range);
+                    var (ns, name) = kv.Key;
+                    var (filePath, range) = kv.Value;
+                    script.DefinitionsTable.AddClassLocation(ns, name, filePath, range);
                 }
             }
             await script.AnalyseAsync(exportedSymbols, cancellationToken);
@@ -357,6 +345,109 @@ public class ScriptManager
         perfTracker.AddMetadata("DiagnosticCount", diagnostics.Count());
 
         return diagnostics;
+    }
+
+    /// <summary>
+    /// Collects, filters, and deduplicates symbols from dependencies.
+    /// Returns merged function and class locations ready for DefinitionsTable.
+    /// </summary>
+    private async Task<(List<KeyValuePair<(string, string), (string, Range)>> Functions, 
+                        List<KeyValuePair<(string, string), (string, Range)>> Classes)>
+        MergeDependencySymbolsAsync(
+            IEnumerable<Uri> dependencies, 
+            string filePath,
+            CancellationToken cancellationToken = default)
+    {
+        string? currentWorkspaceRoot = WorkspaceBoundaryFilter.GetScriptsWorkspaceRoot(filePath);
+        bool currentIsInRawFolder = WorkspaceBoundaryFilter.IsInCustomRawFolder(filePath) || WorkspaceBoundaryFilter.IsInToolsRawFolder(filePath);
+
+        // Collect symbols from dependencies and convert to relative paths (filtering happens at query time)
+        var allFuncLocs = new List<(string Namespace, string Name, string FilePath, Range Range)>();
+        var allClassLocs = new List<(string Namespace, string Name, string FilePath, Range Range)>();
+
+        foreach (Uri dependency in dependencies)
+        {
+            var depDoc = DocumentUri.From(dependency);
+            if (!Scripts.TryGetValue(depDoc, out CachedScript? depScript)) continue;
+
+            await WithAnalysisLockAsync(depDoc, async () =>
+            {
+                var depTable = depScript.Script.DefinitionsTable;
+                if (depTable is null) return;
+
+                // Get all symbols from this dependency and convert to relative paths
+                var depFuncLocs = depTable.GetAllFunctionLocations();
+                var depClassLocs = depTable.GetAllClassLocations();
+
+                foreach (var funcLoc in depFuncLocs)
+                {
+                    string funcFilePath = funcLoc.Value.FilePath;
+                    var filterResult = WorkspaceBoundaryFilter.FilterSymbolLocation(funcFilePath, currentWorkspaceRoot, currentIsInRawFolder);
+
+                    // Only include workspace-appropriate symbols
+                    if (filterResult != WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)
+                    {
+                        string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(funcFilePath);
+                        if (relativePath != null)
+                        {
+                            allFuncLocs.Add((funcLoc.Key.Namespace, funcLoc.Key.Name, relativePath, funcLoc.Value.Range));
+                        }
+                    }
+                }
+
+                foreach (var classLoc in depClassLocs)
+                {
+                    string classFilePath = classLoc.Value.FilePath;
+                    var filterResult = WorkspaceBoundaryFilter.FilterSymbolLocation(classFilePath, currentWorkspaceRoot, currentIsInRawFolder);
+
+                    // Only include workspace-appropriate symbols
+                    if (filterResult != WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)
+                    {
+                        string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(classFilePath);
+                        if (relativePath != null)
+                        {
+                            allClassLocs.Add((classLoc.Key.Namespace, classLoc.Key.Name, relativePath, classLoc.Value.Range));
+                        }
+                    }
+                }
+
+                await Task.CompletedTask;
+            }, cancellationToken);
+        }
+
+        // Deduplicate: only keep one version of each symbol
+        // Dictionary will keep the first entry, and ParserUtil.GetScriptFilePath will resolve using priority order
+        var uniqueFunctions = new Dictionary<(string Namespace, string Name), (string FilePath, Range Range)>();
+        var uniqueClasses = new Dictionary<(string Namespace, string Name), (string FilePath, Range Range)>();
+
+        foreach (var func in allFuncLocs)
+        {
+            var key = (func.Namespace, func.Name);
+            if (!uniqueFunctions.ContainsKey(key))
+            {
+                uniqueFunctions[key] = (func.FilePath, func.Range);
+            }
+        }
+
+        foreach (var cls in allClassLocs)
+        {
+            var key = (cls.Namespace, cls.Name);
+            if (!uniqueClasses.ContainsKey(key))
+            {
+                uniqueClasses[key] = (cls.FilePath, cls.Range);
+            }
+        }
+
+        // Convert to format needed for DefinitionsTable
+        var mergeFuncLocs = uniqueFunctions
+            .Select(kvp => new KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>(kvp.Key, kvp.Value))
+            .ToList();
+
+        var mergeClassLocs = uniqueClasses
+            .Select(kvp => new KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>(kvp.Key, kvp.Value))
+            .ToList();
+
+        return (mergeFuncLocs, mergeClassLocs);
     }
 
     /// <summary>
@@ -480,49 +571,71 @@ public class ScriptManager
     /// If ns is provided, search that namespace first. Falls back to name-only search.
     /// Returns a Location or null.
     /// </summary>
-    public Location? FindSymbolLocation(string? ns, string name)
+    public Location? FindSymbolLocation(string? ns, string name, string? currentFilePath = null)
     {
-        // Use global registry for O(1) lookup instead of O(n) iteration
+        // Use global registry for O(1) lookup
         var symbol = _symbolRegistry.FindSymbol(ns, name);
-        if (symbol is not null && File.Exists(symbol.FilePath))
+        if (symbol is not null)
         {
-            return new Location() { Uri = new Uri(symbol.FilePath), Range = symbol.Range };
+            // Resolve relative path using existing dependency resolution logic (same as Script.GetDefinitionAsync)
+            string? resolvedPath = GSCode.Parser.Util.ScriptFileResolver.GetScriptFilePath(currentFilePath ?? string.Empty, symbol.FilePath);
+
+            if (resolvedPath != null && File.Exists(resolvedPath))
+            {
+                return new Location() { Uri = new Uri(resolvedPath), Range = symbol.Range };
+            }
         }
 
-        // Fallback to legacy per-script lookup for symbols not yet in registry
+        // Fallback to per-script lookup for symbols not yet in registry
         foreach (KeyValuePair<DocumentUri, CachedScript> kvp in Scripts)
         {
             CachedScript cached = kvp.Value;
             if (cached.Script.DefinitionsTable is null)
                 continue;
 
-            // If namespace provided, try that first for this table.
+            // Try with namespace if provided
             if (ns is not null)
             {
                 var funcLoc = cached.Script.DefinitionsTable.GetFunctionLocation(ns, name);
-                if (funcLoc is not null && File.Exists(funcLoc.Value.FilePath))
+                if (funcLoc is not null)
                 {
-                    return new Location() { Uri = new Uri(funcLoc.Value.FilePath), Range = funcLoc.Value.Range };
+                    string? resolved = GSCode.Parser.Util.ScriptFileResolver.GetScriptFilePath(currentFilePath ?? string.Empty, funcLoc.Value.FilePath);
+                    if (resolved != null && File.Exists(resolved))
+                    {
+                        return new Location() { Uri = new Uri(resolved), Range = funcLoc.Value.Range };
+                    }
                 }
 
                 var classLoc = cached.Script.DefinitionsTable.GetClassLocation(ns, name);
-                if (classLoc is not null && File.Exists(classLoc.Value.FilePath))
+                if (classLoc is not null)
                 {
-                    return new Location() { Uri = new Uri(classLoc.Value.FilePath), Range = classLoc.Value.Range };
+                    string? resolved = GSCode.Parser.Util.ScriptFileResolver.GetScriptFilePath(currentFilePath ?? string.Empty, classLoc.Value.FilePath);
+                    if (resolved != null && File.Exists(resolved))
+                    {
+                        return new Location() { Uri = new Uri(resolved), Range = classLoc.Value.Range };
+                    }
                 }
             }
 
-            // Try any namespace in this table
+            // Try any namespace
             var funcAny = cached.Script.DefinitionsTable.GetFunctionLocationAnyNamespace(name);
-            if (funcAny is not null && File.Exists(funcAny.Value.FilePath))
+            if (funcAny is not null)
             {
-                return new Location() { Uri = new Uri(funcAny.Value.FilePath), Range = funcAny.Value.Range };
+                string? resolved = GSCode.Parser.Util.ScriptFileResolver.GetScriptFilePath(currentFilePath ?? string.Empty, funcAny.Value.FilePath);
+                if (resolved != null && File.Exists(resolved))
+                {
+                    return new Location() { Uri = new Uri(resolved), Range = funcAny.Value.Range };
+                }
             }
 
             var classAny = cached.Script.DefinitionsTable.GetClassLocationAnyNamespace(name);
-            if (classAny is not null && File.Exists(classAny.Value.FilePath))
+            if (classAny is not null)
             {
-                return new Location() { Uri = new Uri(classAny.Value.FilePath), Range = classAny.Value.Range };
+                string? resolved = GSCode.Parser.Util.ScriptFileResolver.GetScriptFilePath(currentFilePath ?? string.Empty, classAny.Value.FilePath);
+                if (resolved != null && File.Exists(resolved))
+                {
+                    return new Location() { Uri = new Uri(resolved), Range = classAny.Value.Range };
+                }
             }
         }
 
@@ -856,23 +969,9 @@ public class ScriptManager
             return;
         }
 
-        // Snapshot dependency locations under dep locks (needed for both Partial and Full)
+        // Merge symbols from dependencies (filtering, deduplication, conversion to relative paths)
         perfTracker.Checkpoint("Pre-MergeDependencies");
-        var mergeFuncLocs = new List<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>>();
-        var mergeClassLocs = new List<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>>();
-        foreach (Uri dep in dependencies)
-        {
-            var depDoc = DocumentUri.From(dep);
-            if (!Scripts.TryGetValue(depDoc, out CachedScript? depScript)) continue;
-            await WithAnalysisLockAsync(depDoc, async () =>
-            {
-                var depTable = depScript.Script.DefinitionsTable;
-                if (depTable is null) return;
-                mergeFuncLocs.AddRange(depTable.GetAllFunctionLocations());
-                mergeClassLocs.AddRange(depTable.GetAllClassLocations());
-                await Task.CompletedTask;
-            });
-        }
+        var (mergeFuncLocs, mergeClassLocs) = await MergeDependencySymbolsAsync(dependencies, filePath, cancellationToken);
         perfTracker.Checkpoint("Post-MergeDependencies");
 
         // Merge definition tables (needed for go-to-definition in both modes)
@@ -880,15 +979,28 @@ public class ScriptManager
         {
             if (cached.Script.DefinitionsTable is not null)
             {
+                Log.Debug("[WORKSPACE_INDEX] Merging {FuncCount} functions and {ClassCount} classes into DefinitionsTable for {File}",
+                    mergeFuncLocs.Count, mergeClassLocs.Count, Path.GetFileName(filePath));
+
                 foreach (var kv in mergeFuncLocs)
                 {
-                    var key = kv.Key; var val = kv.Value;
-                    cached.Script.DefinitionsTable.AddFunctionLocation(key.Namespace, key.Name, val.FilePath, val.Range);
+                    var (ns, name) = kv.Key;
+                    var (filePath, range) = kv.Value;
+
+                    // Log first few for debugging
+                    if (mergeFuncLocs.IndexOf(kv) < 5)
+                    {
+                        Log.Debug("[WORKSPACE_INDEX]   Adding function {Ns}::{Name} -> {Path}",
+                            ns, name, filePath);
+                    }
+
+                    cached.Script.DefinitionsTable.AddFunctionLocation(ns, name, filePath, range);
                 }
                 foreach (var kv in mergeClassLocs)
                 {
-                    var key = kv.Key; var val = kv.Value;
-                    cached.Script.DefinitionsTable.AddClassLocation(key.Namespace, key.Name, val.FilePath, val.Range);
+                    var (ns, name) = kv.Key;
+                    var (filePath, range) = kv.Value;
+                    cached.Script.DefinitionsTable.AddClassLocation(ns, name, filePath, range);
                 }
             }
             await Task.CompletedTask;

@@ -142,19 +142,6 @@ public sealed class DocumentHoversLibrary
         if(!lineList.ContainsKey(hoverable.Range.Start.Character))
         {
             lineList.Add(hoverable.Range.Start.Character, hoverable);
-            Log.Debug("[HOVER] Added hoverable: Type={Type}, Line={Line}, Range=[{StartChar}-{EndChar}), Size={Size}",
-                hoverable.GetType().Name,
-                line,
-                hoverable.Range.Start.Character,
-                hoverable.Range.End.Character,
-                hoverable.Range.End.Character - hoverable.Range.Start.Character);
-        }
-        else
-        {
-            Log.Debug("[HOVER] Skipped duplicate hoverable at position: Type={Type}, Line={Line}, Char={Char} (already exists)",
-                hoverable.GetType().Name,
-                line,
-                hoverable.Range.Start.Character);
         }
     }
 }

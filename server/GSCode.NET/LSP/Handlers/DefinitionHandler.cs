@@ -28,14 +28,16 @@ internal class DefinitionHandler : DefinitionHandlerBase
 
     public override async Task<LocationOrLocationLinks> Handle(DefinitionParams request, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Definition request received, processing...");
+        string documentUri = request.TextDocument.Uri.ToString();
+        string documentPath = request.TextDocument.Uri.ToUri().LocalPath;
+        _logger.LogInformation("Definition request received from document: {DocumentPath} at position {Position}", documentPath, request.Position);
         var sw = Stopwatch.StartNew();
 
         Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null)
         {
             sw.Stop();
-            _logger.LogInformation("Definition finished in {ElapsedMs} ms: no script", sw.ElapsedMilliseconds);
+            _logger.LogInformation("Definition finished in {ElapsedMs} ms: no script for {DocumentPath}", sw.ElapsedMilliseconds, documentPath);
             return new LocationOrLocationLinks();
         }
 
@@ -44,7 +46,8 @@ internal class DefinitionHandler : DefinitionHandlerBase
         if (location is not null)
         {
             sw.Stop();
-            _logger.LogInformation("Definition resolved locally in {ElapsedMs} ms: {uri}:{range}", sw.ElapsedMilliseconds, location.Uri, location.Range);
+            _logger.LogInformation("Definition resolved locally in {ElapsedMs} ms from {SourceDocument}: {uri}:{range}", 
+                sw.ElapsedMilliseconds, documentPath, location.Uri, location.Range);
             return new LocationOrLocationLinks(location);
         }
 
@@ -56,7 +59,8 @@ internal class DefinitionHandler : DefinitionHandlerBase
         if (string.IsNullOrEmpty(name))
         {
             sw.Stop();
-            _logger.LogInformation("Definition finished in {ElapsedMs} ms: no identifier", sw.ElapsedMilliseconds);
+            _logger.LogInformation("Definition finished in {ElapsedMs} ms from {SourceDocument}: no identifier", 
+                sw.ElapsedMilliseconds, documentPath);
             return new LocationOrLocationLinks();
         }
 
@@ -68,20 +72,25 @@ internal class DefinitionHandler : DefinitionHandlerBase
             if (apiFn is not null && apiFn.IsBuiltIn)
             {
                 sw.Stop();
-                _logger.LogInformation("Definition finished in {ElapsedMs} ms: built-in API {name}", sw.ElapsedMilliseconds, name);
+                _logger.LogInformation("Definition finished in {ElapsedMs} ms from {SourceDocument}: built-in API {name}", 
+                    sw.ElapsedMilliseconds, documentPath, name);
                 return new LocationOrLocationLinks();
             }
         }
 
-        Location? remote = _scriptManager.FindSymbolLocation(ns, name);
+        // Get current file path for workspace boundary filtering
+        string? currentFilePath = documentPath;
+        Location? remote = _scriptManager.FindSymbolLocation(ns, name, currentFilePath);
         sw.Stop();
         if (remote is not null)
         {
-            _logger.LogInformation("Definition resolved remotely in {ElapsedMs} ms: {uri}:{range}", sw.ElapsedMilliseconds, remote.Uri, remote.Range);
+            _logger.LogInformation("Definition resolved remotely in {ElapsedMs} ms from {SourceDocument}: {uri}:{range}", 
+                sw.ElapsedMilliseconds, documentPath, remote.Uri, remote.Range);
             return new LocationOrLocationLinks(remote);
         }
 
-        _logger.LogInformation("Definition finished in {ElapsedMs} ms: not found for {name}", sw.ElapsedMilliseconds, name);
+        _logger.LogInformation("Definition finished in {ElapsedMs} ms from {SourceDocument}: not found for {name}", 
+            sw.ElapsedMilliseconds, documentPath, name);
         return new LocationOrLocationLinks();
     }
 

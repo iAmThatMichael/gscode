@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using Serilog;
 
 namespace GSCode.Parser.Pre;
 
@@ -41,26 +42,64 @@ public sealed class MacroDefinitionCache
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal MacroDefinition GetOrAdd(string? sourceFilePath, string macroName, MacroDefinition definition)
     {
-        // For built-in macros, don't cache by file path
-        string cacheFilePath = sourceFilePath ?? "<built-in>";
-        
-        // Create cache key based on content to ensure uniqueness
-        MacroCacheKey key = new(cacheFilePath, macroName, definition.DefineSnippet);
+        // Normalize the source file path to avoid duplicates due to casing/separator differences
+        // Use lowercase and forward slashes for consistency
+        string cacheFilePath;
+        if (sourceFilePath != null)
+        {
+            cacheFilePath = NormalizePath(sourceFilePath);
+        }
+        else
+        {
+            cacheFilePath = "<built-in>";
+        }
+
+        // Create cache key based on source file and macro name only
+        // DefineSnippet is not included because it may vary due to token ranges
+        // even when the macro content is identical
+        MacroCacheKey key = new(cacheFilePath, macroName);
 
         // Get or add to cache
         MacroDefinition cached = _cache.GetOrAdd(key, definition);
+
+//#if FLAG_MEMORY_DEBUG
+//        // Log every 100th addition to trace the pattern
+//        bool keyExisted = _cache.ContainsKey(key);
+//        if (!keyExisted && _cache.Count % 100 == 0)
+//        {
+//            Log.Debug("[MACRO_CACHE_ADD] #{Count} | Key: {Path}::{Macro} | SourceInput: {RawSource}", 
+//                _cache.Count, cacheFilePath, macroName, sourceFilePath ?? "<null>");
+//        }
+//        // Log duplicates occasionally
+//        if (keyExisted && _cache.Count % 1000 == 0)
+//        {
+//            Log.Debug("[MACRO_CACHE_DUP] Total: {Count} | Duplicate key: {Path}::{Macro}", 
+//                _cache.Count, cacheFilePath, macroName);
+//        }
+//#endif
 
         // Track which file uses this macro (for cleanup)
         if (sourceFilePath != null)
         {
             _fileToMacros.AddOrUpdate(
-                sourceFilePath,
+                cacheFilePath, // Use normalized path for tracking too
                 _ => new HashSet<MacroCacheKey> { key },
                 (_, set) => { lock (set) { set.Add(key); } return set; }
             );
         }
 
         return cached;
+    }
+
+    /// <summary>
+    /// Normalizes a file path to ensure consistent caching regardless of casing or separators.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static string NormalizePath(string path)
+    {
+        // Convert to lowercase and use forward slashes for consistency
+        // This ensures G:/path/file.gsh and g:\path\file.gsh are treated as the same
+        return path.ToLowerInvariant().Replace('\\', '/');
     }
 
     /// <summary>
@@ -114,6 +153,8 @@ public sealed class MacroDefinitionCache
 
     /// <summary>
     /// Cache key for macro definitions.
+    /// Uniqueness is based on source file and macro name only.
+    /// Within a single file, macro names must be unique (no redefinitions allowed).
     /// </summary>
-    private readonly record struct MacroCacheKey(string SourceFile, string MacroName, string DefineSnippet);
+    private readonly record struct MacroCacheKey(string SourceFile, string MacroName);
 }

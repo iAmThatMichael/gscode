@@ -205,16 +205,24 @@ internal record struct TokenList(Token? Start, Token? End)
         }
 
         Token currentTokenFromExpansion = Start;
-        // Populate the first token.
-        Token firstToken = currentTokenFromExpansion with { Range = withRange ?? currentTokenFromExpansion.Range };
+        // Populate the first token - mark as from preprocessor since this is for #insert
+        Token firstToken = currentTokenFromExpansion with 
+        { 
+            Range = withRange ?? currentTokenFromExpansion.Range,
+            IsFromPreprocessor = true 
+        };
         Token lastToken = firstToken;
 
         while (currentTokenFromExpansion != End)
         {
             currentTokenFromExpansion = currentTokenFromExpansion.Next;
 
-            // Clone the current token with the updated range
-            Token currentToken = currentTokenFromExpansion with { Range = withRange ?? currentTokenFromExpansion.Range };
+            // Clone the current token with the updated range and mark as from preprocessor
+            Token currentToken = currentTokenFromExpansion with 
+            { 
+                Range = withRange ?? currentTokenFromExpansion.Range,
+                IsFromPreprocessor = true
+            };
 
             // Connect the cloned token to the previous one in the output chain
             lastToken.Next = currentToken;

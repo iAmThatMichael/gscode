@@ -237,11 +237,19 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
                     // Keep updating as we find later regions (use the most recent/closest one)
                 }
             }
+//#if FLAG_MEMORY_DEBUG
+//            Serilog.Log.Debug("[PREPROCESSOR_DEFINE] Macro from insert: {Name} | ResolvedPath: {Path} | Line: {Line}", 
+//                macroName, sourceFilePath ?? "<null>", nameToken.Range.Start.Line);
+//#endif
         }
         else
         {
             // Local macro - use the current script path
             sourceFilePath = Sense.ScriptPath;
+//#if FLAG_MEMORY_DEBUG
+//            Serilog.Log.Debug("[PREPROCESSOR_DEFINE] Local macro: {Name} | ScriptPath: {Path}", 
+//                macroName, sourceFilePath);
+//#endif
         }
 
         // Create the macro definition (will be cached to avoid duplication)
@@ -401,6 +409,10 @@ internal ref partial struct Preprocessor(Token startToken, ParserIntelliSense se
     /// </summary>
     private void Insert()
     {
+//#if FLAG_MEMORY_DEBUG
+//        Serilog.Log.Debug("[INSERT_TRACE] Processing #insert at line {Line}, token: {Token}", 
+//            CurrentToken.Range.Start.Line, CurrentToken.Lexeme);
+//#endif
         // Pass over INSERT
         Token insertToken = Consume();
 

@@ -733,6 +733,35 @@ internal record struct ScrData
         return ScrDataTypeNames.TypeToString(Type);
     }
 
+    public string TypeToStringDetailed()
+    {
+        if (SubTypes is null || SubTypes.Count == 0)
+        {
+            return ScrDataTypeNames.TypeToString(Type);
+        }
+
+        var entitySubTypes = SubTypes
+            .OfType<ScrDataEntityType>()
+            .Select(e => ScrEntityTypeNames.TypeToString(e.EntityType))
+            .ToList();
+
+        if (entitySubTypes.Count == 0)
+        {
+            return ScrDataTypeNames.TypeToString(Type);
+        }
+
+        string entitySubTypeString = string.Join(" | ", entitySubTypes);
+
+        if (Type == ScrDataTypes.Entity)
+        {
+            return entitySubTypeString;
+        }
+
+        // Union type (e.g. "entity | string") - replace the entity portion
+        return ScrDataTypeNames.TypeToString(Type)
+            .Replace(ScrDataTypeNames.Entity, entitySubTypeString);
+    }
+
     /// <summary>
     /// Gets whether the expression is of a type that can be boolean checked.
     /// </summary>

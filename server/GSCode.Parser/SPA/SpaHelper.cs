@@ -31,7 +31,7 @@ public class ScrVariableSymbol : ISenseDefinition
     internal ScrVariableSymbol(Token identifierToken, ScrData data)
     {
         IdentifierToken = identifierToken;
-        TypeString = data.TypeToString();
+        TypeString = data.TypeToStringDetailed();
         Range = identifierToken.Range;
     }
 
@@ -132,7 +132,7 @@ public class ScrFieldSymbol : ISenseDefinition
 {
     public Range Range { get; }
 
-    public string SemanticTokenType { get; } = "field";
+    public string SemanticTokenType { get; } = "property";
 
     public string[] SemanticTokenModifiers { get; private set; } = [];
 
@@ -146,7 +146,7 @@ public class ScrFieldSymbol : ISenseDefinition
     {
         IdentifierName = node.Identifier;
         Range = node.Range;
-        TypeString = data.TypeToString();
+        TypeString = data.TypeToStringDetailed();
         if (!isReadOnly)
         {
             return;
@@ -190,7 +190,7 @@ public class ScrClassPropertySymbol : ISenseDefinition
     {
         IdentifierName = node.Identifier;
         Range = node.Range;
-        TypeString = data.TypeToString();
+        TypeString = data.TypeToStringDetailed();
         ClassSource = classSource;
         if (!isReadOnly)
         {

@@ -170,17 +170,17 @@ public class DefinitionsTable
 
     public (string FilePath, Range Range)? GetFunctionLocation(string ns, string name)
     {
-        // Try global provider first for O(1) lookup
+        // Check local dictionary first (current file has priority)
+        if (ns is not null && _functionLocations.TryGetValue(NK(ns, name), out var loc))
+        {
+            return loc;
+        }
+        // Fall back to global provider for O(1) lookup across workspace
         if (_globalProvider is not null)
         {
             var result = _globalProvider.FindFunctionLocation(ns, name);
             if (result is not null)
                 return result;
-        }
-        // Fall back to local dictionary
-        if (ns is not null && _functionLocations.TryGetValue(NK(ns, name), out var loc))
-        {
-            return loc;
         }
         return null;
     }

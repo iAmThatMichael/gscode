@@ -1,5 +1,6 @@
 using GSCode.NET.LSP;
 using GSCode.Parser;
+using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
@@ -101,7 +102,7 @@ internal sealed class ReferencesHandler : ReferencesHandlerBase
                     if (loc is not null)
                     {
                         string normalized = NormalizeFilePathForUri(loc.Value.FilePath);
-                        results.Add(new Location { Uri = new Uri(normalized), Range = loc.Value.Range });
+                        results.Add(new Location { Uri = new Uri(normalized), Range = loc.Value.Range.ToRange() });
                     }
                 }
             }

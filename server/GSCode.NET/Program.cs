@@ -19,7 +19,11 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Server;
 
 
 Log.Logger = new LoggerConfiguration()
-				.MinimumLevel.Debug()
+#if DEBUG
+				.MinimumLevel.Information()
+#else
+				.MinimumLevel.Warning()
+#endif
 				.WriteTo.Console()
 #if DEBUG
 				.WriteTo.File("log.txt", rollingInterval: RollingInterval.Day)
@@ -63,9 +67,17 @@ LanguageServer server = await LanguageServer.From(options =>
 			x => x
 				.AddSerilog(Log.Logger)
 				.AddLanguageProtocolLogging()
-				.SetMinimumLevel(LogLevel.Debug)
+#if DEBUG
+				.SetMinimumLevel(LogLevel.Information)
+#else
+				.SetMinimumLevel(LogLevel.Warning)
+#endif
 		)
-		.WithServices(x => x.AddLogging(b => b.SetMinimumLevel(LogLevel.Trace)))
+#if DEBUG
+		.WithServices(x => x.AddLogging(b => b.SetMinimumLevel(LogLevel.Information)))
+#else
+		.WithServices(x => x.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning)))
+#endif
 		.WithServices(services =>
 		{
 			// Inject ScriptManager with ILanguageServerFacade so it can publish diagnostics during indexing

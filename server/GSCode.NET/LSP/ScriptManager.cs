@@ -1,6 +1,8 @@
 ﻿using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
+using GSCode.Parser.Data;
+using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using Serilog;
 using System.Collections.Concurrent;
@@ -258,8 +260,8 @@ public class ScriptManager
         }
 
         // Snapshot dependency locations while locking each dependency individually
-        var mergeFuncLocs = new List<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>>();
-        var mergeClassLocs = new List<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>>();
+        var mergeFuncLocs = new List<KeyValuePair<(string Namespace, string Name), (string FilePath, TokenRange Range)>>();
+        var mergeClassLocs = new List<KeyValuePair<(string Namespace, string Name), (string FilePath, TokenRange Range)>>();
         foreach (Uri dependency in dependencies)
         {
             var depDoc = DocumentUri.From(dependency);
@@ -324,7 +326,7 @@ public class ScriptManager
         foreach (var func in defTable.ExportedFunctions)
         {
             var loc = defTable.GetFunctionLocation(func.Namespace, func.Name);
-            var range = loc?.Range ?? new Range();
+            var range = loc?.Range ?? default;
             var actualFilePath = loc?.FilePath ?? filePath;
 
             newSymbols.Add(new SymbolDefinition(
@@ -345,7 +347,7 @@ public class ScriptManager
         foreach (var cls in defTable.ExportedClasses)
         {
             var loc = defTable.GetClassLocation(currentNamespace, cls.Name);
-            var range = loc?.Range ?? new Range();
+            var range = loc?.Range ?? default;
             var actualFilePath = loc?.FilePath ?? filePath;
 
             newSymbols.Add(new SymbolDefinition(
@@ -393,7 +395,7 @@ public class ScriptManager
         var symbol = _symbolRegistry.FindSymbol(ns, name);
         if (symbol is not null && File.Exists(symbol.FilePath))
         {
-            return new Location() { Uri = new Uri(symbol.FilePath), Range = symbol.Range };
+            return new Location() { Uri = new Uri(symbol.FilePath), Range = symbol.Range.ToRange() };
         }
 
         // Fallback to legacy per-script lookup for symbols not yet in registry
@@ -409,13 +411,13 @@ public class ScriptManager
                 var funcLoc = cached.Script.DefinitionsTable.GetFunctionLocation(ns, name);
                 if (funcLoc is not null && File.Exists(funcLoc.Value.FilePath))
                 {
-                    return new Location() { Uri = new Uri(funcLoc.Value.FilePath), Range = funcLoc.Value.Range };
+                    return new Location() { Uri = new Uri(funcLoc.Value.FilePath), Range = funcLoc.Value.Range.ToRange() };
                 }
 
                 var classLoc = cached.Script.DefinitionsTable.GetClassLocation(ns, name);
                 if (classLoc is not null && File.Exists(classLoc.Value.FilePath))
                 {
-                    return new Location() { Uri = new Uri(classLoc.Value.FilePath), Range = classLoc.Value.Range };
+                    return new Location() { Uri = new Uri(classLoc.Value.FilePath), Range = classLoc.Value.Range.ToRange() };
                 }
             }
 
@@ -423,13 +425,13 @@ public class ScriptManager
             var funcAny = cached.Script.DefinitionsTable.GetFunctionLocationAnyNamespace(name);
             if (funcAny is not null && File.Exists(funcAny.Value.FilePath))
             {
-                return new Location() { Uri = new Uri(funcAny.Value.FilePath), Range = funcAny.Value.Range };
+                return new Location() { Uri = new Uri(funcAny.Value.FilePath), Range = funcAny.Value.Range.ToRange() };
             }
 
             var classAny = cached.Script.DefinitionsTable.GetClassLocationAnyNamespace(name);
             if (classAny is not null && File.Exists(classAny.Value.FilePath))
             {
-                return new Location() { Uri = new Uri(classAny.Value.FilePath), Range = classAny.Value.Range };
+                return new Location() { Uri = new Uri(classAny.Value.FilePath), Range = classAny.Value.Range.ToRange() };
             }
         }
 
@@ -512,7 +514,7 @@ public class ScriptManager
             return new CachedScript
             {
                 Type = CachedScriptType.Dependency,
-                Script = new Script(key, languageId, _symbolRegistry)
+                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index)
             };
         });
 
@@ -643,11 +645,15 @@ public class ScriptManager
             List<Task> tasks = new();
 
             perfTracker.Checkpoint("Start-Indexing");
+            int fileIndex = 0;
             foreach (string file in filesList)
             {
-                // Yield to editor operations — pauses dispatch while an editor is being processed
-                await _editorPriority.WaitAsync(cancellationToken);
-                _editorPriority.Release();
+                // Yield to editor operations every 10 files to reduce semaphore overhead
+                if (fileIndex++ % 10 == 0)
+                {
+                    await _editorPriority.WaitAsync(cancellationToken);
+                    _editorPriority.Release();
+                }
 
                 await gate.WaitAsync(cancellationToken);
                 tasks.Add(Task.Run(async () =>
@@ -720,7 +726,7 @@ public class ScriptManager
             return new CachedScript
             {
                 Type = CachedScriptType.Dependency,
-                Script = new Script(key, languageId, _symbolRegistry)
+                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index)
             };
         });
 
@@ -752,8 +758,40 @@ public class ScriptManager
         }
         perfTracker.Checkpoint("Post-Dependencies");
 
-        // Skip analysis during indexing — only parse + populate symbol registry.
-        // Full analysis runs when a file is opened as an editor via ProcessEditorAsync.
+        // Run full analysis during indexing for memory compaction (AST disposal, token link severing)
+        List<IExportedSymbol> exportedSymbols = new();
+        foreach (Uri dep in dependencies)
+        {
+            var depDoc = DocumentUri.From(dep);
+            if (Scripts.TryGetValue(depDoc, out CachedScript? depScript))
+            {
+                await EnsureParsedAsync(depDoc, depScript.Script, languageId, cancellationToken);
+                exportedSymbols.AddRange(await depScript.Script.IssueExportedSymbolsAsync(cancellationToken));
+            }
+        }
+
+        perfTracker.Checkpoint("Pre-Analysis");
+        await WithAnalysisLockAsync(docUri, async () =>
+        {
+            if (cached.Script.DefinitionsTable is not null)
+            {
+                foreach (Uri dep in dependencies)
+                {
+                    var depDoc = DocumentUri.From(dep);
+                    if (!Scripts.TryGetValue(depDoc, out CachedScript? depScript)) continue;
+                    var depTable = depScript.Script.DefinitionsTable;
+                    if (depTable is null) continue;
+                    foreach (var kv in depTable.GetAllFunctionLocations())
+                        cached.Script.DefinitionsTable.AddFunctionLocation(kv.Key.Namespace, kv.Key.Name, kv.Value.FilePath, kv.Value.Range);
+                    foreach (var kv in depTable.GetAllClassLocations())
+                        cached.Script.DefinitionsTable.AddClassLocation(kv.Key.Namespace, kv.Key.Name, kv.Value.FilePath, kv.Value.Range);
+                }
+            }
+            await cached.Script.AnalyseAsync(exportedSymbols, cancellationToken);
+        }, cancellationToken);
+        perfTracker.Checkpoint("Post-Analysis");
+
+        await PublishDiagnosticsAsync(docUri, cached.Script, cancellationToken: cancellationToken);
     }
 
     private async Task PublishDiagnosticsAsync(DocumentUri uri, Script script, int? version = null, CancellationToken cancellationToken = default)

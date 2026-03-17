@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -24,8 +24,10 @@ public class DefinitionsTable
     public List<Uri> Dependencies { get; } = new();
 
     // Local dictionaries for symbols defined in THIS file only (used for merging/exporting)
-    private readonly Dictionary<(string Namespace, string Name), (string FilePath, Range Range)> _functionLocations = new();
-    private readonly Dictionary<(string Namespace, string Name), (string FilePath, Range Range)> _classLocations = new();
+    // Lock protects all local dictionaries from concurrent read/write during workspace indexing.
+    private readonly Lock _lock = new();
+    private readonly Dictionary<(string Namespace, string Name), (string FilePath, TokenRange Range)> _functionLocations = new();
+    private readonly Dictionary<(string Namespace, string Name), (string FilePath, TokenRange Range)> _classLocations = new();
 
     private readonly Dictionary<(string Namespace, string Name), string[]> _functionParameters = new();
     private readonly Dictionary<(string Namespace, string Name), string[]> _functionFlags = new();
@@ -104,164 +106,182 @@ public class DefinitionsTable
         Dependencies.Add(new Uri(scriptPath));
     }
 
-    public void AddFunctionLocation(string ns, string name, string filePath, Range range)
+    public void AddFunctionLocation(string ns, string name, string filePath, TokenRange range)
     {
-        _functionLocations[NK(ns, name)] = (StringPool.Intern(filePath), range);
+        lock (_lock) _functionLocations[NK(ns, name)] = (StringPool.Intern(filePath), range);
     }
 
-    public void AddClassLocation(string ns, string name, string filePath, Range range)
+    public void AddClassLocation(string ns, string name, string filePath, TokenRange range)
     {
-        _classLocations[NK(ns, name)] = (StringPool.Intern(filePath), range);
+        lock (_lock) _classLocations[NK(ns, name)] = (StringPool.Intern(filePath), range);
     }
 
     public void RecordFunctionParameters(string ns, string name, IEnumerable<string> parameterNames)
     {
-        _functionParameters[NK(ns, name)] = parameterNames?.Select(p => StringPool.Intern(p?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? Array.Empty<string>();
+        var value = parameterNames?.Select(p => StringPool.Intern(p?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? Array.Empty<string>();
+        lock (_lock) _functionParameters[NK(ns, name)] = value;
     }
 
     public string[]? GetFunctionParameters(string ns, string name)
     {
-        // Try global provider first for O(1) lookup
         if (_globalProvider is not null)
         {
             var result = _globalProvider.GetFunctionParameters(ns, name);
             if (result is not null)
                 return result;
         }
-        // Fall back to local dictionary
-        return _functionParameters.TryGetValue(NK(ns, name), out var list) ? list : null;
+        lock (_lock) return _functionParameters.TryGetValue(NK(ns, name), out var list) ? list : null;
     }
 
     public void RecordFunctionFlags(string ns, string name, IEnumerable<string> flags)
     {
-        _functionFlags[NK(ns, name)] = flags?.Select(f => StringPool.Intern(f?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? Array.Empty<string>();
+        var value = flags?.Select(f => StringPool.Intern(f?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? Array.Empty<string>();
+        lock (_lock) _functionFlags[NK(ns, name)] = value;
     }
 
     public string[]? GetFunctionFlags(string ns, string name)
     {
-        // Try global provider first for O(1) lookup
         if (_globalProvider is not null)
         {
             var result = _globalProvider.GetFunctionFlags(ns, name);
             if (result is not null)
                 return result;
         }
-        // Fall back to local dictionary
-        return _functionFlags.TryGetValue(NK(ns, name), out var list) ? list : null;
+        lock (_lock) return _functionFlags.TryGetValue(NK(ns, name), out var list) ? list : null;
     }
 
     public void RecordFunctionDoc(string ns, string name, string? doc)
     {
-        _functionDocs[NK(ns, name)] = string.IsNullOrWhiteSpace(doc) ? null : doc;
+        lock (_lock) _functionDocs[NK(ns, name)] = string.IsNullOrWhiteSpace(doc) ? null : doc;
     }
 
     public string? GetFunctionDoc(string ns, string name)
     {
-        // Try global provider first for O(1) lookup
         if (_globalProvider is not null)
         {
             var result = _globalProvider.GetFunctionDoc(ns, name);
             if (result is not null)
                 return result;
         }
-        // Fall back to local dictionary
-        return _functionDocs.TryGetValue(NK(ns, name), out var doc) ? doc : null;
+        lock (_lock) return _functionDocs.TryGetValue(NK(ns, name), out var doc) ? doc : null;
     }
 
-    public (string FilePath, Range Range)? GetFunctionLocation(string ns, string name)
+    public (string FilePath, TokenRange Range)? GetFunctionLocation(string ns, string name)
     {
-        // Try global provider first for O(1) lookup
         if (_globalProvider is not null)
         {
             var result = _globalProvider.FindFunctionLocation(ns, name);
             if (result is not null)
                 return result;
         }
-        // Fall back to local dictionary
-        if (ns is not null && _functionLocations.TryGetValue(NK(ns, name), out var loc))
+        lock (_lock)
         {
-            return loc;
+            if (ns is not null && _functionLocations.TryGetValue(NK(ns, name), out var loc))
+                return loc;
+            return null;
         }
-        return null;
     }
 
-    public (string FilePath, Range Range)? GetClassLocation(string ns, string name)
+    public (string FilePath, TokenRange Range)? GetClassLocation(string ns, string name)
     {
-        // Try global provider first for O(1) lookup
         if (_globalProvider is not null)
         {
             var result = _globalProvider.FindClassLocation(ns, name);
             if (result is not null)
                 return result;
         }
-        // Fall back to local dictionary
-        if (ns is not null && _classLocations.TryGetValue(NK(ns, name), out var loc))
+        lock (_lock)
         {
-            return loc;
+            if (ns is not null && _classLocations.TryGetValue(NK(ns, name), out var loc))
+                return loc;
+            return null;
         }
-        return null;
     }
 
-    public (string FilePath, Range Range)? GetFunctionLocationAnyNamespace(string name)
+    public (string FilePath, TokenRange Range)? GetFunctionLocationAnyNamespace(string name)
     {
-        // Try global provider first for O(1) lookup
         if (_globalProvider is not null)
         {
             var result = _globalProvider.FindFunctionLocationAnyNamespace(name);
             if (result is not null)
                 return result;
         }
-        // Fall back to local dictionary with O(n) search
         string lookup = name?.ToLowerInvariant() ?? string.Empty;
-        foreach (var kv in _functionLocations)
+        lock (_lock)
         {
-            if (string.Equals(kv.Key.Name, lookup, StringComparison.Ordinal))
+            foreach (var kv in _functionLocations)
             {
-                return kv.Value;
+                if (string.Equals(kv.Key.Name, lookup, StringComparison.Ordinal))
+                    return kv.Value;
             }
         }
         return null;
     }
 
-    public (string FilePath, Range Range)? GetClassLocationAnyNamespace(string name)
+    public (string FilePath, TokenRange Range)? GetClassLocationAnyNamespace(string name)
     {
-        // Try global provider first for O(1) lookup
         if (_globalProvider is not null)
         {
             var result = _globalProvider.FindClassLocationAnyNamespace(name);
             if (result is not null)
                 return result;
         }
-        // Fall back to local dictionary with O(n) search
         string lookup = name?.ToLowerInvariant() ?? string.Empty;
-        foreach (var kv in _classLocations)
+        lock (_lock)
         {
-            if (string.Equals(kv.Key.Name, lookup, StringComparison.Ordinal))
+            foreach (var kv in _classLocations)
             {
-                return kv.Value;
+                if (string.Equals(kv.Key.Name, lookup, StringComparison.Ordinal))
+                    return kv.Value;
             }
         }
         return null;
     }
 
-    public IEnumerable<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>> GetAllFunctionLocations()
+    public List<KeyValuePair<(string Namespace, string Name), (string FilePath, TokenRange Range)>> GetAllFunctionLocations()
     {
-        return _functionLocations.ToList();
+        lock (_lock) return _functionLocations.ToList();
     }
 
-    public IEnumerable<KeyValuePair<(string Namespace, string Name), (string FilePath, Range Range)>> GetAllClassLocations()
+    public List<KeyValuePair<(string Namespace, string Name), (string FilePath, TokenRange Range)>> GetAllClassLocations()
     {
-        return _classLocations.ToList();
+        lock (_lock) return _classLocations.ToList();
     }
 
-    // New: expose all parameters and docs
-    public IEnumerable<KeyValuePair<(string Namespace, string Name), string[]>> GetAllFunctionParameters()
+    public List<KeyValuePair<(string Namespace, string Name), string[]>> GetAllFunctionParameters()
     {
-        return _functionParameters.ToList();
+        lock (_lock) return _functionParameters.ToList();
     }
 
-    public IEnumerable<KeyValuePair<(string Namespace, string Name), string?>> GetAllFunctionDocs()
+    public List<KeyValuePair<(string Namespace, string Name), string?>> GetAllFunctionDocs()
     {
-        return _functionDocs.ToList();
+        lock (_lock) return _functionDocs.ToList();
+    }
+
+    /// <summary>
+    /// Releases AST node references from LocalScopedFunctions/Classes.
+    /// Should be called after CFA/DFA analysis completes and these are no longer needed.
+    /// </summary>
+    internal void StripAstReferences()
+    {
+        LocalScopedFunctions.Clear();
+        LocalScopedClasses.Clear();
+    }
+
+    /// <summary>
+    /// Releases analysis-time data that's only needed during this script's own analysis.
+    /// ExportedFunctions/Classes and location dictionaries are kept — other scripts' indexing
+    /// may still read them via IssueExportedSymbolsAsync / GetAllFunctionLocations.
+    /// </summary>
+    internal void StripAnalysisData()
+    {
+        lock (_lock)
+        {
+            _functionParameters.Clear();
+            _functionFlags.Clear();
+            _functionDocs.Clear();
+        }
+        InternalSymbols.Clear();
+        ExportedSymbols.Clear();
     }
 }

@@ -42,8 +42,6 @@ public sealed class ScrFunctionDefinition
 
     private string? _cachedDocumentation = null;
 
-    // TODO: has been hacked to show first only, but we need to handle all overloads eventually.
-
     /// <summary>
     /// Yields a documentation hover string for this function. Generated once, then cached.
     /// </summary>

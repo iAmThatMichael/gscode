@@ -125,7 +125,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
         // Calculate iteration limit based on graph size to prevent infinite loops
         int totalNodes = CountAllNodes(functionGraph);
-        int maxIterations = Math.Max(100, totalNodes * 5); // At least 100, or 5x nodes
+        int maxIterations = Math.Max(100, totalNodes * 10); // At least 100, or 10x nodes
         int iterations = 0;
 
         while (worklist.Count > 0 && iterations < maxIterations)
@@ -307,11 +307,8 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         // Check if we hit the iteration limit
         if (iterations >= maxIterations)
         {
-            // Only warn if we're very close to limit (>90%) or have an unusually high iteration ratio
             double iterationRatio = (double)iterations / Math.Max(1, totalNodes);
-            bool likelyConvergenceIssue = iterationRatio > 80; // >80 iterations per node suggests issues
-
-            if (likelyConvergenceIssue || iterations > maxIterations * 0.9)
+            if (iterationRatio > 80) // >80 iterations per node suggests genuine convergence issues
             {
                 Log.Warning("Reaching definitions analysis hit iteration limit ({MaxIterations}) for function {FunctionName} ({NodeCount} nodes, {Iterations} iterations, {IterationRatio:F1}x per node). This may indicate convergence issues.",
                     maxIterations, function?.Name ?? currentClass?.Name ?? "<anonymous>", totalNodes, iterations, iterationRatio);

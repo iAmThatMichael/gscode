@@ -1366,13 +1366,16 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
                 var apiFn = api.GetApiFunction(name);
                 if (apiFn is not null)
                 {
-                    var overload = apiFn.Overloads.FirstOrDefault();
-                    IEnumerable<ScrFunctionArg> paramSeq = overload != null ? (IEnumerable<ScrFunctionArg>)overload.Parameters : Enumerable.Empty<ScrFunctionArg>();
-                    var cleaned = paramSeq.Select(p => StripDefault(p.Name)).ToArray();
-                    string label = $"function {name}({string.Join(", ", cleaned)})";
-                    var parameters = new Container<ParameterInformation>(paramSeq.Select(p => new ParameterInformation { Label = StripDefault(p.Name), Documentation = string.IsNullOrWhiteSpace(p.Description) ? null : new MarkupContent { Kind = MarkupKind.Markdown, Value = p.Description! } }));
                     var docContent = new MarkupContent { Kind = MarkupKind.Markdown, Value = apiFn.Description ?? string.Empty };
-                    signatures.Add(new SignatureInformation { Label = label, Documentation = docContent, Parameters = parameters });
+                    foreach (var overload in apiFn.Overloads)
+                    {
+                        IEnumerable<ScrFunctionArg> paramSeq = overload.Parameters;
+                        string calledOnStr = overload.CalledOn is ScrFunctionArg co ? $"{co.Name} " : string.Empty;
+                        var cleaned = paramSeq.Select(p => StripDefault(p.Name)).ToArray();
+                        string label = $"{calledOnStr}function {name}({string.Join(", ", cleaned)})";
+                        var parameters = new Container<ParameterInformation>(paramSeq.Select(p => new ParameterInformation { Label = StripDefault(p.Name), Documentation = string.IsNullOrWhiteSpace(p.Description) ? null : new MarkupContent { Kind = MarkupKind.Markdown, Value = p.Description! } }));
+                        signatures.Add(new SignatureInformation { Label = label, Documentation = docContent, Parameters = parameters });
+                    }
                 }
             }
             catch { }
@@ -1405,15 +1408,26 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         if (signatures.Count == 0)
             return null;
 
+        // Find the best matching signature based on parameter count
+        int activeSignature = 0;
+        for (int i = 0; i < signatures.Count; i++)
+        {
+            if (signatures[i].Parameters is { } p && p.Count() > activeParam)
+            {
+                activeSignature = i;
+                break;
+            }
+        }
+
         int paramCount = 1;
-        if (signatures[0].Parameters is { } paramContainer)
+        if (signatures[activeSignature].Parameters is { } paramContainer)
         {
             paramCount = paramContainer.Count();
         }
 
         return new SignatureHelp
         {
-            ActiveSignature = 0,
+            ActiveSignature = activeSignature,
             ActiveParameter = Math.Max(0, Math.Min(activeParam, paramCount - 1)),
             Signatures = new Container<SignatureInformation>(signatures)
         };

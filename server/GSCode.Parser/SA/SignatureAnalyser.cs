@@ -614,6 +614,21 @@ internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseD
             };
         }
 
+        // For API functions with overloads, use the Documentation property which
+        // handles multi-overload display. For single-overload, build inline.
+        if (Source.Overloads.Count > 1)
+        {
+            return new()
+            {
+                Range = Range,
+                Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
+                {
+                    Kind = MarkupKind.Markdown,
+                    Value = Source.Documentation
+                })
+            };
+        }
+
         StringBuilder builder = new();
 
         builder.AppendLine("```gsc");
@@ -626,7 +641,6 @@ internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseD
         }
         builder.AppendLine(")");
         builder.AppendLine("```");
-
 
         return new()
         {
@@ -736,16 +750,23 @@ internal record ScrMethodSymbol(Token NameToken, ScrFunction Source, ScrClass Cl
         StringBuilder builder = new();
 
         builder.AppendLine("```gsc");
-        builder.Append($"{ClassSource.Name}::{Source.Name}(");
-
-        bool first = true;
-        foreach (ScrFunctionArg parameter in Source.Overloads.First().Parameters)
+        foreach (var overload in Source.Overloads)
         {
-            AppendParameter(builder, parameter, ref first);
-        }
-        builder.AppendLine(")");
-        builder.AppendLine("```");
+            if (Source.Overloads.Count > 1)
+            {
+                builder.AppendLine($"// Overload {Source.Overloads.IndexOf(overload) + 1}");
+            }
 
+            builder.Append($"{ClassSource.Name}::{Source.Name}(");
+
+            bool first = true;
+            foreach (ScrFunctionArg parameter in overload.Parameters)
+            {
+                AppendParameter(builder, parameter, ref first);
+            }
+            builder.AppendLine(")");
+        }
+        builder.AppendLine("```");
 
         return new()
         {

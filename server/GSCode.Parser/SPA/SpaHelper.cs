@@ -303,16 +303,24 @@ public class ScrMethodReferenceSymbol : ISenseDefinition
         StringBuilder builder = new();
 
         builder.AppendLine("```gsc");
-        builder.Append($"{ClassSource.Name}::{Source.Name}(");
-
-        bool first = true;
-        foreach (ScrFunctionArg parameter in Source.Overloads.FirstOrDefault()?.Parameters ?? [])
+        foreach (var overload in Source.Overloads)
         {
-            if (!first) builder.Append(", ");
-            first = false;
-            builder.Append(parameter.Name);
+            if (Source.Overloads.Count > 1)
+            {
+                builder.AppendLine($"// Overload {Source.Overloads.IndexOf(overload) + 1}");
+            }
+
+            builder.Append($"{ClassSource.Name}::{Source.Name}(");
+
+            bool first = true;
+            foreach (ScrFunctionArg parameter in overload.Parameters)
+            {
+                if (!first) builder.Append(", ");
+                first = false;
+                builder.Append(parameter.Name);
+            }
+            builder.AppendLine(")");
         }
-        builder.AppendLine(")");
         builder.AppendLine("```");
 
         // Only show doc comment if it exists (don't show auto-generated Documentation for user methods)

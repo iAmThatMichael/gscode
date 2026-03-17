@@ -150,10 +150,10 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
     private CompletionItem CreateCompletionItem(ScrFunction function)
     {
-        // TODO: has been hacked to show first only, but we need to handle all overloads eventually.
-        // Generate snippet-formatted parameters with tabstops
+        // Snippet uses first overload for insertion; Documentation shows all overloads.
         string insertText = function.Name;
-        if (function.Overloads.First().Parameters.Count > 0)
+        var firstOverload = function.Overloads.First();
+        if (firstOverload.Parameters.Count > 0)
         {
             insertText += "(";
 
@@ -161,7 +161,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             List<string> paramSnippets = new List<string>();
             int tabIndex = 1;
 
-            foreach (var param in function.Overloads.First().Parameters)
+            foreach (var param in firstOverload.Parameters)
             {
                 // Add mandatory parameters with tabstops
                 if (param.Mandatory.GetValueOrDefault(false))
@@ -188,10 +188,17 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             insertText += "()$0";
         }
 
+        string? detail = function.Description;
+        if (function.Overloads.Count > 1)
+        {
+            string overloadSuffix = $"(+{function.Overloads.Count - 1} overload{(function.Overloads.Count > 2 ? "s" : "")})";
+            detail = string.IsNullOrEmpty(detail) ? overloadSuffix : $"{detail} {overloadSuffix}";
+        }
+
         return new CompletionItem()
         {
             Label = function.Name,
-            Detail = function.Description,
+            Detail = detail,
             Documentation = new StringOrMarkupContent(new MarkupContent()
             {
                 Kind = MarkupKind.Markdown,

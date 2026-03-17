@@ -780,7 +780,7 @@ internal ref partial struct Lexer(ReadOnlySpan<char> input)
 
     private bool StartsWithKeyword(string keyword)
     {
-        return _input.StartsWith(keyword, StringComparison.OrdinalIgnoreCase) && !IsWordChar(_input[keyword.Length]);
+        return _input.StartsWith(keyword, StringComparison.OrdinalIgnoreCase) && (keyword.Length >= _input.Length || !IsWordChar(_input[keyword.Length]));
     }
 
     private bool SeekMatch(Regex regex, out int length)

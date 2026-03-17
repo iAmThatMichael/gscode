@@ -43,8 +43,6 @@ public record class ScrFunction : IExportedSymbol
 
     private string? _cachedDocumentation = null;
 
-    // TODO: has been hacked to show first only, but we need to handle all overloads eventually.
-
     /// <summary>
     /// Yields a documentation hover string for this function. Generated once, then cached.
     /// </summary>
@@ -65,19 +63,60 @@ public record class ScrFunction : IExportedSymbol
                 return _cachedDocumentation;
             }
 
-            // Otherwise, generate documentation from API-defined properties
-            string calledOnString = Overloads.First().CalledOn is ScrFunctionArg calledOn ? $"{calledOn.Name} " : string.Empty;
+            if (Overloads.Count <= 1)
+            {
+                // Single overload (or none) — original format
+                string calledOnString = Overloads.FirstOrDefault()?.CalledOn is ScrFunctionArg calledOn ? $"{calledOn.Name} " : string.Empty;
 
-            _cachedDocumentation =
-                $"""
-                ```gsc
-                {calledOnString}function {Name}({GetCodedParameterList()})
-                ```
-                ---
-                {GetDescriptionString()}
-                {GetParametersString()}
-                {GetFlagsString()}
-                """;
+                _cachedDocumentation =
+                    $"""
+                    ```gsc
+                    {calledOnString}function {Name}({GetCodedParameterList(Overloads.FirstOrDefault())})
+                    ```
+                    ---
+                    {GetDescriptionString()}
+                    {GetParametersString(Overloads.FirstOrDefault())}
+                    {GetFlagsString()}
+                    """;
+            }
+            else
+            {
+                // Multiple overloads — show all signatures
+                StringBuilder sb = new();
+                sb.AppendLine("```gsc");
+                for (int i = 0; i < Overloads.Count; i++)
+                {
+                    var overload = Overloads[i];
+                    string calledOnStr = overload.CalledOn is ScrFunctionArg co ? $"{co.Name} " : string.Empty;
+                    sb.AppendLine($"// Overload {i + 1}");
+                    sb.AppendLine($"{calledOnStr}function {Name}({GetCodedParameterList(overload)})");
+                }
+                sb.AppendLine("```");
+                sb.AppendLine("---");
+
+                string desc = GetDescriptionString();
+                if (!string.IsNullOrEmpty(desc))
+                {
+                    sb.AppendLine(desc);
+                }
+
+                for (int i = 0; i < Overloads.Count; i++)
+                {
+                    string paramStr = GetParametersString(Overloads[i], $"**Overload {i + 1}** ");
+                    if (!string.IsNullOrEmpty(paramStr))
+                    {
+                        sb.AppendLine(paramStr);
+                    }
+                }
+
+                string flags = GetFlagsString();
+                if (!string.IsNullOrEmpty(flags))
+                {
+                    sb.Append(flags);
+                }
+
+                _cachedDocumentation = sb.ToString().TrimEnd();
+            }
 
             return _cachedDocumentation;
         }
@@ -96,15 +135,15 @@ public record class ScrFunction : IExportedSymbol
         return string.Empty;
     }
 
-    private string GetCodedParameterList()
+    private string GetCodedParameterList(ScrFunctionOverload? overload)
     {
-        if (Overloads.First().Parameters.Count == 0)
+        if (overload is null || overload.Parameters.Count == 0)
         {
             return string.Empty;
         }
 
         List<string> parameters = new();
-        foreach (ScrFunctionArg parameter in Overloads.First().Parameters)
+        foreach (ScrFunctionArg parameter in overload.Parameters)
         {
             // Include all parameters - mandatory ones as-is, optional ones with brackets
             bool isMandatory = parameter.Mandatory.HasValue && parameter.Mandatory.Value;
@@ -122,15 +161,20 @@ public record class ScrFunction : IExportedSymbol
         return string.Join(", ", parameters);
     }
 
-    private string GetParametersString()
+    private string GetParametersString(ScrFunctionOverload? overload, string prefix = "")
     {
-        string calledOnString = Overloads.First().CalledOn is ScrFunctionArg calledOn ? $"Called on: `<{calledOn.Name}>`\n" : string.Empty;
+        if (overload is null)
+        {
+            return string.Empty;
+        }
+
+        string calledOnString = overload.CalledOn is ScrFunctionArg calledOn ? $"Called on: `<{calledOn.Name}>`\n" : string.Empty;
 
         string parametersString = string.Empty;
-        if (Overloads.First().Parameters.Count > 0)
+        if (overload.Parameters.Count > 0)
         {
-            parametersString = "Parameters:\n";
-            foreach (ScrFunctionArg parameter in Overloads.First().Parameters)
+            parametersString = $"{prefix}Parameters:\n";
+            foreach (ScrFunctionArg parameter in overload.Parameters)
             {
                 string parameterNameString = (parameter.Mandatory.HasValue && parameter.Mandatory.Value) ? $"<{parameter.Name}>" : $"[{parameter.Name}]";
 

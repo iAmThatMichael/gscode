@@ -62,13 +62,11 @@ export function activate(context: ExtensionContext) {
 
     dotenv.config({ path: path.join(context.extensionPath, ".env") });
 
-    // const serverModulePath = path.join('..', 'server', 'GSCode.NET', 'bin', 'Debug', 'net8.0', 'GSCode.NET.dll');
-    // const serverModule = context.asAbsolutePath(path.normalize(serverModulePath));
-
-    // console.log(serverModule);
+    // Flip SHOULD_TEST_IN_RELEASE to use the release build path during testing, e.g. for performance profiling.
+    const testServerLocation = process.env.SHOULD_TEST_IN_RELEASE === "true" ? process.env.RELEASE_SERVER_LOCATION : process.env.DEBUG_SERVER_LOCATION;
 
     const serverLocation = process.env.VSCODE_DEBUG
-        ? process.env.DEBUG_SERVER_LOCATION
+        ? testServerLocation
         : "service";
     if (!serverLocation) {
         throw new Error(

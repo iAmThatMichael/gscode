@@ -189,7 +189,7 @@ internal class SymbolTable
         {
             flags = SymbolFlags.Global | SymbolFlags.BuiltIn;
             return new ScrData(ScrDataTypes.Any)
-                { Indeterminate = true, TypeAlias = "callee" };
+                { Indeterminate = true };
         }
         if (symbol.Equals("level", StringComparison.OrdinalIgnoreCase))
         {

@@ -1333,6 +1333,9 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
             case "__FILE__":
                 definition = FileMacro;
                 return true;
+            case "__FUNCTION__":
+                definition = FunctionMacro(token);
+                return true;
             case "FASTFILE":
                 definition = FastFileMacro;
                 return true;
@@ -1347,6 +1350,34 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
     }
 
     private static MacroDefinition XFileVersionMacro { get; } = MacroDefinition.BuiltInMacroDefinition("XFILE_VERSION", new LexemeToken(TokenType.Integer, TokenRange.Empty, "593"));
+
+    private static MacroDefinition FunctionMacro(LinkedToken token)
+    {
+        // Walk backwards through the token stream to find the enclosing function name.
+        // Pattern: `function <name>` where <name> is an identifier.
+        LinkedToken? current = token.Previous;
+        while (current is not null && current.Type != TokenType.Sof)
+        {
+            if (current.Type == TokenType.Function)
+            {
+                // The function name is the next non-whitespace token after `function`.
+                LinkedToken? nameToken = current.Next;
+                while (nameToken is not null && nameToken.Type != TokenType.Eof && nameToken.IsWhitespacey())
+                    nameToken = nameToken.Next;
+                if (nameToken is not null && nameToken.Type == TokenType.Identifier)
+                {
+                    return MacroDefinition.BuiltInMacroDefinition("__FUNCTION__",
+                        new LexemeToken(TokenType.String, TokenRange.Empty, $"\"{nameToken.Lexeme}\""));
+                }
+                break;
+            }
+            current = current.Previous;
+        }
+
+        // Not inside a function — produce empty string.
+        return MacroDefinition.BuiltInMacroDefinition("__FUNCTION__",
+            new LexemeToken(TokenType.String, TokenRange.Empty, "\"\""));
+    }
 
     private static MacroDefinition FileMacro { get; } = MacroDefinition.BuiltInMacroDefinition("__FILE__", new LexemeToken(TokenType.Identifier, TokenRange.Empty, "these_wont_work_how_you_hope_them_to_sad_face"));
     private static MacroDefinition FastFileMacro { get; } = MacroDefinition.BuiltInMacroDefinition("FASTFILE", new LexemeToken(TokenType.Identifier, TokenRange.Empty, "these_wont_work_how_you_hope_them_to_sad_face"));

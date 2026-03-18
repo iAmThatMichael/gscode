@@ -4867,7 +4867,8 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "onTurret",
+                        "description": "Whether the player is currently on a turret.",
                         "type": {
                             "dataType": "bool",
                             "instanceType": null,
@@ -4875,8 +4876,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "description": "Whether the player is currently on a turret.",
-                        "name": "onTurret"
+                        "void": false
                     }
                 }
             ],
@@ -16849,7 +16849,7 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "fxId",
                         "description": "A handle to the playing FX, which can be used to stop it later.",
                         "type": {
                             "dataType": "int",
@@ -16858,7 +16858,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "fxId"
+                        "void": false
                     }
                 }
             ],
@@ -16938,7 +16938,7 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "fxId",
                         "description": "A handle to the playing FX which can be used to stop it later.",
                         "type": {
                             "dataType": "int",
@@ -16947,7 +16947,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "fxId"
+                        "void": false
                     }
                 }
             ],
@@ -16964,14 +16964,14 @@
             "overloads": [
                 {
                     "calledOn": {
+                        "name": "attachedEntity",
+                        "description": "The entity that is being attached to another.",
                         "type": {
                             "dataType": "entity",
                             "instanceType": null,
                             "subType": null,
                             "isArray": false
-                        },
-                        "name": "attachedEntity",
-                        "description": "The entity that is being attached to another."
+                        }
                     },
                     "parameters": [
                         {
@@ -17043,7 +17043,7 @@
                     "calledOn": null,
                     "parameters": [],
                     "returns": {
-                        "void": false,
+                        "name": "elapsedMs",
                         "description": "The elapsed time in milliseconds.",
                         "type": {
                             "dataType": "int",
@@ -17052,7 +17052,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "elapsedMs"
+                        "void": false
                     }
                 }
             ],
@@ -17084,7 +17084,7 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "currentWeapon",
                         "description": "The player's current weapon.",
                         "type": {
                             "dataType": "entity",
@@ -17093,7 +17093,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "currentWeapon"
+                        "void": false
                     }
                 }
             ],
@@ -17125,7 +17125,7 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "isThrowingGrenade",
                         "description": "Whether the player is throwing a grenade.",
                         "type": {
                             "dataType": "bool",
@@ -17134,7 +17134,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "isThrowingGrenade"
+                        "void": false
                     }
                 }
             ],
@@ -17166,7 +17166,7 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "isMeleeing",
                         "description": "Whether the player is currently meleeing.",
                         "type": {
                             "dataType": "bool",
@@ -17175,7 +17175,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "isMeleeing"
+                        "void": false
                     }
                 }
             ],
@@ -17219,7 +17219,7 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "ammo",
                         "description": "The amount of ammo in the magazine.",
                         "type": {
                             "dataType": "int",
@@ -17228,7 +17228,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "ammo"
+                        "void": false
                     }
                 }
             ],
@@ -17328,7 +17328,7 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "matchedEntity",
                         "description": "The matched entity, if found, else undefined. *",
                         "type": {
                             "dataType": "entity",
@@ -17337,7 +17337,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "matchedEntity"
+                        "void": false
                     }
                 }
             ],
@@ -17354,14 +17354,14 @@
             "overloads": [
                 {
                     "calledOn": {
+                        "name": "source",
+                        "description": "The source of the rumble.",
                         "type": {
                             "dataType": "entity",
                             "instanceType": null,
                             "subType": null,
                             "isArray": false
-                        },
-                        "name": "source",
-                        "description": "The source of the rumble."
+                        }
                     },
                     "parameters": [
                         {
@@ -17456,10 +17456,84 @@
             "example": "PlayRumbleOnPosition( localClientNum, \"grenade_rumble\", self.origin );",
             "verifiedInRevision": null,
             "remarks": null
+        },
+        {
+            "name": "GetSpeed",
+            "description": "Gets the vehicle's current speed in inches per second.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "vehicle",
+                            "subType": "vehicle",
+                            "isArray": false
+                        },
+                        "name": "entity",
+                        "description": "The vehicle to get the speed of."
+                    },
+                    "parameters": [],
+                    "returns": {
+                        "void": false,
+                        "description": "The vehicle's speed in inches per second.",
+                        "type": {
+                            "dataType": "int",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "name": "speed"
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "vr = Abs( self GetSpeed() / self GetMaxSpeed() );",
+            "verifiedInRevision": null,
+            "remarks": null
+        },
+        {
+            "name": "GetMaxSpeed",
+            "description": "Gets the vehicle's maximum speed in inches per second.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "vehicle",
+                            "subType": "vehicle",
+                            "isArray": false
+                        },
+                        "name": "vehicle",
+                        "description": "The vehicle to get the maximum speed of."
+                    },
+                    "parameters": [],
+                    "returns": {
+                        "void": false,
+                        "description": "The maximum speed of the vehicle in inches per second.",
+                        "type": {
+                            "dataType": "int",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "name": "maxSpeed"
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "vr = Abs( self GetSpeed() / self GetMaxSpeed() );",
+            "verifiedInRevision": null,
+            "remarks": null
         }
     ],
     "gameId": "t7",
     "languageId": "csc",
-    "revisedOn": "2026-03-18T20:59:46.112Z",
-    "revision": 11
+    "revisedOn": "2026-03-18T22:10:25.457Z",
+    "revision": 13
 }

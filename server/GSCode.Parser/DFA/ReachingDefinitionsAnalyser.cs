@@ -542,7 +542,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         // Analyse the collection.
         ScrData collection = AnalyseExpr(foreachStmt.Collection, symbolTable, Sense);
 
-        if (!collection.TypeUnknown() && collection.Type != ScrDataTypes.Array)
+        if (!collection.IsCompatibleWith(ScrDataTypes.Array))
         {
             AddDiagnostic(foreachStmt.Collection.Range, GSCErrorCodes.CannotEnumerateType, collection.TypeToString());
         }
@@ -809,6 +809,16 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         }
 
         ScrData result = AnalyseExpr(statement.Expr, symbolTable, Sense);
+
+        // If this is an assert() call, apply type narrowings from the condition being true.
+        if (statement.Expr is FunCallNode { Function: IdentifierExprNode assertId } assertCall
+            && string.Equals(assertId.Identifier, "assert", StringComparison.OrdinalIgnoreCase)
+            && assertCall.Arguments.Arguments.Count == 1
+            && assertCall.Arguments.Arguments.First?.Value is ExprNode conditionExpr)
+        {
+            ConditionResult condition = AnalyseCondition(conditionExpr, symbolTable);
+            ApplyNarrowingsToSymbolTable(symbolTable, condition.WhenTrue);
+        }
     }
 
     public void AnalyseConstStmt(ConstStmtNode statement, AstNode? last, AstNode? next, SymbolTable symbolTable)
@@ -866,7 +876,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         ScrData duration = AnalyseExpr(statement.Expr, symbolTable, Sense);
 
         // Duration must be numeric (int or float) or any
-        if (!duration.TypeUnknown() && !duration.IsNumeric())
+        if (!duration.IsCompatibleWith(ScrDataTypes.Number))
         {
             AddDiagnostic(statement.Expr.Range, GSCErrorCodes.NoImplicitConversionExists,
                 duration.TypeToString(), ScrDataTypeNames.Number);
@@ -903,14 +913,14 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         ScrData entity = AnalyseExpr(expr.Entity, symbolTable, sense);
 
         // The called-on must be an entity or struct.
-        if (entity.Type != ScrDataTypes.Entity && entity.Type != ScrDataTypes.Struct && !entity.IsAny())
+        if (!entity.IsCompatibleWith(ScrDataTypes.Entity | ScrDataTypes.Struct))
         {
             AddDiagnostic(expr.Entity.Range, GSCErrorCodes.NoImplicitConversionExists, entity.TypeToString(), ScrDataTypeNames.Entity);
             return ScrData.Default;
         }
 
         // The notify condition must be a string or hash.
-        if (notifyCondition.Type != ScrDataTypes.String && notifyCondition.Type != ScrDataTypes.Hash && !notifyCondition.IsAny())
+        if (!notifyCondition.IsCompatibleWith(ScrDataTypes.String | ScrDataTypes.Hash))
         {
             AddDiagnostic(expr.NotifyCondition.Range, GSCErrorCodes.NoImplicitConversionExists, notifyCondition.TypeToString(), ScrDataTypeNames.String, ScrDataTypeNames.Hash);
             return ScrData.Default;
@@ -938,14 +948,14 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         ScrData entity = AnalyseExpr(expr.Entity, symbolTable, sense);
 
         // The called-on must be an entity or struct.
-        if (entity.Type != ScrDataTypes.Entity && entity.Type != ScrDataTypes.Struct && !entity.IsAny())
+        if (!entity.IsCompatibleWith(ScrDataTypes.Entity | ScrDataTypes.Struct))
         {
             AddDiagnostic(expr.Entity.Range, GSCErrorCodes.NoImplicitConversionExists, entity.TypeToString(), ScrDataTypeNames.Entity);
             return ScrData.Default;
         }
 
         // The notify name must be a string or hash.
-        if (notifyName.Type != ScrDataTypes.String && notifyName.Type != ScrDataTypes.Hash && !notifyName.IsAny())
+        if (!notifyName.IsCompatibleWith(ScrDataTypes.String | ScrDataTypes.Hash))
         {
             AddDiagnostic(expr.NotifyName.Range, GSCErrorCodes.NoImplicitConversionExists, notifyName.TypeToString(), ScrDataTypeNames.String, ScrDataTypeNames.Hash);
             return ScrData.Default;
@@ -955,7 +965,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         if (expr.MatchValue is not null)
         {
             ScrData matchValue = AnalyseExpr(expr.MatchValue, symbolTable, sense);
-            if (matchValue.Type != ScrDataTypes.String && matchValue.Type != ScrDataTypes.Hash && !matchValue.IsAny())
+            if (!matchValue.IsCompatibleWith(ScrDataTypes.String | ScrDataTypes.Hash))
             {
                 AddDiagnostic(expr.MatchValue.Range, GSCErrorCodes.NoImplicitConversionExists, matchValue.TypeToString(), ScrDataTypeNames.String, ScrDataTypeNames.Hash);
                 return ScrData.Default;
@@ -1032,8 +1042,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
         // 2. Validate target type
         // The target must be an Object or Any.
-        if (!target.TypeUnknown() &&
-            target.Type != ScrDataTypes.Object)
+        if (!target.IsCompatibleWith(ScrDataTypes.Object))
         {
             // If the target isn't a valid object type, we can't call methods on it.
             // We only warn if we're sure it's the wrong type (not Any).
@@ -1191,7 +1200,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return ScrData.Undefined();
         }
 
-        if (functionData.Type != ScrDataTypes.Function)
+        if (!functionData.IsCompatibleWith(ScrDataTypes.Function))
         {
             AddDiagnostic(identifier.Range, GSCErrorCodes.ExpectedFunction, functionData.TypeToString());
             return ScrData.Undefined();
@@ -1214,7 +1223,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         ScrData operand = AnalyseExpr(prefix.Operand!, symbolTable, sense);
 
         // Needs to be a boolean, or at least can be coerced to one.
-        if (!operand.CanEvaluateToBoolean() && !operand.IsAny())
+        if (!operand.IsAny() && !operand.CanEvaluateToBoolean())
         {
             AddDiagnostic(prefix.Operand!.Range, GSCErrorCodes.NoImplicitConversionExists, operand.TypeToString(), ScrDataTypeNames.Bool);
             return ScrData.Default;
@@ -1245,12 +1254,17 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return ScrData.Default;
         }
 
-        // Must be a number.
-        if (!operand.IsNumeric())
+        // Must be a number or vector.
+        if (!operand.IsCompatibleWith(ScrDataTypes.Number | ScrDataTypes.Vector))
         {
             AddDiagnostic(prefix.Range, GSCErrorCodes.NoImplicitConversionExists,
                 operand.TypeToString(), ScrDataTypeNames.Int, ScrDataTypeNames.Float);
             return ScrData.Default;
+        }
+
+        if (operand.Type == ScrDataTypes.Vector)
+        {
+            return new ScrData(ScrDataTypes.Vector);
         }
 
         if (operand.Type == ScrDataTypes.Int)
@@ -1258,7 +1272,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return new ScrData(ScrDataTypes.Int, booleanValue: operand.BooleanValue);
         }
 
-        // If it's not int, then it's a float.
+        // If it's not int or vector, then it's a float.
         return new ScrData(ScrDataTypes.Float);
     }
 
@@ -1276,7 +1290,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return ScrData.Default;
         }
 
-        if (operand.Type != ScrDataTypes.Int)
+        if (!operand.IsCompatibleWith(ScrDataTypes.Int))
         {
             AddDiagnostic(prefix.Range, GSCErrorCodes.NoImplicitConversionExists,
                 operand.TypeToString(), ScrDataTypeNames.Int);
@@ -1451,7 +1465,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         ScrData target = AnalyseExpr(postfix.Operand!, symbolTable, sense, false);
 
         // Must be an int.
-        if (target.Type != ScrDataTypes.Int && !target.IsAny())
+        if (!target.IsCompatibleWith(ScrDataTypes.Int))
         {
             AddDiagnostic(postfix.Operand!.Range, GSCErrorCodes.NoImplicitConversionExists, target.TypeToString(), ScrDataTypeNames.Int);
             return ScrData.Default;
@@ -1472,7 +1486,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         ScrData target = AnalyseExpr(postfix.Operand!, symbolTable, sense, false);
 
         // Must be an int.
-        if (target.Type != ScrDataTypes.Int && !target.IsAny())
+        if (!target.IsCompatibleWith(ScrDataTypes.Int))
         {
             AddDiagnostic(postfix.Operand!.Range, GSCErrorCodes.NoImplicitConversionExists, target.TypeToString(), ScrDataTypeNames.Int);
             return ScrData.Default;
@@ -1586,10 +1600,17 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         ScrData left = AnalyseExpr(node.Left!, symbolTable, Sense, false);
         ScrData right = AnalyseExpr(node.Right!, symbolTable, Sense);
 
-        // For compound assignments on local variables, ensure the variable already exists
+        // For compound assignments on identifiers, ensure the variable or class member exists
         if (node.Left is IdentifierExprNode identifier)
         {
-            if (!symbolTable.ContainsSymbol(identifier.Identifier))
+            bool isClassMember = symbolTable.CurrentClass is not null &&
+                symbolTable.IsMemberInClassHierarchy(symbolTable.CurrentClass, identifier.Identifier);
+
+            if (isClassMember)
+            {
+                Sense.AddSenseToken(identifier.Token, new ScrClassPropertySymbol(identifier, left, symbolTable.CurrentClass!));
+            }
+            else if (!symbolTable.ContainsSymbol(identifier.Identifier))
             {
                 AddDiagnostic(identifier.Range, GSCErrorCodes.NotDefined, identifier.Identifier);
                 return ScrData.Default;
@@ -1761,12 +1782,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
     private ScrData AnalyseModuloOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.Type == ScrDataTypes.Int && right.Type == ScrDataTypes.Int)
+        if (left.IsCompatibleWith(ScrDataTypes.Int) && right.IsCompatibleWith(ScrDataTypes.Int))
         {
             // If the right isn't truthy, then this is an attempted divide by zero.
             if (right.BooleanValue == false)
@@ -1783,12 +1799,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
     private ScrData AnalyseBitLeftShiftOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.Type == ScrDataTypes.Int && right.Type == ScrDataTypes.Int)
+        if (left.IsCompatibleWith(ScrDataTypes.Int) && right.IsCompatibleWith(ScrDataTypes.Int))
         {
             return new ScrData(ScrDataTypes.Int);
         }
@@ -1799,12 +1810,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
     private ScrData AnalyseBitRightShiftOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.Type == ScrDataTypes.Int && right.Type == ScrDataTypes.Int)
+        if (left.IsCompatibleWith(ScrDataTypes.Int) && right.IsCompatibleWith(ScrDataTypes.Int))
         {
             return new ScrData(ScrDataTypes.Int);
         }
@@ -1826,6 +1832,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         }
 
         // Undefined can't be compared, that's what isdefined is for.
+        // Only flag if the type is definitively undefined (not a union containing undefined).
         if (left.Type == ScrDataTypes.Undefined || right.Type == ScrDataTypes.Undefined)
         {
             AddDiagnostic(node.Range, GSCErrorCodes.OperatorNotSupportedOnTypes, "==", left.TypeToString(), right.TypeToString());
@@ -2024,12 +2031,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
     private ScrData AnalyseBitAndOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.Type == ScrDataTypes.Int && right.Type == ScrDataTypes.Int)
+        if (left.IsCompatibleWith(ScrDataTypes.Int) && right.IsCompatibleWith(ScrDataTypes.Int))
         {
             return new ScrData(ScrDataTypes.Int);
         }
@@ -2040,12 +2042,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
     private ScrData AnalyseBitOrOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.Type == ScrDataTypes.Int && right.Type == ScrDataTypes.Int)
+        if (left.IsCompatibleWith(ScrDataTypes.Int) && right.IsCompatibleWith(ScrDataTypes.Int))
         {
             return new ScrData(ScrDataTypes.Int);
         }
@@ -2056,12 +2053,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
     private ScrData AnalyseBitXorOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.Type == ScrDataTypes.Int && right.Type == ScrDataTypes.Int)
+        if (left.IsCompatibleWith(ScrDataTypes.Int) && right.IsCompatibleWith(ScrDataTypes.Int))
         {
             return new ScrData(ScrDataTypes.Int);
         }
@@ -2072,12 +2064,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
     private ScrData AnalyseGreaterThanOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.IsNumeric() && right.IsNumeric())
+        if (left.IsCompatibleWith(ScrDataTypes.Number) && right.IsCompatibleWith(ScrDataTypes.Number))
         {
             return new ScrData(ScrDataTypes.Bool);
         }
@@ -2088,12 +2075,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
     private ScrData AnalyseLessThanOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.IsNumeric() && right.IsNumeric())
+        if (left.IsCompatibleWith(ScrDataTypes.Number) && right.IsCompatibleWith(ScrDataTypes.Number))
         {
             return new ScrData(ScrDataTypes.Bool);
         }
@@ -2104,12 +2086,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
     private ScrData AnalyseGreaterThanEqualsOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.IsNumeric() && right.IsNumeric())
+        if (left.IsCompatibleWith(ScrDataTypes.Number) && right.IsCompatibleWith(ScrDataTypes.Number))
         {
             return new ScrData(ScrDataTypes.Bool);
         }
@@ -2120,12 +2097,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
 
     private ScrData AnalyseLessThanEqualsOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.IsNumeric() && right.IsNumeric())
+        if (left.IsCompatibleWith(ScrDataTypes.Number) && right.IsCompatibleWith(ScrDataTypes.Number))
         {
             return new ScrData(ScrDataTypes.Bool);
         }
@@ -2244,17 +2216,17 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return new ScrData(ScrDataTypes.Vector);
         }
 
-        if (!x.IsNumeric())
+        if (!x.IsCompatibleWith(ScrDataTypes.Number))
         {
             AddDiagnostic(expr.X!.Range, GSCErrorCodes.InvalidVectorComponent, x.TypeToString());
             return ScrData.Default;
         }
-        if (!y.IsNumeric())
+        if (!y.IsCompatibleWith(ScrDataTypes.Number))
         {
             AddDiagnostic(expr.Y!.Range, GSCErrorCodes.InvalidVectorComponent, y.TypeToString());
             return ScrData.Default;
         }
-        if (!z.IsNumeric())
+        if (!z.IsCompatibleWith(ScrDataTypes.Number))
         {
             AddDiagnostic(expr.Z!.Range, GSCErrorCodes.InvalidVectorComponent, z.TypeToString());
             return ScrData.Default;
@@ -2420,103 +2392,6 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         return innerData;
     }
 
-    private ScrData? TryAnalyseReservedFunction(FunCallNode call, string functionName, SymbolTable symbolTable, ParserIntelliSense sense)
-    {
-        // Handle vectorscale(vector, number) -> vector
-        if (functionName.Equals("vectorscale", StringComparison.OrdinalIgnoreCase))
-        {
-            return AnalyseVectorScaleCall(call, symbolTable, sense);
-        }
-
-        // Handle isdefined(value) -> bool
-        if (functionName.Equals("isdefined", StringComparison.OrdinalIgnoreCase))
-        {
-            return AnalyseIsDefinedCall(call, symbolTable, sense);
-        }
-
-        return null; // Not a specially handled reserved function
-    }
-
-    private ScrData AnalyseVectorScaleCall(FunCallNode call, SymbolTable symbolTable, ParserIntelliSense sense)
-    {
-        int argCount = call.Arguments.Arguments.Count;
-
-        // Validate argument count (exactly 2)
-        if (argCount < 2)
-        {
-            AddDiagnostic(call.Arguments.Range, GSCErrorCodes.TooFewArguments, "vectorscale", argCount, 2);
-        }
-        else if (argCount > 2)
-        {
-            AddDiagnostic(call.Arguments.Range, GSCErrorCodes.TooManyArguments, "vectorscale", argCount, 2);
-        }
-
-        int index = 0;
-        foreach (ExprNode? arg in call.Arguments.Arguments)
-        {
-            if (arg is null)
-            {
-                index++;
-                continue;
-            }
-
-            // Analyze first argument (should be Vector)
-            if (index == 0)
-            {
-                ScrData vecData = AnalyseExpr(arg, symbolTable, sense);
-                if (!vecData.TypeUnknown() && vecData.Type != ScrDataTypes.Vector)
-                {
-                    AddDiagnostic(arg.Range, GSCErrorCodes.NoImplicitConversionExists, vecData.TypeToString(), ScrDataTypeNames.Vector);
-                }
-            }
-            // Analyze second argument (should be Int or Float / Number)
-            else if (index == 1)
-            {
-                ScrData scaleData = AnalyseExpr(arg, symbolTable, sense);
-                if (!scaleData.TypeUnknown() && !scaleData.IsNumeric())
-                {
-                    AddDiagnostic(arg.Range, GSCErrorCodes.NoImplicitConversionExists, scaleData.TypeToString(), ScrDataTypeNames.Number);
-                }
-            }
-            // Analyze remaining arguments to ensure they are processed for side effects/references
-            else
-            {
-                AnalyseExpr(arg, symbolTable, sense);
-            }
-
-            index++;
-        }
-
-        return new ScrData(ScrDataTypes.Vector);
-    }
-
-    private ScrData AnalyseIsDefinedCall(FunCallNode call, SymbolTable symbolTable, ParserIntelliSense sense)
-    {
-        int argCount = call.Arguments.Arguments.Count;
-
-        // Validate argument count (exactly 1)
-        if (argCount < 1)
-        {
-            AddDiagnostic(call.Arguments.Range, GSCErrorCodes.TooFewArguments, "isdefined", argCount, 1);
-        }
-        else if (argCount > 1)
-        {
-            AddDiagnostic(call.Arguments.Range, GSCErrorCodes.TooManyArguments, "isdefined", argCount, 1);
-        }
-
-        // Analyze all arguments to ensure side effects/references are processed
-        foreach (var arg in call.Arguments.Arguments)
-        {
-            if (arg != null)
-            {
-                AnalyseExpr(arg, symbolTable, sense);
-            }
-        }
-
-        // isdefined takes 1 argument. Return bool.
-        return new ScrData(ScrDataTypes.Bool);
-    }
-
     private ScrData AnalyseFunctionCall(FunCallNode call, SymbolTable symbolTable, ParserIntelliSense sense, ScrData? target = null)
     {
         ScrData targetValue = target ?? ScrData.Default;
@@ -2567,40 +2442,38 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             functionFlags = SymbolFlags.None;
         }
 
-        if (functionTarget.TypeUnknown())
+        if (!functionTarget.IsCompatibleWith(ScrDataTypes.Function))
         {
-            return ScrData.Default;
-        }
-
-        if (functionTarget.Type != ScrDataTypes.Function)
-        {
-            AddDiagnostic(call.Function!.Range, GSCErrorCodes.ExpectedFunction, functionTarget.TypeToString());
+            if (!functionTarget.TypeUnknown())
+            {
+                AddDiagnostic(call.Function!.Range, GSCErrorCodes.ExpectedFunction, functionTarget.TypeToString());
+            }
             return ScrData.Default;
         }
 
         functionTarget.TryGetFunction(out ScrFunction? function);
 
-        // Handle reserved functions with special semantics
-        if (functionFlags.HasFlag(SymbolFlags.Reserved) && call.Function is IdentifierExprNode reservedId)
+        // Pre-analyse all arguments.
+        ScrData[] argTypes = AnalyseCallArguments(call, symbolTable);
+
+        // Check for emulated function behavior (type guards, custom validation, etc.)
+        if (functionFlags.HasFlag(SymbolFlags.Reserved) || functionFlags.HasFlag(SymbolFlags.BuiltIn))
         {
-            ScrData? reservedResult = TryAnalyseReservedFunction(call, reservedId.Identifier, symbolTable, sense);
-            if (reservedResult is not null)
+            string? emulatedName = call.Function is IdentifierExprNode emulatedId ? emulatedId.Identifier : null;
+            if (emulatedName is not null
+                && EmulatedFunctionRegistry.TryGet(emulatedName, out EmulatedFunction? emulated)
+                && emulated.EmulateCall is not null)
             {
-                return reservedResult.Value;
+                EmulationContext ctx = new()
+                {
+                    Call = call,
+                    ArgumentTypes = argTypes,
+                    Target = target,
+                    Silent = Silent,
+                    Sense = Sense
+                };
+                return emulated.EmulateCall(in ctx);
             }
-        }
-
-        // Analyse arguments
-        foreach (ExprNode? argument in call.Arguments.Arguments)
-        {
-            if (argument is null)
-            {
-                continue;
-            }
-
-            ScrData argumentValue = AnalyseExpr(argument, symbolTable, sense);
-
-            // TODO: Check whether argument types match expected parameter types
         }
 
         // Validate argument count
@@ -2696,7 +2569,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         }
 
         // Verify it's actually a function
-        if (!functionTarget.TypeUnknown() && functionTarget.Type != ScrDataTypes.Function)
+        if (!functionTarget.IsCompatibleWith(ScrDataTypes.Function))
         {
             AddDiagnostic(call.Operand.Range, GSCErrorCodes.ExpectedFunction, functionTarget.TypeToString());
         }
@@ -2792,8 +2665,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
                 continue;
             }
 
-            ScrDataTypes newType = Apply(narrowing, existing.Data.Type);
-            refined[symbol] = existing with { Data = existing.Data with { Type = newType } };
+            refined[symbol] = existing with { Data = ApplyNarrowing(narrowing, existing.Data) };
         }
 
         return refined;

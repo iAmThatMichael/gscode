@@ -396,9 +396,11 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
         string? resolvedInsertPath = Sense.ResolveInsertPath(filePath, path.Range!);
         Sense.AddInsertRegion(path.Range!, filePath, resolvedInsertPath);
 
-        // If the path couldn't be resolved, the error was already added by ResolveInsertPath
+        // If the path couldn't be resolved, the error was already added by ResolveInsertPath.
+        // Remove the insert directive tokens so they don't trip the AST parser.
         if (resolvedInsertPath is null)
         {
+            RemoveInsertDirective(insertToken, terminatorToken);
             return;
         }
 
@@ -411,12 +413,14 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
         catch(Exception ex)
         {
             Sense.AddIdeDiagnostic(path.Range!, GSCErrorCodes.FailedToReadInsertFile, filePath, ex.GetType().Name);
+            RemoveInsertDirective(insertToken, terminatorToken);
             return;
         }
 
         // If we got null back then the file doesn't exist (shouldn't happen since we checked resolvedInsertPath)
         if (insertTokensResult is not TokenList insertTokens)
         {
+            RemoveInsertDirective(insertToken, terminatorToken);
             return;
         }
 
@@ -453,6 +457,27 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
             return;
         }
         ConnectTokens(insertTokens.End!.Previous!, terminatorToken);
+    }
+
+    /// <summary>
+    /// Removes the insert directive tokens from the token stream so they don't trip the AST parser.
+    /// </summary>
+    private void RemoveInsertDirective(LinkedToken insertToken, LinkedToken? terminatorToken)
+    {
+        if (terminatorToken?.Type == TokenType.Semicolon)
+        {
+            ConnectTokens(insertToken.Previous!, terminatorToken.Next!);
+            CurrentNode = terminatorToken.Next!;
+        }
+        else if (terminatorToken is not null)
+        {
+            ConnectTokens(insertToken.Previous!, terminatorToken);
+            CurrentNode = terminatorToken;
+        }
+        else
+        {
+            ConnectTokens(insertToken.Previous!, CurrentNode);
+        }
     }
 
     /// <summary>

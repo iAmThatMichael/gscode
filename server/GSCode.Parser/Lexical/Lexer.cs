@@ -748,7 +748,18 @@ internal ref partial struct Lexer(ReadOnlySpan<char> input)
         char boundary = InputAt(lexeme.Length);
         if (!IsWordChar(boundary))
         {
-            return CreateToken(tokenType, _input[..lexeme.Length], _line, _linePosition, _line, _linePosition + lexeme.Length);
+            ReadOnlySpan<char> raw = _input[..lexeme.Length];
+
+            // Macros are case-sensitive and can shadow keywords. If the source casing differs
+            // from the canonical keyword form, store the raw lexeme so the preprocessor can
+            // distinguish e.g. DEFAULT (macro) from default (keyword).
+            if (!raw.SequenceEqual(lexeme))
+            {
+                TokenRange range = new(_line, _linePosition, _line, _linePosition + lexeme.Length);
+                return new LexemeToken(tokenType, range, StringPool.Intern(raw));
+            }
+
+            return CreateToken(tokenType, raw, _line, _linePosition, _line, _linePosition + lexeme.Length);
         }
         return default;
     }

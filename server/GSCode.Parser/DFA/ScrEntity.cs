@@ -702,7 +702,8 @@ internal static class ScrEntityRegistry
                 return ScrEntitySetFieldResult.FieldReadOnly;
             }
             // To be a valid assignment, the types must match.
-            if(value.Type != field.Type)
+            // If the value type is unknown (Any), we can't make assumptions — allow it.
+            if(!value.IsCompatibleWith(field.Type))
             {
                 return ScrEntitySetFieldResult.FieldTypeMismatch;
             }
@@ -715,18 +716,20 @@ internal static class ScrEntityRegistry
 
     private static bool TryFindFieldForEntityType(ScrEntityTypes entityType, string fieldName, [NotNullWhen(true)] out ScrEntityField? field)
     {
+        // Field names are case-insensitive in GSC — normalize to lowercase for lookup.
+        string key = fieldName.ToLowerInvariant();
         field = null;
         return entityType switch
         {
-            ScrEntityTypes.Weapon => _weaponFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.Vehicle => _vehicleFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.Player => _playerFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.Actor => _actorFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.AiType => _aiTypeFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.PathNode => _pathNodeFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.Sentient => _sentientFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.VehicleNode => _vehicleNodeFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.HudElem => _hudElemFields.TryGetValue(fieldName, out field),
+            ScrEntityTypes.Weapon => _weaponFields.TryGetValue(key, out field),
+            ScrEntityTypes.Vehicle => _vehicleFields.TryGetValue(key, out field),
+            ScrEntityTypes.Player => _playerFields.TryGetValue(key, out field),
+            ScrEntityTypes.Actor => _actorFields.TryGetValue(key, out field),
+            ScrEntityTypes.AiType => _aiTypeFields.TryGetValue(key, out field),
+            ScrEntityTypes.PathNode => _pathNodeFields.TryGetValue(key, out field),
+            ScrEntityTypes.Sentient => _sentientFields.TryGetValue(key, out field),
+            ScrEntityTypes.VehicleNode => _vehicleNodeFields.TryGetValue(key, out field),
+            ScrEntityTypes.HudElem => _hudElemFields.TryGetValue(key, out field),
             _ => false
         };
     }

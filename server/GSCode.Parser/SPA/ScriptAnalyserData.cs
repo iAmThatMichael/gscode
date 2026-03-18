@@ -79,29 +79,32 @@ public class ScriptAnalyserData
 
     public static async Task<bool> LoadLanguageApiAsync(string url, string filePathFallback)
     {
-        // Try to load from URL
+        bool loaded = false;
+
+        // Load local file first so we have a baseline revision to compare against.
+        try
+        {
+            string json = File.ReadAllText(filePathFallback);
+            loaded = LoadLanguageApiData(json);
+        }
+        catch (Exception e)
+        {
+            Log.Error(e, "Failed to load API from {FilePath}", filePathFallback);
+        }
+
+        // Try to load from URL — will only replace local if it has a higher revision.
         try
         {
             using HttpClient client = new();
             string json = await client.GetStringAsync(url);
-            return LoadLanguageApiData(json);
+            loaded = LoadLanguageApiData(json) || loaded;
         }
         catch (Exception e)
         {
             Log.Error(e, "Failed to load API from {Url}", url);
         }
 
-        // Try to load from file
-        try
-        {
-            string json = File.ReadAllText(filePathFallback);
-            return LoadLanguageApiData(json);
-        }
-        catch (Exception e)
-        {
-            Log.Error(e, "Failed to load API from {FilePath}", filePathFallback);
-        }
-        return false;
+        return loaded;
     }
 
     private static bool LoadLanguageApiData(string source)

@@ -1038,7 +1038,7 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
         // If target is null (implicit 'this'), we treat it as if 'self' was the target
         ScrData target = methodCall.Target is not null
             ? AnalyseExpr(methodCall.Target, symbolTable, sense)
-            : new ScrData(ScrDataTypes.Entity); // Assuming 'self' is an entity/object
+            : new ScrData(ScrDataTypes.Any); // self can be anything
 
         // 2. Validate target type
         // The target must be an Object or Any.

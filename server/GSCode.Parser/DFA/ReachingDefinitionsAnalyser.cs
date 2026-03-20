@@ -1464,8 +1464,8 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
     {
         ScrData target = AnalyseExpr(postfix.Operand!, symbolTable, sense, false);
 
-        // Must be an int.
-        if (!target.IsCompatibleWith(ScrDataTypes.Int))
+        // Must be an int or float.
+        if (!target.IsCompatibleWith(ScrDataTypes.Int) && !target.IsCompatibleWith(ScrDataTypes.Float))
         {
             AddDiagnostic(postfix.Operand!.Range, GSCErrorCodes.NoImplicitConversionExists, target.TypeToString(), ScrDataTypeNames.Int);
             return ScrData.Default;
@@ -1485,8 +1485,8 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
     {
         ScrData target = AnalyseExpr(postfix.Operand!, symbolTable, sense, false);
 
-        // Must be an int.
-        if (!target.IsCompatibleWith(ScrDataTypes.Int))
+        // Must be an int or float.
+        if (!target.IsCompatibleWith(ScrDataTypes.Int) && !target.IsCompatibleWith(ScrDataTypes.Float))
         {
             AddDiagnostic(postfix.Operand!.Range, GSCErrorCodes.NoImplicitConversionExists, target.TypeToString(), ScrDataTypeNames.Int);
             return ScrData.Default;
@@ -1839,13 +1839,14 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return ScrData.Default;
         }
 
-        // Warn them if either side is possibly undefined.
-        if (left.HasType(ScrDataTypes.Undefined))
+        // Warn them if either side is possibly undefined — but not if the type is
+        // indeterminate, since CFA already merged the paths and the comparison is valid.
+        if (left.HasType(ScrDataTypes.Undefined) && !left.Indeterminate)
         {
             AddDiagnostic(node.Left!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);
         }
-        if (right.HasType(ScrDataTypes.Undefined))
+        if (right.HasType(ScrDataTypes.Undefined) && !right.Indeterminate)
         {
             AddDiagnostic(node.Right!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);
@@ -1874,13 +1875,14 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return ScrData.Default;
         }
 
-        // Warn them if either side is possibly undefined.
-        if (left.HasType(ScrDataTypes.Undefined))
+        // Warn them if either side is possibly undefined — but not if the type is
+        // indeterminate, since CFA already merged the paths and the comparison is valid.
+        if (left.HasType(ScrDataTypes.Undefined) && !left.Indeterminate)
         {
             AddDiagnostic(node.Left!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);
         }
-        if (right.HasType(ScrDataTypes.Undefined))
+        if (right.HasType(ScrDataTypes.Undefined) && !right.Indeterminate)
         {
             AddDiagnostic(node.Right!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);
@@ -1909,13 +1911,14 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return ScrData.Default;
         }
 
-        // Warn them if either side is possibly undefined.
-        if (left.HasType(ScrDataTypes.Undefined))
+        // Warn them if either side is possibly undefined — but not if the type is
+        // indeterminate, since CFA already merged the paths and the comparison is valid.
+        if (left.HasType(ScrDataTypes.Undefined) && !left.Indeterminate)
         {
             AddDiagnostic(node.Left!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);
         }
-        if (right.HasType(ScrDataTypes.Undefined))
+        if (right.HasType(ScrDataTypes.Undefined) && !right.Indeterminate)
         {
             AddDiagnostic(node.Right!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);
@@ -1944,13 +1947,14 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return ScrData.Default;
         }
 
-        // Warn them if either side is possibly undefined.
-        if (left.HasType(ScrDataTypes.Undefined))
+        // Warn them if either side is possibly undefined — but not if the type is
+        // indeterminate, since CFA already merged the paths and the comparison is valid.
+        if (left.HasType(ScrDataTypes.Undefined) && !left.Indeterminate)
         {
             AddDiagnostic(node.Left!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);
         }
-        if (right.HasType(ScrDataTypes.Undefined))
+        if (right.HasType(ScrDataTypes.Undefined) && !right.Indeterminate)
         {
             AddDiagnostic(node.Right!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);
@@ -1979,13 +1983,14 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return ScrData.Default;
         }
 
-        // Warn them if either side is possibly undefined.
-        if (left.HasType(ScrDataTypes.Undefined))
+        // Warn them if either side is possibly undefined — but not if the type is
+        // indeterminate, since CFA already merged the paths and the comparison is valid.
+        if (left.HasType(ScrDataTypes.Undefined) && !left.Indeterminate)
         {
             AddDiagnostic(node.Left!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);
         }
-        if (right.HasType(ScrDataTypes.Undefined))
+        if (right.HasType(ScrDataTypes.Undefined) && !right.Indeterminate)
         {
             AddDiagnostic(node.Right!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);
@@ -2013,13 +2018,14 @@ internal ref partial struct ReachingDefinitionsAnalyser(List<Tuple<ScrFunction, 
             return ScrData.Default;
         }
 
-        // Warn them if either side is possibly undefined.
-        if (left.HasType(ScrDataTypes.Undefined))
+        // Warn them if either side is possibly undefined — but not if the type is
+        // indeterminate, since CFA already merged the paths and the comparison is valid.
+        if (left.HasType(ScrDataTypes.Undefined) && !left.Indeterminate)
         {
             AddDiagnostic(node.Left!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);
         }
-        if (right.HasType(ScrDataTypes.Undefined))
+        if (right.HasType(ScrDataTypes.Undefined) && !right.Indeterminate)
         {
             AddDiagnostic(node.Right!.Range, GSCErrorCodes.PossibleUndefinedComparison);
             return new ScrData(ScrDataTypes.Bool);

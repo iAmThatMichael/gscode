@@ -581,6 +581,7 @@ internal record struct ScrData
         ScrDataTypes compositeType = ScrDataTypes.Void;
         // Start as true, as if any is not readonly, then we'll represent it as not.
         bool isReadOnly = true;
+        HashSet<IScrDataSubType>? compositeSubTypes = null;
 
         // Handle array "size" field
         if (name == "size" && HasType(ScrDataTypes.Array))
@@ -601,6 +602,13 @@ internal record struct ScrData
                     compositeType |= field.Type;
                     isReadOnly &= field.ReadOnly;
 
+                    // Propagate any sub-types from the field (e.g. entity sub-type for weapon fields).
+                    if (field.SubTypes is not null)
+                    {
+                        compositeSubTypes ??= new();
+                        compositeSubTypes.UnionWith(field.SubTypes);
+                    }
+
                     // Tracking boolean unnecessary, as we'll never receive a not-null boolean value from this location.
                 }
             }
@@ -612,7 +620,7 @@ internal record struct ScrData
             return WithFieldName(Default);
         }
 
-        return WithFieldName(new ScrData(compositeType, readOnly: isReadOnly));
+        return WithFieldName(new ScrData(compositeType, compositeSubTypes, readOnly: isReadOnly));
     }
 
     public bool TrySetField(string name, ScrData value, out ScrSetFieldFailure? failure)

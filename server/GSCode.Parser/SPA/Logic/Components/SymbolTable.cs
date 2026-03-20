@@ -188,7 +188,8 @@ internal class SymbolTable
         if (symbol.Equals("self", StringComparison.OrdinalIgnoreCase))
         {
             flags = SymbolFlags.Global | SymbolFlags.BuiltIn;
-            return new ScrData(ScrDataTypes.Entity);
+            return new ScrData(ScrDataTypes.Any)
+                { Indeterminate = true };
         }
         if (symbol.Equals("level", StringComparison.OrdinalIgnoreCase))
         {

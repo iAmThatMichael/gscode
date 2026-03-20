@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using GSCode.Data;
 using GSCode.Parser.AST;
 using GSCode.Parser.Lexical;
@@ -21,12 +22,6 @@ internal ref partial struct ReachingDefinitionsAnalyser
         Dictionary<string, TypeNarrowing> WhenTrue,
         Dictionary<string, TypeNarrowing> WhenFalse);
 
-    /// <summary>
-    /// Per-symbol narrowing operation represented as bitmasks over <see cref="ScrDataTypes"/>.
-    /// Intended meaning: newType = (oldType &amp; KeepMask) &amp; ~RemoveMask (clamped to valid bits).
-    /// </summary>
-    private readonly record struct TypeNarrowing(ScrDataTypes KeepMask, ScrDataTypes RemoveMask);
-
     private ScrData AnalyseLogicalBinaryExpr(BinaryExprNode binary, SymbolTable symbolTable)
     {
         // Logical operators are treated as condition expressions.
@@ -34,17 +29,6 @@ internal ref partial struct ReachingDefinitionsAnalyser
         // AnalyseExpr(...) to return facts for all expressions.
         return AnalyseCondition(binary, symbolTable).Value;
     }
-
-    private enum PredicateKind
-    {
-        // Future expansion points:
-        // - IsFunctionPtr
-        // - IsString / IsInt / etc.
-        // - IsDefined on fields / paths
-        IsDefined
-    }
-
-    private readonly record struct PredicateCall(PredicateKind Kind, ExprNode? Subject);
 
     private ConditionResult AnalyseCondition(ExprNode expr, SymbolTable symbolTable)
     {
@@ -71,8 +55,14 @@ internal ref partial struct ReachingDefinitionsAnalyser
             case BinaryExprNode binary when binary.Operation == TokenType.Or:
                 return AnalyseConditionOr(binary, symbolTable);
 
-            case FunCallNode call when TryExtractPredicateCall(call, out PredicateCall predicate):
-                return AnalysePredicateCall(call, predicate, symbolTable);
+            // Free call: IsDefined(x), IsPlayer(ent), etc.
+            case FunCallNode call when TryEmulateCondition(call, null, symbolTable, out ConditionResult freeResult):
+                return freeResult;
+
+            // Method call: self IsPlayer()
+            case CalledOnNode { Call: FunCallNode innerCall, On: var targetExpr }
+                when TryEmulateCondition(innerCall, targetExpr, symbolTable, out ConditionResult methodResult):
+                return methodResult;
 
             default:
                 {
@@ -128,6 +118,90 @@ internal ref partial struct ReachingDefinitionsAnalyser
             WhenFalse: whenFalse);
     }
 
+    /// <summary>
+    /// Attempts to evaluate a function call as an emulated condition, producing type narrowing facts.
+    /// </summary>
+    private bool TryEmulateCondition(FunCallNode call, ExprNode? targetExpr, SymbolTable symbolTable, out ConditionResult result)
+    {
+        result = default;
+
+        // Resolve function name.
+        if (call.Function is not IdentifierExprNode identifier)
+        {
+            return false;
+        }
+
+        if (!EmulatedFunctionRegistry.TryGet(identifier.Identifier, out EmulatedFunction? emulated) || emulated.EmulateNarrowing is null)
+        {
+            return false;
+        }
+
+        // Resolve the subject variable name to narrow.
+        // For method calls (ent IsPlayer()), the subject is the target expression.
+        // For free calls (IsPlayer(ent)), the subject is the first argument.
+        string? subjectName = null;
+        ScrData? targetData = null;
+
+        if (targetExpr is not null)
+        {
+            // Called-on syntax: target is the subject
+            if (targetExpr is IdentifierExprNode targetId)
+            {
+                subjectName = targetId.Identifier;
+            }
+            targetData = AnalyseExpr(targetExpr, symbolTable, Sense);
+        }
+        else
+        {
+            // Free call: first argument is the subject
+            if (call.Arguments.Arguments.Count > 0 && call.Arguments.Arguments.First?.Value is IdentifierExprNode argId)
+            {
+                subjectName = argId.Identifier;
+            }
+        }
+
+        // Analyse arguments for side effects / symbol usage.
+        ScrData[] argTypes = AnalyseCallArguments(call, symbolTable);
+
+        EmulationContext ctx = new()
+        {
+            Call = call,
+            ArgumentTypes = argTypes,
+            Target = targetData,
+            Silent = Silent,
+            Sense = Sense
+        };
+
+        NarrowingResult? narrowing = emulated.EmulateNarrowing(subjectName, in ctx);
+        if (narrowing is null)
+        {
+            return false;
+        }
+
+        result = new ConditionResult(narrowing.Value.Value, narrowing.Value.WhenTrue, narrowing.Value.WhenFalse);
+        return true;
+    }
+
+    /// <summary>
+    /// Analyses all arguments in a function call and returns their types.
+    /// </summary>
+    private ScrData[] AnalyseCallArguments(FunCallNode call, SymbolTable symbolTable)
+    {
+        int count = call.Arguments.Arguments.Count;
+        ScrData[] types = new ScrData[count];
+        int index = 0;
+
+        foreach (ExprNode? argument in call.Arguments.Arguments)
+        {
+            types[index] = argument is not null
+                ? AnalyseExpr(argument, symbolTable, Sense)
+                : ScrData.Default;
+            index++;
+        }
+
+        return types;
+    }
+
     private static Dictionary<string, TypeNarrowing> CreateEmptyNarrowings()
     {
         return new Dictionary<string, TypeNarrowing>(StringComparer.OrdinalIgnoreCase);
@@ -135,7 +209,16 @@ internal ref partial struct ReachingDefinitionsAnalyser
 
     private static TypeNarrowing Compose(TypeNarrowing a, TypeNarrowing b)
     {
-        return new TypeNarrowing(a.KeepMask & b.KeepMask, a.RemoveMask | b.RemoveMask);
+        // Compose RequireSubTypes: if both specify constraints, intersect them.
+        ImmutableHashSet<IScrDataSubType>? subTypes = (a.RequireSubTypes, b.RequireSubTypes) switch
+        {
+            (not null, not null) => a.RequireSubTypes.Intersect(b.RequireSubTypes),
+            (not null, null) => a.RequireSubTypes,
+            (null, not null) => b.RequireSubTypes,
+            _ => null
+        };
+
+        return new TypeNarrowing(a.KeepMask & b.KeepMask, a.RemoveMask | b.RemoveMask, subTypes);
     }
 
     private static Dictionary<string, TypeNarrowing> MergeNarrowings(
@@ -170,7 +253,7 @@ internal ref partial struct ReachingDefinitionsAnalyser
         return merged;
     }
 
-    private static ScrDataTypes Apply(TypeNarrowing narrowing, ScrDataTypes originalType)
+    private static ScrDataTypes ApplyTypeMask(TypeNarrowing narrowing, ScrDataTypes originalType)
     {
         // Clamp ~ to the valid type universe (Any == all valid bits except Error).
         ScrDataTypes universe = ScrDataTypes.Any;
@@ -178,6 +261,39 @@ internal ref partial struct ReachingDefinitionsAnalyser
         ScrDataTypes remove = narrowing.RemoveMask & universe;
 
         return (originalType & keep) & (universe & ~remove);
+    }
+
+    /// <summary>
+    /// Applies a type narrowing to an ScrData value, handling both type bitmask and sub-type narrowing.
+    /// </summary>
+    private static ScrData ApplyNarrowing(TypeNarrowing narrowing, ScrData original)
+    {
+        ScrDataTypes newType = ApplyTypeMask(narrowing, original.Type);
+        ImmutableHashSet<IScrDataSubType>? subTypes = narrowing.RequireSubTypes ?? original.SubTypes;
+
+        // If narrowing pins the type to exactly the KeepMask, the result is deterministic.
+        // Otherwise, preserve the original indeterminate status.
+        bool indeterminate = original.Indeterminate && (newType != narrowing.KeepMask);
+
+        return new ScrData(newType, subTypes, original.BooleanValue, original.ReadOnly)
+            { Indeterminate = indeterminate };
+    }
+
+    /// <summary>
+    /// Applies narrowings to the given symbol table in-place, mutating existing variable entries.
+    /// Used for assert() where narrowings should persist for all subsequent code.
+    /// </summary>
+    private static void ApplyNarrowingsToSymbolTable(SymbolTable symbolTable, Dictionary<string, TypeNarrowing> narrowings)
+    {
+        foreach ((string symbol, TypeNarrowing narrowing) in narrowings)
+        {
+            if (!symbolTable.VariableSymbols.TryGetValue(symbol, out ScrVariable? existing) || existing is null)
+            {
+                continue;
+            }
+
+            symbolTable.VariableSymbols[symbol] = existing with { Data = ApplyNarrowing(narrowing, existing.Data) };
+        }
     }
 
     private SymbolTable CreateRefinedSymbolTable(SymbolTable baseTable, Dictionary<string, TypeNarrowing> narrowings)
@@ -196,8 +312,7 @@ internal ref partial struct ReachingDefinitionsAnalyser
                 continue;
             }
 
-            ScrDataTypes newType = Apply(narrowing, existing.Data.Type);
-            refinedEnv[symbol] = existing with { Data = existing.Data with { Type = newType } };
+            refinedEnv[symbol] = existing with { Data = ApplyNarrowing(narrowing, existing.Data) };
         }
 
         return new SymbolTable(
@@ -209,72 +324,4 @@ internal ref partial struct ReachingDefinitionsAnalyser
             baseTable.CurrentNamespace,
             baseTable.KnownNamespaces);
     }
-
-    private static bool TryExtractPredicateCall(FunCallNode call, out PredicateCall predicate)
-    {
-        predicate = default;
-
-        if (call.Function is not IdentifierExprNode identifier)
-        {
-            return false;
-        }
-
-        // NOTE: Keep this shape extensible. Add more predicate functions here over time.
-        PredicateKind? kind = identifier.Identifier.Equals("isdefined", StringComparison.OrdinalIgnoreCase)
-            ? PredicateKind.IsDefined
-            : null;
-
-        if (kind is null)
-        {
-            return false;
-        }
-
-        // For now we only support single-subject predicates.
-        if (call.Arguments.Arguments.Count != 1)
-        {
-            return false;
-        }
-
-        predicate = new PredicateCall(kind.Value, call.Arguments.Arguments.First?.Value);
-        return true;
-    }
-
-    private ConditionResult AnalysePredicateCall(FunCallNode call, PredicateCall predicate, SymbolTable symbolTable)
-    {
-        // Preserve side effects / symbol usage analysis of arguments.
-        foreach (ExprNode? argument in call.Arguments.Arguments)
-        {
-            if (argument is null)
-            {
-                continue;
-            }
-            AnalyseExpr(argument, symbolTable, Sense);
-        }
-
-        // IsDefined(...) always produces a boolean.
-        ScrData value = new(ScrDataTypes.Bool);
-
-        Dictionary<string, TypeNarrowing> whenTrue = CreateEmptyNarrowings();
-        Dictionary<string, TypeNarrowing> whenFalse = CreateEmptyNarrowings();
-
-        switch (predicate.Kind)
-        {
-            case PredicateKind.IsDefined:
-                {
-                    // Currently only support IsDefined(<identifier>) for narrowing.
-                    // Future: allow member paths (e.g. IsDefined(foo.bar)) by introducing a path key type.
-                    if (predicate.Subject is IdentifierExprNode id)
-                    {
-                        // True: subject is not undefined
-                        whenTrue[id.Identifier] = new TypeNarrowing(ScrDataTypes.Any, ScrDataTypes.Undefined);
-                        // False: subject is undefined
-                        whenFalse[id.Identifier] = new TypeNarrowing(ScrDataTypes.Undefined, 0);
-                    }
-                    break;
-                }
-        }
-
-        return new ConditionResult(value, whenTrue, whenFalse);
-    }
 }
-

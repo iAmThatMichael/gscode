@@ -849,6 +849,31 @@ internal ref struct Parser(LinkedToken startNode, ParserIntelliSense sense, stri
     }
 
     /// <summary>
+    /// Parses a brace block, consuming a trailing '();' if present.
+    /// This handles the edge case of <c>{...}();</c> (IIFE-like syntax).
+    /// </summary>
+    private StmtListNode BraceBlockWithOptionalCall()
+    {
+        StmtListNode block = FunBraceBlock();
+
+        // Edge case: {stmts}(); — consume the trailing empty call and semicolon.
+        if (CurrentTokenType == TokenType.OpenParen)
+        {
+            Advance(); // (
+            if (!ConsumeIfType(TokenType.CloseParen, out _))
+            {
+                AddError(GSCErrorCodes.ExpectedToken, ')', CurrentToken.Lexeme);
+            }
+            if (!ConsumeIfType(TokenType.Semicolon, out _))
+            {
+                AddError(GSCErrorCodes.ExpectedToken, ';', CurrentToken.Lexeme);
+            }
+        }
+
+        return block;
+    }
+
+    /// <summary>
     /// Parses a (possibly empty) list of statements in a function brace block.
     /// </summary>
     /// <remarks>
@@ -935,7 +960,7 @@ internal ref struct Parser(LinkedToken startNode, ParserIntelliSense sense, stri
             TokenType.WaitRealTime => ReservedFuncStmt(AstNodeType.WaitRealTimeStmt),
             TokenType.Const => ConstStmt(),
             TokenType.OpenDevBlock => FunDevBlock(),
-            TokenType.OpenBrace => FunBraceBlock(),
+            TokenType.OpenBrace => BraceBlockWithOptionalCall(),
             TokenType.Break when InLoopOrSwitch() => ControlFlowActionStmt(AstNodeType.BreakStmt),
             TokenType.Continue when InLoop() => ControlFlowActionStmt(AstNodeType.ContinueStmt),
             TokenType.Semicolon => EmptyStmt(),

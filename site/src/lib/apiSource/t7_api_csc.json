@@ -17548,18 +17548,18 @@
             "overloads": [
                 {
                     "calledOn": {
+                        "name": "entity",
+                        "description": "The vehicle to get the speed of.",
                         "type": {
                             "dataType": "entity",
                             "instanceType": "vehicle",
                             "subType": "vehicle",
                             "isArray": false
-                        },
-                        "name": "entity",
-                        "description": "The vehicle to get the speed of."
+                        }
                     },
                     "parameters": [],
                     "returns": {
-                        "void": false,
+                        "name": "speed",
                         "description": "The vehicle's speed in inches per second.",
                         "type": {
                             "dataType": "int",
@@ -17568,7 +17568,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "speed"
+                        "void": false
                     }
                 }
             ],
@@ -17585,18 +17585,18 @@
             "overloads": [
                 {
                     "calledOn": {
+                        "name": "vehicle",
+                        "description": "The vehicle to get the maximum speed of.",
                         "type": {
                             "dataType": "entity",
                             "instanceType": "vehicle",
                             "subType": "vehicle",
                             "isArray": false
-                        },
-                        "name": "vehicle",
-                        "description": "The vehicle to get the maximum speed of."
+                        }
                     },
                     "parameters": [],
                     "returns": {
-                        "void": false,
+                        "name": "maxSpeed",
                         "description": "The maximum speed of the vehicle in inches per second.",
                         "type": {
                             "dataType": "int",
@@ -17605,7 +17605,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "maxSpeed"
+                        "void": false
                     }
                 }
             ],
@@ -17911,6 +17911,11 @@
                             "name": "animation",
                             "description": "The animation to manipulate.",
                             "mandatory": true
+                        },
+                        {
+                            "name": "time",
+                            "description": "The time to set.",
+                            "mandatory": false
                         }
                     ]
                 }
@@ -17962,6 +17967,11 @@
                     },
                     "parameters": [
                         {
+                            "name": "modeRenderOptions",
+                            "description": "The mode render options.",
+                            "mandatory": true
+                        },
+                        {
                             "name": "bodyRenderOptions",
                             "description": "The packed body render options.",
                             "mandatory": true
@@ -18010,6 +18020,11 @@
                     },
                     "parameters": [
                         {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
+                        {
                             "name": "rumble name",
                             "description": "The name of the rumble.",
                             "mandatory": true
@@ -18031,6 +18046,11 @@
                         "description": null
                     },
                     "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
                         {
                             "name": "rumble name",
                             "description": "The name of the rumble to play.",
@@ -18210,14 +18230,21 @@
             "description": "Gets the body model for this player.",
             "overloads": [
                 {
-                    "calledOn": {
-                        "name": "player",
-                        "description": null
-                    },
+                    "calledOn": null,
                     "parameters": [
                         {
+                            "name": "characterIndex",
+                            "description": "The character index.",
+                            "mandatory": true
+                        },
+                        {
                             "name": "modelType",
-                            "description": "The index of the model type.",
+                            "description": "The model type index.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "sessionMode",
+                            "description": "The session mode.",
                             "mandatory": false
                         }
                     ]
@@ -18232,11 +18259,18 @@
             "description": "Gets the body render options for this player.",
             "overloads": [
                 {
-                    "calledOn": {
-                        "name": "player",
-                        "description": null
-                    },
-                    "parameters": []
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -18264,14 +18298,21 @@
             "description": "Gets the helmet model for this player.",
             "overloads": [
                 {
-                    "calledOn": {
-                        "name": "player",
-                        "description": null
-                    },
+                    "calledOn": null,
                     "parameters": [
                         {
+                            "name": "characterIndex",
+                            "description": "The character index.",
+                            "mandatory": true
+                        },
+                        {
                             "name": "modelType",
-                            "description": "The index of the model type.",
+                            "description": "The model type index.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "sessionMode",
+                            "description": "The session mode.",
                             "mandatory": false
                         }
                     ]
@@ -18501,6 +18542,11 @@
                 {
                     "calledOn": null,
                     "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
                         {
                             "name": "position",
                             "description": "The origin.",
@@ -19003,6 +19049,11 @@
                             "name": "persistent",
                             "description": "Whether persistent.",
                             "mandatory": false
+                        },
+                        {
+                            "name": "extra",
+                            "description": "Additional parameter.",
+                            "mandatory": false
                         }
                     ]
                 }
@@ -19010,10 +19061,560 @@
             "flags": [
                 "autogenerated"
             ]
+        },
+        {
+            "name": "objective_add",
+            "description": "Adds an objective.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "objectiveId",
+                            "description": "The objective ID.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "state",
+                            "description": "The objective state.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "position",
+                            "description": "The position.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "team",
+                            "description": "The team.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "entity",
+                            "description": "Associated entity.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "Objective_OnEntity",
+            "description": "Sets an objective on an entity.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "objectiveId",
+                            "description": "The objective ID.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "entity",
+                            "description": "The entity.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "visible",
+                            "description": "Whether visible.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "pinned",
+                            "description": "Whether pinned.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "showOnMinimap",
+                            "description": "Whether shown on minimap.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "objective_state",
+            "description": "Sets the state of an objective.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "objectiveId",
+                            "description": "The objective ID.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "state",
+                            "description": "The objective state.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "objective_delete",
+            "description": "Deletes an objective.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "objectiveId",
+                            "description": "The objective ID.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetMpDialogName",
+            "description": "Gets the multiplayer dialog name for the player.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetEntByNum",
+            "description": "Gets an entity by its number.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "entityNum",
+                            "description": "The entity number.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetStructField",
+            "description": "Gets a field value from a struct.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "struct",
+                            "description": "The struct to read from.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "fieldName",
+                            "description": "The field name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetWeaponXCam",
+            "description": "Gets the XCam for a weapon.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "weaponName",
+                            "description": "The weapon name.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "camera",
+                            "description": "The camera type.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetWeaponRenderOptions",
+            "description": "Sets weapon render options on an entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetAttachmentCosmeticVariantIndex",
+            "description": "Sets the cosmetic variant index for a weapon attachment.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "weapon",
+                            "description": "The weapon.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "attachmentName",
+                            "description": "The attachment name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "variantIndex",
+                            "description": "The variant index.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "UseWeaponModel",
+            "description": "Sets the weapon model on an entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "weapon",
+                            "description": "The weapon.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "model",
+                            "description": "The model to use.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "IsArchetypeLoaded",
+            "description": "Returns whether an archetype is loaded.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "archetype",
+                            "description": "The archetype name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetControllerLightbarColor",
+            "description": "Sets the controller lightbar color.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
+                        },
+                        {
+                            "name": "color",
+                            "description": "The color to set (R, G, B), where each color is in the range of 0 to 1.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vector",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true,
+                        "type": null,
+                        "name": null,
+                        "description": null
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "SetControllerLightbarColor( localClientNum, curColor );"
+        },
+        {
+            "name": "istouching",
+            "description": "Returns whether this entity is touching the other entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "other",
+                            "description": "The other entity to check.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "Sphere",
+            "description": "Debug instrument.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ]
+        },
+        {
+            "name": "Box",
+            "description": "Debug instrument.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ]
+        },
+        {
+            "name": "Line",
+            "description": "Debug instrument.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ]
+        },
+        {
+            "name": "Circle",
+            "description": "Debug instrument.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ]
+        },
+        {
+            "name": "Record3DText",
+            "description": "Debug instrument.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ]
         }
     ],
     "gameId": "t7",
     "languageId": "csc",
-    "revisedOn": "2026-03-18T22:10:25.457Z",
-    "revision": 13
+    "revisedOn": "2026-03-20T10:05:31.681Z",
+    "revision": 15
 }

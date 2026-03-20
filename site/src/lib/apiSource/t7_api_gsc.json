@@ -4642,6 +4642,15 @@
                             "name": "team",
                             "description": "a team name, either 'axis', 'allies', 'neutral', or 'all'. Defaults to 'all'.",
                             "mandatory": false
+                        },
+                        {
+                            "name": "team",
+                            "description": "The team filter.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
                         }
                     ]
                 }
@@ -4764,7 +4773,7 @@
                         {
                             "name": "team",
                             "description": "a team name, either 'axis', 'allies', or 'neutral'",
-                            "mandatory": true
+                            "mandatory": false
                         },
                         {
                             "name": "team",
@@ -6825,6 +6834,11 @@
                             "name": "end",
                             "description": "Ending point of the trace",
                             "mandatory": true
+                        },
+                        {
+                            "name": "endPos",
+                            "description": "The end position.",
+                            "mandatory": false
                         }
                     ]
                 }
@@ -10132,6 +10146,11 @@
                             "name": "slot",
                             "description": "The attachment slot.",
                             "mandatory": false
+                        },
+                        {
+                            "name": "slot2",
+                            "description": "The second attachment slot.",
+                            "mandatory": false
                         }
                     ]
                 }
@@ -12433,24 +12452,73 @@
         },
         {
             "name": "IsTouchingSwept",
-            "description": "Returns true if <other entity> is touching <entity>",
+            "description": "Gets whether the entity is touching another entity.",
             "overloads": [
                 {
                     "calledOn": {
                         "name": "entity",
-                        "description": null
+                        "description": "The entity to check.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false
+                        }
                     },
                     "parameters": [
                         {
-                            "name": "other entity",
-                            "description": "Entity.",
-                            "mandatory": true
+                            "name": "other",
+                            "description": "The entity to check if they are touching.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "entity",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
+                        },
+                        {
+                            "name": "minZ",
+                            "description": "The minimum z-difference there can be between the two entities.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "number",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
+                        },
+                        {
+                            "name": "maxZ",
+                            "description": "The maximum z-difference there can be between the two entities.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "number",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
                         }
-                    ]
+                    ],
+                    "returns": {
+                        "void": false,
+                        "type": {
+                            "dataType": "bool",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "description": "Whether they're touching the other entity.",
+                        "name": "touching"
+                    }
                 }
             ],
             "flags": [
-                "autogenerated"
+                "verified"
             ],
             "example": "if( player IsTouchingSwept( e_goal_volume ) ) { //do something }"
         },
@@ -12986,34 +13054,86 @@
                 {
                     "calledOn": {
                         "name": "entity",
-                        "description": null
+                        "description": "The vehicle to launch.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "vehicle",
+                            "subType": "vehicle",
+                            "isArray": false
+                        }
                     },
                     "parameters": [
                         {
                             "name": "force",
                             "description": "The force of the launch.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "vector",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
                         },
                         {
                             "name": "targetPos",
                             "description": "The target position.",
-                            "mandatory": false
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vector",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
                         },
                         {
                             "name": "immediate",
                             "description": "Whether to launch immediately.",
-                            "mandatory": false
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "bool",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
                         },
                         {
                             "name": "detach",
                             "description": "Whether to detach the vehicle.",
-                            "mandatory": false
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "bool",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
+                        },
+                        {
+                            "name": "unknown",
+                            "description": "Unknown. *",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "bool",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
                         }
-                    ]
+                    ],
+                    "returns": {
+                        "name": null,
+                        "description": null,
+                        "type": null,
+                        "void": true
+                    }
                 }
             ],
             "flags": [
-                "autogenerated"
+                "verified"
             ],
             "example": "panzer LaunchVehicle( (0,0,100) )"
         },
@@ -13378,22 +13498,33 @@
             "description": "Sends a notify from script to LUI.",
             "overloads": [
                 {
-                    "calledOn": null,
+                    "calledOn": {
+                        "name": "target",
+                        "description": null
+                    },
                     "parameters": [
                         {
-                            "name": "lui event name",
-                            "description": "as an IString",
-                            "mandatory": true
+                            "name": "luiEventName",
+                            "description": "The LUI event name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
                         },
                         {
-                            "name": "num of args",
-                            "description": "number of parameters",
+                            "name": "numOfArgs",
+                            "description": "The number of arguments.",
                             "mandatory": true
                         },
                         {
                             "name": "args",
-                            "description": "argument to pass to LUI",
-                            "mandatory": true
+                            "description": "The event arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
                         }
                     ]
                 }
@@ -26833,10 +26964,10 @@
                         }
                     ],
                     "returns": {
-                        "void": true,
-                        "type": null,
                         "name": null,
-                        "description": null
+                        "description": null,
+                        "type": null,
+                        "void": true
                     }
                 }
             ],
@@ -30672,7 +30803,7 @@
         },
         {
             "name": "RandomIntRange",
-            "description": "Returns a random integer `result`, where `min \u2264 result < max`.",
+            "description": "Returns a random integer `result`, where `min ≤ result < max`.",
             "overloads": [
                 {
                     "calledOn": null,
@@ -30696,7 +30827,7 @@
                     ],
                     "returns": {
                         "name": "result",
-                        "description": "A random integer `result`, where `min \u2264 result < max`.",
+                        "description": "A random integer `result`, where `min ≤ result < max`.",
                         "type": {
                             "dataType": "int"
                         }
@@ -39053,10 +39184,10 @@
                         }
                     ],
                     "returns": {
-                        "void": true,
-                        "type": null,
                         "name": null,
-                        "description": null
+                        "description": null,
+                        "type": null,
+                        "void": true
                     }
                 }
             ],
@@ -46052,7 +46183,7 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "isLocked",
                         "description": "Whether the item is locked.",
                         "type": {
                             "dataType": "bool",
@@ -46061,7 +46192,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "isLocked"
+                        "void": false
                     }
                 }
             ],
@@ -46093,7 +46224,7 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "clientId",
                         "description": "The client ID of the player that should be used for tracking.",
                         "type": {
                             "dataType": "int",
@@ -46102,7 +46233,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "clientId"
+                        "void": false
                     }
                 }
             ],
@@ -46543,14 +46674,14 @@
             "overloads": [
                 {
                     "calledOn": {
+                        "name": "entity",
+                        "description": "The entity to use the custom logic on.",
                         "type": {
                             "dataType": "entity",
                             "instanceType": "actor",
                             "subType": "actor",
                             "isArray": false
-                        },
-                        "name": "entity",
-                        "description": "The entity to use the custom logic on."
+                        }
                     },
                     "parameters": [
                         {
@@ -46584,14 +46715,14 @@
             "overloads": [
                 {
                     "calledOn": {
+                        "name": "victim",
+                        "description": "The victim that was killed.",
                         "type": {
                             "dataType": "entity",
                             "instanceType": "player",
                             "subType": "player",
                             "isArray": false
-                        },
-                        "name": "victim",
-                        "description": "The victim that was killed."
+                        }
                     },
                     "parameters": [
                         {
@@ -46625,14 +46756,14 @@
             "overloads": [
                 {
                     "calledOn": {
+                        "name": "player",
+                        "description": "The player that got the multi-kill.",
                         "type": {
                             "dataType": "entity",
                             "instanceType": "player",
                             "subType": "player",
                             "isArray": false
-                        },
-                        "name": "player",
-                        "description": "The player that got the multi-kill."
+                        }
                     },
                     "parameters": [
                         {
@@ -46764,7 +46895,7 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "hasPurchased",
                         "description": "Whether the item has been purchased.",
                         "type": {
                             "dataType": "bool",
@@ -46773,7 +46904,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "hasPurchased"
+                        "void": false
                     }
                 }
             ],
@@ -46790,14 +46921,14 @@
             "overloads": [
                 {
                     "calledOn": {
+                        "name": "bot",
+                        "description": "The bot player.",
                         "type": {
                             "dataType": "entity",
                             "instanceType": "player",
                             "subType": "player",
                             "isArray": false
-                        },
-                        "name": "bot",
-                        "description": "The bot player."
+                        }
                     },
                     "parameters": [
                         {
@@ -47354,9 +47485,13 @@
                             "mandatory": true
                         },
                         {
-                            "name": "value",
-                            "description": "The stat value.",
-                            "mandatory": true
+                            "name": "args",
+                            "description": "Additional stat arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
                         }
                     ]
                 }
@@ -47373,9 +47508,13 @@
                     "calledOn": null,
                     "parameters": [
                         {
-                            "name": "challengeIndex",
-                            "description": "The challenge index.",
-                            "mandatory": true
+                            "name": "args",
+                            "description": "Challenge completion arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
                         }
                     ]
                 }
@@ -47485,7 +47624,7 @@
                         {
                             "name": "roundNumber",
                             "description": "The round number.",
-                            "mandatory": true
+                            "mandatory": false
                         }
                     ]
                 }
@@ -47903,10 +48042,352 @@
             "flags": [
                 "verified"
             ]
+        },
+        {
+            "name": "ArenaBeginMatch",
+            "description": "Begins an arena match.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ArenaEndMatch",
+            "description": "Ends an arena match.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": "The player that the arena match is ending on.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "player",
+                            "subType": "player",
+                            "isArray": false
+                        }
+                    },
+                    "parameters": [
+                        {
+                            "name": "outcome",
+                            "description": "The outcome, which is `-1` if the player lost, `0` if it was a draw, or `1` if they won.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "name": null,
+                        "description": null,
+                        "type": null,
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ]
+        },
+        {
+            "name": "GetDStatArrayCount",
+            "description": "Gets the count of a dstat array.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "arrayName",
+                            "description": "The array name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "gameRepThresholdExceeded",
+            "description": "Notifies that a game rep threshold was exceeded.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "thresholdId",
+                            "description": "The threshold identifier.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "TeamOpsShowHUD",
+            "description": "Shows or hides the TeamOps HUD.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "show",
+                            "description": "Whether to show the HUD.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "TeamOpsStart",
+            "description": "Starts a TeamOps event.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "teamOpsID",
+                            "description": "The TeamOps ID.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "rewardIndex",
+                            "description": "The reward index.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "startTime",
+                            "description": "The start time.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "duration",
+                            "description": "The duration.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "TeamOpsUpdateProgress",
+            "description": "Updates TeamOps progress for a team.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "team",
+                            "description": "The team name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "progress",
+                            "description": "The progress value.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "IsItemRestricted",
+            "description": "Returns whether an item is restricted.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "itemRef",
+                            "description": "The item reference.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "FreerunSetHighScores",
+            "description": "Sets the freerun high scores.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "score1",
+                            "description": "First high score.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "score2",
+                            "description": "Second high score.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "score3",
+                            "description": "Third high score.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "LaunchBomb",
+            "description": "Launches a bomb from the entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "weapon",
+                            "description": "The weapon type.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "origin",
+                            "description": "The origin position.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "velocity",
+                            "description": "The launch velocity.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "getMotionAngle",
+            "description": "Gets the motion angle of the entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "FinishTraversal",
+            "description": "Finishes the current traversal.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "FlagEnemyUnattackable",
+            "description": "Flags the enemy as unattackable.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetStructField",
+            "description": "Gets a field value from a struct.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "struct",
+                            "description": "The struct to read from.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "fieldName",
+                            "description": "The field name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
         }
     ],
     "gameId": "t7",
     "languageId": "gsc",
-    "revisedOn": "2026-03-19T20:38:27.308Z",
-    "revision": 22
+    "revisedOn": "2026-03-20T10:09:29.933Z",
+    "revision": 24
 }

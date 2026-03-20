@@ -233,7 +233,7 @@ public static class DiagnosticCodes
         { GSCErrorCodes.FunctionDoesNotExist, new("The function '{0}' could not be resolved in this context and may not exist in built-ins.\nNote: Built-in function checking is based on Treyarch's API, which contains errors. Report falsely flagged functions.", DiagnosticSeverity.Warning) },
         { GSCErrorCodes.ExpectedFunction, new("Expected a function, but instead got '{0}'.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.ReservedSymbol, new("The symbol '{0}' is reserved.", DiagnosticSeverity.Error) },
-        { GSCErrorCodes.UnusedVariable, new("The variable '{0}' is declared but never used.", DiagnosticSeverity.Warning, new[] { DiagnosticTag.Unnecessary }) },
+        { GSCErrorCodes.UnusedVariable, new("The variable '{0}' is declared but never used.", DiagnosticSeverity.Information, new[] { DiagnosticTag.Unnecessary }) },
         { GSCErrorCodes.UnusedParameter, new("The parameter '{0}' is never used.", DiagnosticSeverity.Hint, new[] { DiagnosticTag.Unnecessary }) },
         { GSCErrorCodes.TooManyArguments, new("Function '{0}' called with {1} arguments, but expects at most {2}.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.TooFewArguments, new("Function '{0}' called with {1} arguments, but expects at least {2}.", DiagnosticSeverity.Error) },

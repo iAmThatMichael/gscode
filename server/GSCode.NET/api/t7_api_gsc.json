@@ -681,6 +681,11 @@
                             "name": "duration",
                             "description": "How long, in seconds, to display the announcement.",
                             "mandatory": true
+                        },
+                        {
+                            "name": "flags",
+                            "description": "Optional display flags.",
+                            "mandatory": false
                         }
                     ]
                 }
@@ -2460,7 +2465,18 @@
                         "name": "player",
                         "description": null
                     },
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "category",
+                            "description": "The consumable category.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "stat",
+                            "description": "The stat to retrieve.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -2477,7 +2493,23 @@
                         "name": "player",
                         "description": null
                     },
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "category",
+                            "description": "The consumable category.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "stat",
+                            "description": "The stat to increment.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "amount",
+                            "description": "The amount to increment by.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -3845,6 +3877,16 @@
                             "name": "end",
                             "description": ".",
                             "mandatory": true
+                        },
+                        {
+                            "name": "allowPartial",
+                            "description": "Whether to allow partial paths.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "checkDrop",
+                            "description": "Whether to check for drops.",
+                            "mandatory": false
                         }
                     ]
                 }
@@ -10080,7 +10122,18 @@
             "overloads": [
                 {
                     "calledOn": null,
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "weapon",
+                            "description": "The weapon to get attachments for.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "slot",
+                            "description": "The attachment slot.",
+                            "mandatory": false
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -12319,7 +12372,18 @@
                         "name": "player",
                         "description": null
                     },
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "streamKey",
+                            "description": "The stream key to check.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "extra",
+                            "description": "Additional parameter.",
+                            "mandatory": false
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -12927,10 +12991,24 @@
                     "parameters": [
                         {
                             "name": "force",
-                            "description": "launch force",
+                            "description": "The force of the launch.",
                             "mandatory": true
                         },
-                        {}
+                        {
+                            "name": "targetPos",
+                            "description": "The target position.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "immediate",
+                            "description": "Whether to launch immediately.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "detach",
+                            "description": "Whether to detach the vehicle.",
+                            "mandatory": false
+                        }
                     ]
                 }
             ],
@@ -13812,7 +13890,17 @@
             "overloads": [
                 {
                     "calledOn": null,
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -16003,6 +16091,11 @@
                             "name": "position",
                             "description": "The position of the potential spawn point",
                             "mandatory": true
+                        },
+                        {
+                            "name": "ignoreEnt",
+                            "description": "An entity to ignore during the check.",
+                            "mandatory": false
                         }
                     ]
                 }
@@ -17139,6 +17232,19 @@
                                 "subType": "ClientFieldType",
                                 "isArray": false
                             }
+                        },
+                        {
+                            "name": "callback",
+                            "description": "Callback function for field changes.*",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "any"
+                            }
+                        },
+                        {
+                            "name": "persistent",
+                            "description": "Whether the field persists.",
+                            "mandatory": false
                         }
                     ],
                     "returns": {
@@ -19568,7 +19674,13 @@
             "overloads": [
                 {
                     "calledOn": null,
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "enabled",
+                            "description": "Whether to enable fake fire.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -21419,6 +21531,16 @@
                             "name": "target",
                             "description": "the turret target",
                             "mandatory": true
+                        },
+                        {
+                            "name": "offset",
+                            "description": "Offset from the target position.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "turretIndex",
+                            "description": "The turret index.",
+                            "mandatory": false
                         }
                     ]
                 }
@@ -22053,132 +22175,42 @@
                     "parameters": [
                         {
                             "name": "startDist",
-                            "description": "The distance, in world units, at which the fog begins.",
+                            "description": "The start distance of the fog.",
                             "mandatory": true
                         },
                         {
                             "name": "halfwayDist",
-                            "description": "The distance at which the scene will be 50% fogged.",
+                            "description": "The halfway distance of the fog.",
                             "mandatory": true
                         },
                         {
                             "name": "halfwayHeight",
-                            "description": "The height at which the scene will be 50% fogged.",
+                            "description": "The halfway height of the fog.",
                             "mandatory": true
                         },
                         {
                             "name": "baseHeight",
-                            "description": "The ground-level Z position at which the fog will start from.",
+                            "description": "The base height of the fog.",
                             "mandatory": true
                         },
                         {
-                            "name": "red",
-                            "description": "The red component of the fog as a value between 0.0 and 1.0",
+                            "name": "colorR",
+                            "description": "The red component of the fog color.",
                             "mandatory": true
                         },
                         {
-                            "name": "green",
-                            "description": "The green component of the fog as a value between 0.0 and 1.0",
+                            "name": "colorG",
+                            "description": "The green component of the fog color.",
                             "mandatory": true
                         },
                         {
-                            "name": "blue",
-                            "description": "The blue component of the fog as a value between 0.0 and 1.0",
+                            "name": "colorB",
+                            "description": "The blue component of the fog color.",
                             "mandatory": true
                         },
                         {
-                            "name": "transition time",
-                            "description": "transition time in seconds",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "startDist",
-                            "description": "The distance, in world units, at which the fog begins.",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "halfwayDist",
-                            "description": "The distance at which the scene will be 50% fogged.",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "halfwayHeight",
-                            "description": "The height at which the scene will be 50% fogged.",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "baseHeight",
-                            "description": "The ground-level Z position at which the fog will start from.",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "red",
-                            "description": "The red component of the fog as a value between 0.0 and 1.0",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "green",
-                            "description": "The green component of the fog as a value between 0.0 and 1.0",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "blue",
-                            "description": "The blue component of the fog as a value between 0.0 and 1.0",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "fogColorScale",
-                            "description": "The scaler for the colors as a value between 1 and 10000.0",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "sunFogRed",
-                            "description": "The red component of the fog as a value between 0.0 and 1.0",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "sunFogGreen",
-                            "description": "The green component of the fog as a value between 0.0 and 1.0",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "sunFogBlue",
-                            "description": "The blue component of the fog as a value between 0.0 and 1.0",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "sunFogDirX",
-                            "description": "The X component of the fog direction as a value between -1.0 and 1.0",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "sunFogDirY",
-                            "description": "The Y component of the fog direction as a value between -1.0 and 1.0",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "sunFogDirZ",
-                            "description": "The Z component of the fog direction as a value between -1.0 and 1.0",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "sunFogStartAng",
-                            "description": "The starting angle of the sun fog as a value between 0 and 180",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "sunFogEndAng",
-                            "description": "The ending angle of the sun fog as a value between 0 and 180",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "fog max opacity",
-                            "description": "The maximum opacity of the fog as a value between 0 and 1",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "transition time",
-                            "description": "transition time in seconds",
+                            "name": "maxOpacity",
+                            "description": "The maximum opacity of the fog.",
                             "mandatory": true
                         }
                     ]
@@ -25104,7 +25136,13 @@
                         "name": "trigger",
                         "description": null
                     },
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "enabled",
+                            "description": "Whether the trigger requires looking toward.",
+                            "mandatory": false
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -26877,7 +26915,13 @@
                         "name": "actor",
                         "description": null
                     },
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "entry",
+                            "description": "The animation entry.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -27135,7 +27179,13 @@
                         "name": "actor",
                         "description": null
                     },
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "node",
+                            "description": "The path node.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -27152,7 +27202,13 @@
                         "name": "actor",
                         "description": null
                     },
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "node",
+                            "description": "The path node.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -27800,7 +27856,13 @@
                         "name": "actor",
                         "description": null
                     },
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "position",
+                            "description": "The position to check.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -27817,7 +27879,13 @@
                         "name": "sentient",
                         "description": null
                     },
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "position",
+                            "description": "The position to check.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -28080,6 +28148,11 @@
                         {
                             "name": "check direct",
                             "description": "checks if there are no obstructions between actor origin and <Position>.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "checkDrop",
+                            "description": "Whether to check for drops.",
                             "mandatory": false
                         }
                     ]
@@ -30599,7 +30672,7 @@
         },
         {
             "name": "RandomIntRange",
-            "description": "Returns a random integer `result`, where `min ≤ result < max`.",
+            "description": "Returns a random integer `result`, where `min \u2264 result < max`.",
             "overloads": [
                 {
                     "calledOn": null,
@@ -30623,7 +30696,7 @@
                     ],
                     "returns": {
                         "name": "result",
-                        "description": "A random integer `result`, where `min ≤ result < max`.",
+                        "description": "A random integer `result`, where `min \u2264 result < max`.",
                         "type": {
                             "dataType": "int"
                         }
@@ -31736,14 +31809,13 @@
                     },
                     "parameters": [
                         {
-                            "name": "custom class slot",
-                            "description": "The custom class slot",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "weapon slot",
-                            "description": "primary weapon=0 or secondary weapon=1 or knife weapon=2",
-                            "mandatory": true
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
                         }
                     ]
                 }
@@ -46764,6 +46836,1073 @@
             "example": "self BotSetDefaultClass( 5, \"class_assault\" );\nself BotSetDefaultClass( 6, \"class_smg\" );\nself BotSetDefaultClass( 7, \"class_lmg\" );\nself BotSetDefaultClass( 8, \"class_cqb\" ); \nself BotSetDefaultClass( 9, \"class_sniper\" );",
             "verifiedInRevision": null,
             "remarks": null
+        },
+        {
+            "name": "BotClassAddItem",
+            "description": "Adds an item to the bot's custom class.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "classIndex",
+                            "description": "The class index.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "item",
+                            "description": "The item to add.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotClassAddAttachment",
+            "description": "Adds an attachment to a weapon in the bot's custom class.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "classIndex",
+                            "description": "The class index.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "weapon",
+                            "description": "The weapon.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "attachment",
+                            "description": "The attachment.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "slot",
+                            "description": "The attachment slot.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotClassSetWeaponOption",
+            "description": "Sets a weapon option for the bot's custom class.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "weaponClass",
+                            "description": "The weapon class.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "weapon",
+                            "description": "The weapon.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "optionType",
+                            "description": "The option type.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "optionValue",
+                            "description": "The option value.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotSightTrace",
+            "description": "Performs a sight trace from the bot to the given entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "entity",
+                            "description": "The entity to trace to.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotGetThreats",
+            "description": "Gets an array of threats within the given distance.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "maxDistance",
+                            "description": "The maximum distance to search.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotLookForward",
+            "description": "Makes the bot look in its forward direction.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotGetFov",
+            "description": "Gets the bot's field of view.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotUnderManualControl",
+            "description": "Returns whether the bot is under manual control.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotLookAtPoint",
+            "description": "Makes the bot look at the given point.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "point",
+                            "description": "The point to look at.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotSetLookAngles",
+            "description": "Sets the bot's look direction vector.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "direction",
+                            "description": "The direction vector.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotSwitchToWeapon",
+            "description": "Makes the bot switch to the given weapon.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "weapon",
+                            "description": "The weapon to switch to.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotSetLookAnglesFromPoint",
+            "description": "Sets the bot's look angles calculated from the given point.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "point",
+                            "description": "The point to calculate angles from.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotReleaseManualControl",
+            "description": "Releases manual control of the bot.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BotTakeManualControl",
+            "description": "Takes manual control of the bot.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMGetStatus",
+            "description": "Gets the current ASM status.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMIsTransitionRunning",
+            "description": "Returns whether an ASM transition is currently running.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "AsmIsTransDecRunning",
+            "description": "Returns whether an ASM transition decision is running.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "AsmChangeAnimMappingTable",
+            "description": "Changes the animation mapping table to the given index.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "index",
+                            "description": "The mapping table index.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "AsmGetCurrentDeltaAnimation",
+            "description": "Gets the current delta animation from the ASM.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMGetCurrentState",
+            "description": "Gets the current ASM state name.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMIsTerminating",
+            "description": "Returns whether the ASM is terminating.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMIsShootLayerActive",
+            "description": "Returns whether the ASM shoot layer is active.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMIsAimLayerActive",
+            "description": "Returns whether the ASM aim layer is active.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMIsSubStatePending",
+            "description": "Returns whether an ASM sub-state is pending.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GameHistoryStartMatch",
+            "description": "Starts match recording for game history.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "gameTypeEnum",
+                            "description": "The game type enumeration.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "setAARStat",
+            "description": "Sets an after-action report stat.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "stat",
+                            "description": "The stat name.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "value",
+                            "description": "The stat value.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "matchRecordLogChallengeComplete",
+            "description": "Logs a challenge completion to the match record.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "challengeIndex",
+                            "description": "The challenge index.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "RecordMapEvent",
+            "description": "Records a map event for analytics.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "eventType",
+                            "description": "The event type.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "time",
+                            "description": "The event time.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "origin",
+                            "description": "The event origin.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "roundNumber",
+                            "description": "The round number.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "extra",
+                            "description": "Additional event data.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "RecordPlayerReviveZombies",
+            "description": "Records a player revive in zombies.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "reviver",
+                            "description": "The reviving player.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "RecordZombieZone",
+            "description": "Records a zombie zone event.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "zoneType",
+                            "description": "The zone type.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "zoneName",
+                            "description": "The zone name.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "RecordZombieRoundStart",
+            "description": "Records the start of a zombie round.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "roundNumber",
+                            "description": "The round number.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "RecordPlayerStats",
+            "description": "Records player statistics.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "MatchRecorderIncrementHeaderStat",
+            "description": "Increments a header stat in the match recorder.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "statName",
+                            "description": "The stat name.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "amount",
+                            "description": "The amount to increment.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "RecordMatchSummaryZombieEndGameData",
+            "description": "Records zombie end game summary data.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "MatchRecordSetLevelDifficultyForIndex",
+            "description": "Sets the level difficulty for the given index in the match record.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "index",
+                            "description": "The index.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "difficulty",
+                            "description": "The difficulty value.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetLocalProfileInt",
+            "description": "Gets an integer value from the local profile.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "varName",
+                            "description": "The variable name.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetLocalProfileVar",
+            "description": "Sets a variable in the local profile.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "varName",
+                            "description": "The variable name.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "value",
+                            "description": "The value to set.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "resetTimeout",
+            "description": "Resets the server timeout.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ReportMTU",
+            "description": "Reports MTU data for the given round.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "roundNumber",
+                            "description": "The round number.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetAnimStateFromASD",
+            "description": "Sets the animation state from an ASD definition.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "asdName",
+                            "description": "The ASD name.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "CalcPathLength",
+            "description": "Calculates the path length to the given node.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "node",
+                            "description": "The target node.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetControllerLightbarColor",
+            "description": "Sets the controller lightbar color.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "r",
+                            "description": "Red component.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "g",
+                            "description": "Green component.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "b",
+                            "description": "Blue component.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "uploadleaderboards",
+            "description": "Uploads the player's stats to leaderboards.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetFlaggedAnimKnob",
+            "description": "Sets a flagged animation knob with the given parameters.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "knobName",
+                            "description": "The knob name.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "animation",
+                            "description": "The animation.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "weight",
+                            "description": "The weight.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "blendIn",
+                            "description": "The blend in time.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "blendOut",
+                            "description": "The blend out time.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "Box",
+            "description": "Debug instrument.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ]
+        },
+        {
+            "name": "Line",
+            "description": "Debug instrument.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ]
+        },
+        {
+            "name": "Circle",
+            "description": "Debug instrument.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ]
+        },
+        {
+            "name": "Record3DText",
+            "description": "Debug instrument.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "args",
+                            "description": "The arguments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ]
         }
     ],
     "gameId": "t7",

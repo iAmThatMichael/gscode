@@ -201,6 +201,11 @@
                             "name": "localClientNum",
                             "description": "Client number of the controller you to enable the action slots",
                             "mandatory": true
+                        },
+                        {
+                            "name": "allow",
+                            "description": "Whether to allow the scoreboard.",
+                            "mandatory": true
                         }
                     ]
                 }
@@ -3162,7 +3167,13 @@
             "overloads": [
                 {
                     "calledOn": null,
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -3558,6 +3569,11 @@
                 {
                     "calledOn": null,
                     "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": false
+                        },
                         {
                             "name": "setting",
                             "description": "The setting name as a string.",
@@ -5598,7 +5614,13 @@
             "overloads": [
                 {
                     "calledOn": null,
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "entity",
+                            "description": "The entity to mark as dirty.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -6802,12 +6824,17 @@
                     "parameters": [
                         {
                             "name": "localClientNum",
-                            "description": "Local client number",
+                            "description": "Local client number.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "team",
+                            "description": "The team identifier.",
                             "mandatory": true
                         },
                         {
                             "name": "away",
-                            "description": "A value of 1 sets the flag as away, 0 sets the flag as home",
+                            "description": "1 sets away, 0 sets home.",
                             "mandatory": true
                         }
                     ]
@@ -7707,7 +7734,23 @@
             "overloads": [
                 {
                     "calledOn": null,
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "pool",
+                            "description": "The client field pool name.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "version",
+                            "description": "The version number.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "fieldName",
+                            "description": "The field name.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -10019,6 +10062,16 @@
                             "name": "target",
                             "description": "If this xcam has model translation and rotation data, apply it to this entity.",
                             "mandatory": false
+                        },
+                        {
+                            "name": "extra1",
+                            "description": "Additional parameter.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "extra2",
+                            "description": "Additional parameter.",
+                            "mandatory": false
                         }
                     ]
                 }
@@ -10098,6 +10151,16 @@
                         {
                             "name": "target",
                             "description": "If this xcam has model translation and rotation data, apply it to this entity.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "extraModel",
+                            "description": "Additional model entity.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "extraOrigin",
+                            "description": "Additional origin position.",
                             "mandatory": false
                         }
                     ]
@@ -10809,23 +10872,28 @@
                     "calledOn": null,
                     "parameters": [
                         {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
+                        {
                             "name": "filterIndex",
-                            "description": "Must be between 0 - 3",
+                            "description": "Index of the post-process filter.",
                             "mandatory": true
                         },
                         {
                             "name": "passIndex",
-                            "description": "Must be between 0 - 16",
+                            "description": "Index of the pass.",
                             "mandatory": true
                         },
                         {
                             "name": "constantIndex",
-                            "description": "Must be between 0 - 16",
+                            "description": "Index of the constant.",
                             "mandatory": true
                         },
                         {
                             "name": "value",
-                            "description": "The value for the constant",
+                            "description": "The value to set.",
                             "mandatory": true
                         }
                     ]
@@ -11625,7 +11693,13 @@
                         "name": "entity",
                         "description": null
                     },
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "flag",
+                            "description": "The flag to clear.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -11661,7 +11735,13 @@
                         "name": "entity",
                         "description": null
                     },
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "flag",
+                            "description": "The flag to set.",
+                            "mandatory": true
+                        }
+                    ]
                 }
             ],
             "flags": [
@@ -14468,6 +14548,11 @@
                             "name": "localClientNum",
                             "description": "The local client",
                             "mandatory": true
+                        },
+                        {
+                            "name": "includeFrameTime",
+                            "description": "Whether to include frame time.",
+                            "mandatory": false
                         }
                     ]
                 }
@@ -17530,6 +17615,1401 @@
             "example": "vr = Abs( self GetSpeed() / self GetMaxSpeed() );",
             "verifiedInRevision": null,
             "remarks": null
+        },
+        {
+            "name": "SetAnim",
+            "description": "Restart the animation with the given parameters.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "animation",
+                            "description": "The animation or animtree node to change.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "weight",
+                            "description": "Goal weight. Defaults to 1.0.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "time",
+                            "description": "Transition time in seconds. Defaults to 0.2.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "rate",
+                            "description": "Playback rate. Defaults to 1.0.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ClearAnim",
+            "description": "Sets an animation's goal weight to zero over the specified time.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "animation",
+                            "description": "The animation or animtree node to clear.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "time",
+                            "description": "The blending time for the clear.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetVelocity",
+            "description": "Returns the entity's velocity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "RotateYaw",
+            "description": "Rotate this entity to the given yaw.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "yaw angle",
+                            "description": "The new yaw angle in degrees.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "time",
+                            "description": "The time to rotate in seconds.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "acceleration time",
+                            "description": "The time spent accelerating in seconds.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "deceleration time",
+                            "description": "The time spent decelerating in seconds.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "RotatePitch",
+            "description": "Rotate this entity to the given pitch.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "pitch angle",
+                            "description": "The new pitch angle in degrees.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "time",
+                            "description": "The time to rotate in seconds.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "acceleration time",
+                            "description": "The time spent accelerating in seconds.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "deceleration time",
+                            "description": "The time spent decelerating in seconds.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "RotateRoll",
+            "description": "Rotate this entity to the given roll angle.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "roll angle",
+                            "description": "The new roll angle in degrees.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "time",
+                            "description": "The time to rotate in seconds.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "acceleration time",
+                            "description": "The time spent accelerating in seconds.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "deceleration time",
+                            "description": "The time spent decelerating in seconds.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "RotateTo",
+            "description": "Rotate this entity to the given world rotation value.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "angles",
+                            "description": "The new world angle to rotate to.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "time",
+                            "description": "The time to rotate in seconds.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "acceleration time",
+                            "description": "The time spent accelerating in seconds.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "deceleration time",
+                            "description": "The time spent decelerating in seconds.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "MoveTo",
+            "description": "Move this entity to the given point.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "point",
+                            "description": "The point to move the entity to.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "time",
+                            "description": "The time to move in seconds.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "acceleration time",
+                            "description": "The time spent accelerating.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "deceleration time",
+                            "description": "The time spent decelerating.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetEntityNumber",
+            "description": "Get the entity number of the entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetAnimTime",
+            "description": "Set the animation time for the given animation.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "animation",
+                            "description": "The animation to manipulate.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "Attach",
+            "description": "Attach a model to an entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "modelname",
+                            "description": "The model name to attach.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "tagname",
+                            "description": "The tag to attach the model to.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "ignoreCollision",
+                            "description": "Flag to ignore collision.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetBodyRenderOptions",
+            "description": "Sets the entity body, helmet and head render options.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "bodyRenderOptions",
+                            "description": "The packed body render options.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "helmetRenderOptions",
+                            "description": "The packed helmet render options.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "headRenderOptions",
+                            "description": "The packed head render options.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "Unlink",
+            "description": "Unlinks a linked entity from another entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "StopRumble",
+            "description": "Stops a rumble on the given entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "rumble name",
+                            "description": "The name of the rumble.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "PlayRumbleLoopOnEntity",
+            "description": "Plays a looping rumble on the given entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "rumble name",
+                            "description": "The name of the rumble to play.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "HidePart",
+            "description": "Hide part of an entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "tagname",
+                            "description": "The tag to hide.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "modelname",
+                            "description": "The optional model name.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "bApplyToChildren",
+                            "description": "Apply to children bones.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetScale",
+            "description": "Set the model scale on a script mover.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "scale",
+                            "description": "The scale factor.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "StopSounds",
+            "description": "Stops all sounds on an entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "LaunchRagdoll",
+            "description": "Launch this ragdoll.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "force",
+                            "description": "Launch force.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "bonename",
+                            "description": "Bone name to apply the force to.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "PlayLoopSound",
+            "description": "Play a looping sound with an optional fadetime in seconds.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "aliasname",
+                            "description": "The sound alias to play.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "fadetime",
+                            "description": "Time to fade the sound in.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetDedicatedShadow",
+            "description": "Enables or disables dedicated shadow for a model.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "flag",
+                            "description": "True or false.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "IsPlayerSwimming",
+            "description": "Return if a player is swimming.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetCharacterBodyModel",
+            "description": "Gets the body model for this player.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "modelType",
+                            "description": "The index of the model type.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetCharacterBodyRenderOptions",
+            "description": "Gets the body render options for this player.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetCharacterBodyType",
+            "description": "Gets the character body type for the player.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetCharacterHelmetModel",
+            "description": "Gets the helmet model for this player.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "modelType",
+                            "description": "The index of the model type.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "BulletTrace",
+            "description": "Performs a bullet trace between two points.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "startPos",
+                            "description": "The starting position.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "endPos",
+                            "description": "The ending position.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "hitCharacters",
+                            "description": "Whether to hit characters.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "bool",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "ignoreEnt",
+                            "description": "Entity to ignore.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "entity",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "ignoreWater",
+                            "description": "Whether to ignore water.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "bool",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "ignoreGlass",
+                            "description": "Whether to ignore glass.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "bool",
+                                "isArray": false
+                            }
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "Earthquake",
+            "description": "Create an earthquake shaking effect at the given location.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "scale",
+                            "description": "Magnitude scalar.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "duration",
+                            "description": "The duration.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "origin",
+                            "description": "The source location.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "radius",
+                            "description": "The radius.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetWeapon",
+            "description": "Get the weapon object from name.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "weaponName",
+                            "description": "The weapon name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "attachmentName1",
+                            "description": "First attachment.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "attachmentName2",
+                            "description": "Second attachment.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "attachmentName3",
+                            "description": "Third attachment.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "attachmentName4",
+                            "description": "Fourth attachment.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetAnimLength",
+            "description": "Gets the length of an animation.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "animation",
+                            "description": "The animation.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetNotetracksInDelta",
+            "description": "Get notetracks within a time delta of an animation.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "animation",
+                            "description": "The animation.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "time",
+                            "description": "The time in 0-1 range.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "time_delta",
+                            "description": "Time delta in seconds.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "PhysicsExplosionSphere",
+            "description": "Create a physics explosion sphere.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "position",
+                            "description": "The origin.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "outer radius",
+                            "description": "The outer radius.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "inner radius",
+                            "description": "The inner radius.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "magnitude",
+                            "description": "The magnitude.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "outer damage",
+                            "description": "Optional outer damage.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "inner damage",
+                            "description": "Optional inner damage.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "MagicBullet",
+            "description": "Creates a magic bullet at the source.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "weapon",
+                            "description": "Weapon type.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "source",
+                            "description": "Spawn position.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "destination",
+                            "description": "Fire target.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "attacker",
+                            "description": "Bullet owner.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "targetent",
+                            "description": "Target entity.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "targetOffset",
+                            "description": "Target offset.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "CurrentSessionMode",
+            "description": "Returns the current session mode index.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetGametypeSetting",
+            "description": "Gets the value of a gametype setting.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "setting",
+                            "description": "The setting name.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SessionModeIsMultiplayerGame",
+            "description": "Returns true if the current session mode is a multiplayer game.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SessionModeIsCampaignGame",
+            "description": "Returns true if the current session mode is a campaign game.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SessionModeIsOnlineGame",
+            "description": "Returns true if the current session mode is an online game.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "CodeGetUIModelClientField",
+            "description": "Gets the value for a given player uimodel client field.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "player",
+                            "description": "A player.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "name",
+                            "description": "Field name.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetWorldFogActiveBank",
+            "description": "Sets world fog volumes active bank mask.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "bankMask",
+                            "description": "Active bank.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "CreateDynEntAndLaunch",
+            "description": "Creates and launches a dynent.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "model",
+                            "description": "The model.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "pos",
+                            "description": "Position to spawn at.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "angles",
+                            "description": "Angles to spawn at.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "hitpos",
+                            "description": "The hit position.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "force",
+                            "description": "The force of the launch.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "fx",
+                            "description": "Particle effects.",
+                            "mandatory": false
+                        },
+                        {
+                            "name": "persistent",
+                            "description": "Whether persistent.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "IsAnimLooping",
+            "description": "Gets whether an animation is looped or not.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "animation",
+                            "description": "The animation.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "GetSteering",
+            "description": "Returns the steer factor of the vehicle.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "vehicle",
+                        "description": null
+                    },
+                    "parameters": []
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMGetStatus",
+            "description": "Gets the current ASM status.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMGetCurrentState",
+            "description": "Gets the current ASM state name.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMIsTerminating",
+            "description": "Returns whether the ASM is terminating.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMIsShootLayerActive",
+            "description": "Returns whether the ASM shoot layer is active.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "ASMIsAimLayerActive",
+            "description": "Returns whether the ASM aim layer is active.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "SetFlaggedAnimKnob",
+            "description": "Sets a flagged animation knob.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "knobName",
+                            "description": "The knob name.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "animation",
+                            "description": "The animation.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "weight",
+                            "description": "The weight.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "blendIn",
+                            "description": "Blend in time.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "blendOut",
+                            "description": "Blend out time.",
+                            "mandatory": true
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
+        },
+        {
+            "name": "RegisterClientField",
+            "description": "Registers a client field.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "poolName",
+                            "description": "The field pool name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "name",
+                            "description": "The field name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "version",
+                            "description": "The version.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "numberOfBits",
+                            "description": "Number of bits.",
+                            "mandatory": true
+                        },
+                        {
+                            "name": "type",
+                            "description": "The field type.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "callback",
+                            "description": "Callback for field changes.*",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "any"
+                            }
+                        },
+                        {
+                            "name": "persistent",
+                            "description": "Whether persistent.",
+                            "mandatory": false
+                        }
+                    ]
+                }
+            ],
+            "flags": [
+                "autogenerated"
+            ]
         }
     ],
     "gameId": "t7",

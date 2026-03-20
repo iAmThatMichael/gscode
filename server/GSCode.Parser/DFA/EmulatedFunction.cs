@@ -116,6 +116,7 @@ internal static class EmulatedFunctionRegistry
         Register(EmulatedFunctions.IsDefined);
         Register(EmulatedFunctions.VectorScale);
         Register(EmulatedFunctions.LuiNotifyEvent);
+        Register(EmulatedFunctions.LuiNotifyEventToSpectators);
         Register(EmulatedFunctions.Assert);
 
         // Type predicates

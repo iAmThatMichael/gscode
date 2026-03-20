@@ -132,6 +132,42 @@ internal static class EmulatedFunctions
         }
     };
 
+    public static readonly EmulatedFunction LuiNotifyEventToSpectators = new()
+    {
+        Name = "luinotifyeventtospectators",
+        EmulateCall = static (in EmulationContext ctx) =>
+        {
+            int argCount = ctx.Call.Arguments.Arguments.Count;
+
+            // Must have at least 1 argument (the event name).
+            if (argCount < 1)
+            {
+                ctx.AddDiagnostic(ctx.Call.Arguments.Range, GSCErrorCodes.TooFewArguments, "luinotifyeventtospectators", argCount, 1);
+                return ScrData.Void;
+            }
+
+            // If arg2 (parameter count) is provided and is a constant int, validate the remaining arg count.
+            if (argCount >= 2)
+            {
+                ExprNode? paramCountArg = GetArgument(ctx.Call, 1);
+                if (paramCountArg is DataExprNode { Type: ScrDataTypes.Int, Value: int declaredParamCount })
+                {
+                    int expectedTotal = 2 + declaredParamCount;
+                    if (argCount < expectedTotal)
+                    {
+                        ctx.AddDiagnostic(ctx.Call.Arguments.Range, GSCErrorCodes.TooFewArguments, "luinotifyeventtospectators", argCount, expectedTotal);
+                    }
+                    else if (argCount > expectedTotal)
+                    {
+                        ctx.AddDiagnostic(ctx.Call.Arguments.Range, GSCErrorCodes.TooManyArguments, "luinotifyeventtospectators", argCount, expectedTotal);
+                    }
+                }
+            }
+
+            return ScrData.Void;
+        }
+    };
+
     public static readonly EmulatedFunction Assert = new()
     {
         Name = "assert",

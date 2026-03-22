@@ -9,10 +9,11 @@ using System.Text.RegularExpressions;
 
 namespace GSCode.Parser.Misc;
 
-internal ref partial struct UserRegionsAnalyser(Token startToken, ParserIntelliSense sense)
+internal ref partial struct UserRegionsAnalyser(LinkedToken startNode, ParserIntelliSense sense)
 {
-    private Token CurrentToken { get; set; } = startToken;
-    public readonly TokenType CurrentTokenType => CurrentToken.Type;
+    private LinkedToken CurrentNode { get; set; } = startNode;
+    private Token CurrentToken => CurrentNode.Token;
+    public readonly TokenType CurrentTokenType => CurrentNode.Type;
 
     private ParserIntelliSense Sense { get; } = sense;
 
@@ -22,7 +23,7 @@ internal ref partial struct UserRegionsAnalyser(Token startToken, ParserIntelliS
         {
             if (!IsRegionStart(CurrentToken, out string? regionName, out Match? regionMatch))
             {
-                CurrentToken = CurrentToken.Next;
+                CurrentNode = CurrentNode.Next!;
                 continue;
             }
 
@@ -38,7 +39,7 @@ internal ref partial struct UserRegionsAnalyser(Token startToken, ParserIntelliS
 
     private FoldingRange? AnalyseFoldingRange(Token startToken, string name)
     {
-        CurrentToken = CurrentToken.Next;
+        CurrentNode = CurrentNode.Next!;
 
         while (CurrentTokenType != TokenType.Eof)
         {
@@ -47,7 +48,7 @@ internal ref partial struct UserRegionsAnalyser(Token startToken, ParserIntelliS
                 EmitRegionEndSemanticTokens(CurrentToken, regionEndMatch);
 
                 Token endToken = CurrentToken;
-                CurrentToken = CurrentToken.Next;
+                CurrentNode = CurrentNode.Next!;
 
                 return new FoldingRange
                 {
@@ -64,7 +65,7 @@ internal ref partial struct UserRegionsAnalyser(Token startToken, ParserIntelliS
 
             if (!IsRegionStart(CurrentToken, out string? nestedRegionName, out Match? nestedRegionMatch))
             {
-                CurrentToken = CurrentToken.Next;
+                CurrentNode = CurrentNode.Next!;
                 continue;
             }
 

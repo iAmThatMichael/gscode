@@ -1,17 +1,17 @@
-﻿
+
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 
 namespace GSCode.Parser.Data;
 
 public sealed class DocumentHoversLibrary
 {
-    private SortedList<int, IHoverable>?[] BackingHovers { get; }
+    private Dictionary<int, SortedList<int, IHoverable>> BackingHovers { get; } = new();
 
     public DocumentHoversLibrary(int lineCount)
     {
-        BackingHovers = new SortedList<int, IHoverable>?[lineCount];
+        // lineCount hint no longer needed with Dictionary
     }
-    
+
     /// <summary>
     /// Gets the hover that corresponds to the given position if it exists.
     /// </summary>
@@ -19,17 +19,33 @@ public sealed class DocumentHoversLibrary
     /// <returns>An IHoverable instance corresponding to the position if it exists, or null otherwise</returns>
     public IHoverable? Get(Position location)
     {
-        SortedList<int, IHoverable>? lineList = BackingHovers[location.Line];
-
-        if(lineList is null)
+        if (!BackingHovers.TryGetValue(location.Line, out var lineList))
         {
             return null;
         }
 
-        foreach(KeyValuePair<int, IHoverable> hoverableKvp in lineList)
+        // Binary search on sorted keys to find the hover at or before the character position
+        var keys = lineList.Keys;
+        int lo = 0, hi = keys.Count - 1;
+        int bestIdx = -1;
+        while (lo <= hi)
         {
-            IHoverable hoverable = hoverableKvp.Value;
-            if(hoverable.Range.Start.Character <= location.Character &&
+            int mid = lo + (hi - lo) / 2;
+            if (keys[mid] <= location.Character)
+            {
+                bestIdx = mid;
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid - 1;
+            }
+        }
+
+        if (bestIdx >= 0)
+        {
+            IHoverable hoverable = lineList.Values[bestIdx];
+            if (hoverable.Range.Start.Character <= location.Character &&
                 hoverable.Range.End.Character > location.Character)
             {
                 return hoverable;
@@ -42,29 +58,17 @@ public sealed class DocumentHoversLibrary
     /// Adds the specified hoverable to the hover library. The hoverable's range must not span over multiple lines.
     /// </summary>
     /// <param name="hoverable">IHoverable to add</param>
-    /// <exception cref="InvalidDataException"></exception>
     public void Add(IHoverable hoverable)
     {
-        //if(hoverable.Range.SpansMultipleLines())
-        //{
-        //    throw new InvalidDataException("DocumentHoversLibrary does not support hoverables whose ranges span over multiple lines.");
-        //}
-
         int line = hoverable.Range.Start.Line;
 
-        SortedList<int, IHoverable>? lineList = BackingHovers[line];
-
-        if (lineList is null)
+        if (!BackingHovers.TryGetValue(line, out var lineList))
         {
             lineList = new();
             BackingHovers[line] = lineList;
         }
 
-        // An edge case exists where if a macro expands a macro to two instances they will collide. This prevents that being an issue.
-        // We cannot assume there exists a one-to-one mapping between unique macro uses and the amount of expansions they produce.
-        if(!lineList.ContainsKey(hoverable.Range.Start.Character))
-        {
-            lineList.Add(hoverable.Range.Start.Character, hoverable);
-        }
+        // An edge case exists where if a macro expands a macro to two instances they will collide.
+        lineList.TryAdd(hoverable.Range.Start.Character, hoverable);
     }
 }

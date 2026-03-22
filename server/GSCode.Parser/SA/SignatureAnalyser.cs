@@ -82,7 +82,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         }
 
         // Record class location for go-to-definition
-        DefinitionsTable.AddClassLocation(DefinitionsTable.CurrentNamespace, name, Sense.ScriptPath, nameToken.Range);
+        DefinitionsTable.AddClassLocation(DefinitionsTable.CurrentNamespace, name, Sense.ScriptPath, nameToken.TokenRange);
 
         // Add class to definitions table for CFG and RDA analysis
         DefinitionsTable.AddClass(scrClass, classDefn);
@@ -135,7 +135,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         scrClass.Methods.Add(function);
 
         // Record method/function location (method recorded as function under containing namespace)
-        DefinitionsTable.AddFunctionLocation(DefinitionsTable.CurrentNamespace, name, Sense.ScriptPath, nameToken.Range);
+        DefinitionsTable.AddFunctionLocation(DefinitionsTable.CurrentNamespace, name, Sense.ScriptPath, nameToken.TokenRange);
         // Record parameter names for outline/signature
         DefinitionsTable.RecordFunctionParameters(DefinitionsTable.CurrentNamespace, name, (function.Overloads[0].Parameters ?? new List<ScrFunctionArg>()).Select(a => a.Name));
         // Record flags (private, autoexec)
@@ -156,7 +156,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         // NEW: Also record under the class name as its own qualifier so ClassName::Method() resolves
         string classNs = scrClass.Name;
-        DefinitionsTable.AddFunctionLocation(classNs, name, Sense.ScriptPath, nameToken.Range);
+        DefinitionsTable.AddFunctionLocation(classNs, name, Sense.ScriptPath, nameToken.TokenRange);
         DefinitionsTable.RecordFunctionParameters(classNs, name, (function.Overloads[0].Parameters ?? new List<ScrFunctionArg>()).Select(a => a.Name));
         DefinitionsTable.RecordFunctionFlags(classNs, name, flags);
         DefinitionsTable.RecordFunctionDoc(classNs, name, doc);
@@ -268,7 +268,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         DefinitionsTable.AddFunction(function, functionDefn);
 
         // Record function location for go-to-definition
-        DefinitionsTable.AddFunctionLocation(DefinitionsTable.CurrentNamespace, name, Sense.ScriptPath, nameToken.Range);
+        DefinitionsTable.AddFunctionLocation(DefinitionsTable.CurrentNamespace, name, Sense.ScriptPath, nameToken.TokenRange);
         // Record parameter names for outline/signature
         DefinitionsTable.RecordFunctionParameters(DefinitionsTable.CurrentNamespace, name, (function.Overloads[0].Parameters ?? new List<ScrFunctionArg>()).Select(a => a.Name));
         // Record flags (private, autoexec)
@@ -341,34 +341,46 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         return result;
     }
 
-    private static string? ExtractDocCommentBefore(Token nameToken)
+    private string? ExtractDocCommentBefore(Token nameToken)
     {
-        while (nameToken.Range.Start.Line > 0 && nameToken.Type != TokenType.LineBreak)
-        {
-            nameToken = nameToken.Previous;
-        }
-
-        if (nameToken.Previous == null)
+        DocumentTokensLibrary tokens = Sense.Tokens;
+        int idx = tokens.IndexOf(nameToken);
+        if (idx < 0)
         {
             return null;
         }
 
-        // check around 50 tokens
-        int count = 50;
-        while (count > 0 && nameToken.Previous.Type != TokenType.DocComment)
+        // Walk backwards to find the line break before the function definition
+        while (idx > 0)
         {
-            nameToken = nameToken.Previous;
-            count--;
-
-            if (nameToken.Previous == null)
+            Token? t = tokens.GetAt(idx);
+            if (t == null)
             {
                 return null;
             }
+            if (t.Type == TokenType.LineBreak)
+            {
+                break;
+            }
+            idx--;
         }
 
-        if (nameToken.Previous.Type == TokenType.DocComment)
+        // Now scan backwards up to 50 tokens looking for a doc comment
+        int count = 50;
+        while (count > 0 && idx > 0)
         {
-            return SanitizeDocForMarkdown(nameToken.Previous.Lexeme);
+            idx--;
+            count--;
+
+            Token? t = tokens.GetAt(idx);
+            if (t == null)
+            {
+                return null;
+            }
+            if (t.Type == TokenType.DocComment)
+            {
+                return SanitizeDocForMarkdown(t.Lexeme);
+            }
         }
 
         return null;
@@ -557,7 +569,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 internal record ScrParameterSymbol(ScrParameter Source) : ISenseDefinition
 {
     // I'm pretty sure this is redundant
-    public bool IsFromPreprocessor { get; } = false;
+
     public Range Range { get; } = Source.Range;
 
     public string SemanticTokenType { get; } = "parameter";
@@ -581,7 +593,6 @@ internal record ScrParameterSymbol(ScrParameter Source) : ISenseDefinition
 
 internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseDefinition
 {
-    public virtual bool IsFromPreprocessor { get; } = false;
     public virtual Range Range { get; } = NameToken.Range;
 
     public virtual string SemanticTokenType { get; } = "function";
@@ -603,6 +614,21 @@ internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseD
             };
         }
 
+        // For API functions with overloads, use the Documentation property which
+        // handles multi-overload display. For single-overload, build inline.
+        if (Source.Overloads.Count > 1)
+        {
+            return new()
+            {
+                Range = Range,
+                Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
+                {
+                    Kind = MarkupKind.Markdown,
+                    Value = Source.Documentation
+                })
+            };
+        }
+
         StringBuilder builder = new();
 
         builder.AppendLine("```gsc");
@@ -615,7 +641,6 @@ internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseD
         }
         builder.AppendLine(")");
         builder.AppendLine("```");
-
 
         return new()
         {
@@ -648,7 +673,7 @@ internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseD
 
 internal record ScrClassSymbol(Token NameToken, ScrClass Source) : ISenseDefinition
 {
-    public bool IsFromPreprocessor { get; } = false;
+
     public Range Range { get; } = NameToken.Range;
 
     public string SemanticTokenType { get; } = "class";
@@ -670,7 +695,7 @@ internal record ScrClassSymbol(Token NameToken, ScrClass Source) : ISenseDefinit
 
 internal record ScrClassReferenceSymbol(Token NameToken, string ClassName) : ISenseDefinition
 {
-    public bool IsFromPreprocessor { get; } = false;
+
     public Range Range { get; } = NameToken.Range;
 
     public string SemanticTokenType { get; } = "class";
@@ -693,7 +718,7 @@ internal record ScrClassReferenceSymbol(Token NameToken, string ClassName) : ISe
 
 internal record ScrClassMemberSymbol(Token NameToken, ScrMember Source, ScrClass ClassSource) : ISenseDefinition
 {
-    public bool IsFromPreprocessor { get; } = false;
+
     public Range Range { get; } = NameToken.Range;
 
     public string SemanticTokenType { get; } = "property";
@@ -715,7 +740,6 @@ internal record ScrClassMemberSymbol(Token NameToken, ScrMember Source, ScrClass
 
 internal record ScrMethodSymbol(Token NameToken, ScrFunction Source, ScrClass ClassSource) : ScrFunctionSymbol(NameToken, Source)
 {
-    public override bool IsFromPreprocessor { get; } = false;
     public override Range Range { get; } = NameToken.Range;
 
     public override string SemanticTokenType { get; } = "method";
@@ -726,16 +750,23 @@ internal record ScrMethodSymbol(Token NameToken, ScrFunction Source, ScrClass Cl
         StringBuilder builder = new();
 
         builder.AppendLine("```gsc");
-        builder.Append($"{ClassSource.Name}::{Source.Name}(");
-
-        bool first = true;
-        foreach (ScrFunctionArg parameter in Source.Overloads.First().Parameters)
+        foreach (var overload in Source.Overloads)
         {
-            AppendParameter(builder, parameter, ref first);
-        }
-        builder.AppendLine(")");
-        builder.AppendLine("```");
+            if (Source.Overloads.Count > 1)
+            {
+                builder.AppendLine($"// Overload {Source.Overloads.IndexOf(overload) + 1}");
+            }
 
+            builder.Append($"{ClassSource.Name}::{Source.Name}(");
+
+            bool first = true;
+            foreach (ScrFunctionArg parameter in overload.Parameters)
+            {
+                AppendParameter(builder, parameter, ref first);
+            }
+            builder.AppendLine(")");
+        }
+        builder.AppendLine("```");
 
         return new()
         {
@@ -751,7 +782,7 @@ internal record ScrMethodSymbol(Token NameToken, ScrFunction Source, ScrClass Cl
 
 internal record ScrDependencySymbol(Range Range, string Path, string RawPath) : ISenseDefinition
 {
-    public bool IsFromPreprocessor { get; } = false;
+
     public Range Range { get; } = Range;
 
     public string SemanticTokenType { get; } = "string";

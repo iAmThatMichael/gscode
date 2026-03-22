@@ -259,6 +259,14 @@ internal record struct ScrData
     public bool ReadOnly { get; init; }
 
     /// <summary>
+    /// Whether the type is indeterminate (could be any one of the flagged types, but we can't
+    /// assume which). Used for variables like <c>self</c> whose possible types are known but
+    /// whose actual type depends on how the code is used. When true, type compatibility checks
+    /// use overlap (intersection != 0) instead of subset.
+    /// </summary>
+    public bool Indeterminate { get; init; }
+
+    /// <summary>
     /// The boolean value of the data, if known.
     /// </summary>
     public bool? BooleanValue { get; }
@@ -308,6 +316,12 @@ internal record struct ScrData
     public static ScrData Error { get; } = new(ScrDataTypes.Error);
 
     public string? FieldName { get; set; } = null;
+
+    /// <summary>
+    /// Optional display alias for this type (e.g. "callee" for self's composite type).
+    /// When set, <see cref="TypeToString"/> and <see cref="TypeToStringDetailed"/> return this instead.
+    /// </summary>
+    public string? TypeAlias { get; init; }
 
     public static ScrData Undefined()
     {
@@ -511,7 +525,7 @@ internal record struct ScrData
     /// <returns>A deep-copied ScrData instance</returns>
     public ScrData Copy()
     {
-        return new(Type, SubTypes, BooleanValue, ReadOnly);
+        return new(Type, SubTypes, BooleanValue, ReadOnly) { Indeterminate = Indeterminate, TypeAlias = TypeAlias };
     }
 
     [return: NotNullIfNotNull(nameof(incompatibleType))]
@@ -542,8 +556,12 @@ internal record struct ScrData
         ScrDataTypes residualTypes = Type & ~fieldMask;
         if (residualTypes != ScrDataTypes.Void)
         {
-            incompatibleType = residualTypes;
-            return WithFieldName(Void);
+            // For indeterminate types, allow field access if at least one type supports fields
+            if (!Indeterminate || (Type & fieldMask) == ScrDataTypes.Void)
+            {
+                incompatibleType = residualTypes;
+                return WithFieldName(Void);
+            }
         }
         incompatibleType = null;
 
@@ -563,6 +581,7 @@ internal record struct ScrData
         ScrDataTypes compositeType = ScrDataTypes.Void;
         // Start as true, as if any is not readonly, then we'll represent it as not.
         bool isReadOnly = true;
+        HashSet<IScrDataSubType>? compositeSubTypes = null;
 
         // Handle array "size" field
         if (name == "size" && HasType(ScrDataTypes.Array))
@@ -583,6 +602,13 @@ internal record struct ScrData
                     compositeType |= field.Type;
                     isReadOnly &= field.ReadOnly;
 
+                    // Propagate any sub-types from the field (e.g. entity sub-type for weapon fields).
+                    if (field.SubTypes is not null)
+                    {
+                        compositeSubTypes ??= new();
+                        compositeSubTypes.UnionWith(field.SubTypes);
+                    }
+
                     // Tracking boolean unnecessary, as we'll never receive a not-null boolean value from this location.
                 }
             }
@@ -594,7 +620,7 @@ internal record struct ScrData
             return WithFieldName(Default);
         }
 
-        return WithFieldName(new ScrData(compositeType, readOnly: isReadOnly));
+        return WithFieldName(new ScrData(compositeType, compositeSubTypes, readOnly: isReadOnly));
     }
 
     public bool TrySetField(string name, ScrData value, out ScrSetFieldFailure? failure)
@@ -618,8 +644,12 @@ internal record struct ScrData
         ScrDataTypes residualTypes = Type & ~fieldMask;
         if (residualTypes != ScrDataTypes.Void)
         {
-            failure = new(IncompatibleBaseTypes: residualTypes, EntityFailures: null);
-            return false;
+            // For indeterminate types, allow if at least one type supports fields
+            if (!Indeterminate || (Type & fieldMask) == ScrDataTypes.Void)
+            {
+                failure = new(IncompatibleBaseTypes: residualTypes, EntityFailures: null);
+                return false;
+            }
         }
 
         // 2. If Struct or Object - they accept any field assignment
@@ -679,6 +709,8 @@ internal record struct ScrData
         ScrDataTypes type = ScrDataTypes.Void;
         bool isReadOnly = true;
         bool? booleanValue = true;
+        bool indeterminate = false;
+        ScrDataTypes firstType = incoming[0].Type;
         List<IScrDataSubType>? subTypes = null;
 
         foreach (ScrData data in incoming)
@@ -696,6 +728,18 @@ internal record struct ScrData
                 isReadOnly = false;
             }
 
+            // Propagate indeterminacy from incoming values.
+            // NOTE: Merge also produces indeterminate when types differ, because GSC has no
+            // type assertion syntax (e.g. `as`, null-forgiveness). Without an escape hatch,
+            // deterministic merges would produce false positives users can't suppress.
+            // When type assertion support is added (e.g. via linter comments or empty macros),
+            // this should be revisited — merge could become deterministic again, with assertions
+            // as the user's way to resolve ambiguous unions.
+            if (data.Indeterminate || data.Type != firstType)
+            {
+                indeterminate = true;
+            }
+
             if(data.SubTypes is not null)
             {
                 subTypes ??= new();
@@ -708,7 +752,7 @@ internal record struct ScrData
             }
         }
 
-        return new(type, subTypes, booleanValue, isReadOnly);
+        return new(type, subTypes, booleanValue, isReadOnly) { Indeterminate = indeterminate };
     }
 
     /// <summary>
@@ -728,9 +772,80 @@ internal record struct ScrData
         return (Type & type) == type;
     }
 
+    /// <summary>
+    /// Checks whether this value's type is compatible with the expected type.
+    /// Deterministic values must be a subset of expected; indeterminate values need only overlap.
+    /// </summary>
+    public readonly bool IsCompatibleWith(ScrDataTypes expected)
+    {
+        if (IsAny() || expected == ScrDataTypes.Any)
+        {
+            return true;
+        }
+
+        if (Indeterminate)
+        {
+            return (Type & expected) != ScrDataTypes.Void;
+        }
+
+        return (Type & ~expected) == ScrDataTypes.Void;
+    }
+
+    /// <summary>
+    /// Two-sided compatibility check. If either side is indeterminate, uses overlap.
+    /// </summary>
+    public readonly bool IsCompatibleWith(ScrData expected)
+    {
+        if (IsAny() || expected.IsAny())
+        {
+            return true;
+        }
+
+        if (Indeterminate || expected.Indeterminate)
+        {
+            return (Type & expected.Type) != ScrDataTypes.Void;
+        }
+
+        return (Type & ~expected.Type) == ScrDataTypes.Void;
+    }
+
     public string TypeToString()
     {
-        return ScrDataTypeNames.TypeToString(Type);
+        return TypeAlias ?? ScrDataTypeNames.TypeToString(Type);
+    }
+
+    public string TypeToStringDetailed()
+    {
+        if (TypeAlias is not null)
+        {
+            return TypeAlias;
+        }
+
+        if (SubTypes is null || SubTypes.Count == 0)
+        {
+            return ScrDataTypeNames.TypeToString(Type);
+        }
+
+        var entitySubTypes = SubTypes
+            .OfType<ScrDataEntityType>()
+            .Select(e => ScrEntityTypeNames.TypeToString(e.EntityType))
+            .ToList();
+
+        if (entitySubTypes.Count == 0)
+        {
+            return ScrDataTypeNames.TypeToString(Type);
+        }
+
+        string entitySubTypeString = string.Join(" | ", entitySubTypes);
+
+        if (Type == ScrDataTypes.Entity)
+        {
+            return entitySubTypeString;
+        }
+
+        // Union type (e.g. "entity | string") - replace the entity portion
+        return ScrDataTypeNames.TypeToString(Type)
+            .Replace(ScrDataTypeNames.Entity, entitySubTypeString);
     }
 
     /// <summary>
@@ -739,11 +854,16 @@ internal record struct ScrData
     /// <returns>true if it can be</returns>
     public readonly bool CanEvaluateToBoolean()
     {
-        return Type == ScrDataTypes.Int ||
-            Type == ScrDataTypes.Bool ||
-            Type == ScrDataTypes.Float ||
-            Type == ScrDataTypes.String ||
-            Type == ScrDataTypes.Array;
+        const ScrDataTypes boolCapable =
+            ScrDataTypes.Int | ScrDataTypes.Float | ScrDataTypes.String |
+            ScrDataTypes.Array | ScrDataTypes.Bool;
+
+        if (Indeterminate)
+        {
+            return (Type & boolCapable) != ScrDataTypes.Void;
+        }
+
+        return Type != ScrDataTypes.Void && (Type & ~boolCapable) == ScrDataTypes.Void;
     }
 
     public bool? IsTruthy()
@@ -856,7 +976,13 @@ internal record struct ScrData
             combinedType |= type;
         }
 
-        // Return whether the bits are of the type specified
+        // Indeterminate: overlap is sufficient (any possible type matches)
+        if (Indeterminate)
+        {
+            return (Type & combinedType) != 0;
+        }
+
+        // Deterministic: all bits must be within the expected types (subset check)
         return (Type & combinedType) == Type;
     }
 

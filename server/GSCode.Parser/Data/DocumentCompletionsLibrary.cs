@@ -21,6 +21,11 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
     // Use shared API instance to avoid redundant allocations
     private readonly ScriptAnalyserData? _scriptAnalyserData = ScriptAnalyserData.GetShared(languageId);
 
+    /// <summary>
+    /// Pre-cached unique identifiers from the token stream for fast completions.
+    /// </summary>
+    private HashSet<string>? _cachedIdentifiers;
+
     public CompletionList GetCompletionsFromPosition(Position position)
     {
         Token? token = Tokens.Get(position);
@@ -127,24 +132,17 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         }
 
         // Generate completions from identifiers that occur inside of the file
-        foreach (Token token in Tokens.GetAll())
+        foreach (string identifier in GetCachedIdentifiers())
         {
-            if (token.Type == TokenType.Identifier && !seenIdentifiers.Contains(token.Lexeme))
-            {
-                // Skip identifiers that are API function names to avoid duplicates
-                if (_scriptAnalyserData?.GetApiFunction(token.Lexeme) is not null)
-                {
-                    continue;
-                }
+            if (seenIdentifiers.Contains(identifier)) continue;
 
-                completions.Add(new CompletionItem()
-                {
-                    Kind = CompletionItemKind.Variable,
-                    Label = token.Lexeme,
-                    InsertText = token.Lexeme
-                });
-                seenIdentifiers.Add(token.Lexeme);
-            }
+            completions.Add(new CompletionItem()
+            {
+                Kind = CompletionItemKind.Variable,
+                Label = identifier,
+                InsertText = identifier
+            });
+            seenIdentifiers.Add(identifier);
         }
 
         return completions;
@@ -152,10 +150,10 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
     private CompletionItem CreateCompletionItem(ScrFunction function)
     {
-        // TODO: has been hacked to show first only, but we need to handle all overloads eventually.
-        // Generate snippet-formatted parameters with tabstops
+        // Snippet uses first overload for insertion; Documentation shows all overloads.
         string insertText = function.Name;
-        if (function.Overloads.First().Parameters.Count > 0)
+        var firstOverload = function.Overloads.First();
+        if (firstOverload.Parameters.Count > 0)
         {
             insertText += "(";
 
@@ -163,7 +161,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             List<string> paramSnippets = new List<string>();
             int tabIndex = 1;
 
-            foreach (var param in function.Overloads.First().Parameters)
+            foreach (var param in firstOverload.Parameters)
             {
                 // Add mandatory parameters with tabstops
                 if (param.Mandatory.GetValueOrDefault(false))
@@ -190,10 +188,17 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             insertText += "()$0";
         }
 
+        string? detail = function.Description;
+        if (function.Overloads.Count > 1)
+        {
+            string overloadSuffix = $"(+{function.Overloads.Count - 1} overload{(function.Overloads.Count > 2 ? "s" : "")})";
+            detail = string.IsNullOrEmpty(detail) ? overloadSuffix : $"{detail} {overloadSuffix}";
+        }
+
         return new CompletionItem()
         {
             Label = function.Name,
-            Detail = function.Description,
+            Detail = detail,
             Documentation = new StringOrMarkupContent(new MarkupContent()
             {
                 Kind = MarkupKind.Markdown,
@@ -209,13 +214,38 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         };
     }
 
+    /// <summary>
+    /// Builds or returns the cached set of unique non-API identifiers from the token stream.
+    /// </summary>
+    private HashSet<string> GetCachedIdentifiers()
+    {
+        if (_cachedIdentifiers is not null) return _cachedIdentifiers;
+
+        _cachedIdentifiers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Token token in Tokens.GetAll())
+        {
+            if (token.Type == TokenType.Identifier && !_cachedIdentifiers.Contains(token.Lexeme))
+            {
+                // Skip identifiers that are API function names to avoid duplicates
+                if (_scriptAnalyserData?.GetApiFunction(token.Lexeme) is not null)
+                {
+                    continue;
+                }
+                _cachedIdentifiers.Add(token.Lexeme);
+            }
+        }
+        return _cachedIdentifiers;
+    }
+
     private CompletionContext AnalyseCompletionContext(Token token, Position position)
     {
         var context = new CompletionContext { Position = position };
 
         TokenType currentType = token.Type;
-        TokenType? previousType = token.Previous?.Type;
-        TokenType? previousPreviousType = token.Previous?.Previous?.Type;
+        int tokenIdx = Tokens.IndexOf(token);
+        // Use immediate adjacency (not skip-trivia) to preserve whitespace checks
+        TokenType? previousType = tokenIdx > 0 ? Tokens.GetAt(tokenIdx - 1)?.Type : null;
+        TokenType? previousPreviousType = tokenIdx > 1 ? Tokens.GetAt(tokenIdx - 2)?.Type : null;
 
         // // Check for member access (obj.__|)
         // if (previousType == TokenType.Dot)

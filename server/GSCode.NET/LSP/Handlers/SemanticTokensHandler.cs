@@ -65,12 +65,6 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
             );
         }
 
-        // Check if "field" token type exists, and add it if not
-        if (!tokenTypes.Any(t => t.ToString() == "field"))
-        {
-            tokenTypes = new Container<SemanticTokenType>(tokenTypes.Concat(new[] { new SemanticTokenType("field") }));
-        }
-
         return new SemanticTokensRegistrationOptions
         {
             DocumentSelector = _documentSelector,

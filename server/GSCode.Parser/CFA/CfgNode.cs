@@ -31,29 +31,23 @@ internal enum CfgNodeType
 
 internal abstract class CfgNode(CfgNodeType type, int scope)
 {
-    public LinkedList<CfgNode> Incoming { get; } = new();
-    public LinkedList<CfgNode> Outgoing { get; } = new();
+    public List<CfgNode> Incoming { get; } = new();
+    public List<CfgNode> Outgoing { get; } = new();
 
     public virtual void ConnectOutgoing(CfgNode other)
     {
-        Outgoing.AddLast(other);
+        Outgoing.Add(other);
     }
 
     public virtual void ConnectIncoming(CfgNode other)
     {
-        Incoming.AddLast(other);
+        Incoming.Add(other);
     }
 
     public static void Connect(CfgNode from, CfgNode to)
     {
         from.ConnectOutgoing(to);
         to.ConnectIncoming(from);
-    }
-
-    public static void Disconnect(CfgNode from, CfgNode to)
-    {
-        from.Outgoing.Remove(to);
-        to.Incoming.Remove(from);
     }
 
     public CfgNodeType Type { get; } = type;

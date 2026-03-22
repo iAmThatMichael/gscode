@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace GSCode.Parser.DFA;
 
-internal record class ScrEntityField(ScrDataTypes Type, bool ReadOnly = false);
+internal record class ScrEntityField(ScrDataTypes Type, bool ReadOnly = false, ScrEntityTypes? EntitySubType = null);
 
 /// <summary>
 /// A registry that tracks entity types and their fields.
@@ -50,6 +50,7 @@ internal static class ScrEntityRegistry
         new("isemp", new(ScrDataTypes.Bool, ReadOnly: true)),
         new("isflash", new(ScrDataTypes.Bool, ReadOnly: true)),
         new("isstun", new(ScrDataTypes.Bool, ReadOnly: true)),
+        new("isempkillstreak", new(ScrDataTypes.Bool, ReadOnly: false)), // TODO: confirm - seems to be one mutable property on weapon object?
         new("bulletImpactExplode", new(ScrDataTypes.Bool, ReadOnly: true)),
         new("doempdestroyfx", new(ScrDataTypes.Bool, ReadOnly: true)),
         new("dostun", new(ScrDataTypes.Bool, ReadOnly: true)),
@@ -379,7 +380,7 @@ internal static class ScrEntityRegistry
         new("rumblebasetime", new(ScrDataTypes.Float, ReadOnly: true)),
         new("rumbleadditionaltime", new(ScrDataTypes.Float, ReadOnly: true)),
         new("healthdefault", new(ScrDataTypes.Int, ReadOnly: true)),
-        new("turretweapon", new(ScrDataTypes.Entity, ReadOnly: true)),
+        new("turretweapon", new(ScrDataTypes.Entity, ReadOnly: true, EntitySubType: ScrEntityTypes.Weapon)),
         new("addtocompass", new(ScrDataTypes.Bool, ReadOnly: true)),
         new("isphysicsvehicle", new(ScrDataTypes.Bool, ReadOnly: true)),
         new("pathpos", new(ScrDataTypes.Vector, ReadOnly: true)),
@@ -415,8 +416,8 @@ internal static class ScrEntityRegistry
         new("threatbiasgroup", new(ScrDataTypes.Int, ReadOnly: true)),
         new("attacker", new(ScrDataTypes.Entity, ReadOnly: true)),
         new("attackercount", new(ScrDataTypes.Int, ReadOnly: true)),
-        new("node", new(ScrDataTypes.Entity, ReadOnly: true)),
-        new("prevnode", new(ScrDataTypes.Entity, ReadOnly: true)),
+        new("node", new(ScrDataTypes.Entity, ReadOnly: true, EntitySubType: ScrEntityTypes.PathNode)),
+        new("prevnode", new(ScrDataTypes.Entity, ReadOnly: true, EntitySubType: ScrEntityTypes.PathNode)),
         new("enemy", new(ScrDataTypes.Entity, ReadOnly: true)),
         new("enemylastseenpos", new(ScrDataTypes.Vector, ReadOnly: true)),
         new("scriptenemy", new(ScrDataTypes.Entity, ReadOnly: true)),
@@ -477,7 +478,7 @@ internal static class ScrEntityRegistry
         new("damagedir", new(ScrDataTypes.Vector, ReadOnly: true)),
         new("damageyaw", new(ScrDataTypes.Int, ReadOnly: true)),
         new("damagelocation", new(ScrDataTypes.String, ReadOnly: true)),
-        new("damageweapon", new(ScrDataTypes.Entity, ReadOnly: true)),
+        new("damageweapon", new(ScrDataTypes.Entity, ReadOnly: true, EntitySubType: ScrEntityTypes.Weapon)),
         new("damagemod", new(ScrDataTypes.String, ReadOnly: true)),
         new("proneok", new(ScrDataTypes.Int, ReadOnly: true)),
         new("walkdist", new(ScrDataTypes.Float)),
@@ -491,15 +492,15 @@ internal static class ScrEntityRegistry
         new("suppressionduration", new(ScrDataTypes.Float)),
         new("suppressionstarttime", new(ScrDataTypes.Int, ReadOnly: true)),
         new("suppressionmeter", new(ScrDataTypes.Float, ReadOnly: true)),
-        new("weapon", new(ScrDataTypes.Entity)),
-        new("secondaryweapon", new(ScrDataTypes.Entity)),
-        new("primaryweapon", new(ScrDataTypes.Entity)),
-        new("sidearm", new(ScrDataTypes.Entity)),
-        new("meleeweapon", new(ScrDataTypes.Entity)),
+        new("weapon", new(ScrDataTypes.Entity, EntitySubType: ScrEntityTypes.Weapon)),
+        new("secondaryweapon", new(ScrDataTypes.Entity, EntitySubType: ScrEntityTypes.Weapon)),
+        new("primaryweapon", new(ScrDataTypes.Entity, EntitySubType: ScrEntityTypes.Weapon)),
+        new("sidearm", new(ScrDataTypes.Entity, EntitySubType: ScrEntityTypes.Weapon)),
+        new("meleeweapon", new(ScrDataTypes.Entity, EntitySubType: ScrEntityTypes.Weapon)),
         new("ammopouch", new(ScrDataTypes.Entity)),
         new("grenadeawareness", new(ScrDataTypes.Float)),
-        new("grenade", new(ScrDataTypes.Entity, ReadOnly: true)),
-        new("grenadeweapon", new(ScrDataTypes.Entity, ReadOnly: true)),
+        new("grenade", new(ScrDataTypes.Entity, ReadOnly: true, EntitySubType: ScrEntityTypes.Weapon)),
+        new("grenadeweapon", new(ScrDataTypes.Entity, ReadOnly: true, EntitySubType: ScrEntityTypes.Weapon)),
         new("grenadeammo", new(ScrDataTypes.Float)),
         new("grenadethrowback", new(ScrDataTypes.Bool)),
         new("allowpain", new(ScrDataTypes.Bool)),
@@ -577,8 +578,8 @@ internal static class ScrEntityRegistry
         new("predictedArrivalDirectionValid", new(ScrDataTypes.Bool)),
         new("arrivalfinalyaw", new(ScrDataTypes.Float, ReadOnly: true)),
         new("firemode", new(ScrDataTypes.Int, ReadOnly: true)),
-        new("traversestartnode", new(ScrDataTypes.Entity, ReadOnly: true)),
-        new("traverseendnode", new(ScrDataTypes.Entity, ReadOnly: true)),
+        new("traversestartnode", new(ScrDataTypes.Entity, ReadOnly: true, EntitySubType: ScrEntityTypes.PathNode)),
+        new("traverseendnode", new(ScrDataTypes.Entity, ReadOnly: true, EntitySubType: ScrEntityTypes.PathNode)),
         new("traversalstartpos", new(ScrDataTypes.Vector, ReadOnly: true)),
         new("traversalendpos", new(ScrDataTypes.Vector, ReadOnly: true)),
         new("manualtraversemode", new(ScrDataTypes.Bool)),
@@ -635,7 +636,7 @@ internal static class ScrEntityRegistry
         new("chickens", new(ScrDataTypes.Int)),
         new("killcamentity", new(ScrDataTypes.Int)),
         new("killcamtargetentity", new(ScrDataTypes.Int)),
-        new("killcamweapon", new(ScrDataTypes.Entity)),
+        new("killcamweapon", new(ScrDataTypes.Entity, EntitySubType: ScrEntityTypes.Weapon)),
         new("killcammod", new(ScrDataTypes.Int)),
         new("spectatekillcam", new(ScrDataTypes.Int)),
         new("score", new(ScrDataTypes.Int)),
@@ -672,12 +673,23 @@ internal static class ScrEntityRegistry
         // Find the field amongst the preset fields.
         if(TryFindFieldForEntityType(entityType, fieldName, out ScrEntityField? field))
         {
+            if (field.EntitySubType is { } entitySubType)
+            {
+                return new ScrData(field.Type,
+                    [new ScrDataEntityType { EntityType = entitySubType }],
+                    readOnly: field.ReadOnly);
+            }
             return new ScrData(field.Type, readOnly: field.ReadOnly);
         }
 
         // Otherwise, if it's immutable, then any other field must not be present.
         if(entityType == ScrEntityTypes.Weapon || entityType == ScrEntityTypes.PathNode)
         {
+            // TODO: confirm how isEmpKillstreak works on weapons — permitting it as an edge case for now.
+            if(entityType == ScrEntityTypes.Weapon && fieldName.Equals("isempkillstreak", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ScrData(ScrDataTypes.Bool);
+            }
             return ScrData.Undefined();
         }
 
@@ -690,6 +702,15 @@ internal static class ScrEntityRegistry
         // Weapon and path node entities are completely immutable.
         if(entityType == ScrEntityTypes.Weapon || entityType == ScrEntityTypes.PathNode)
         {
+            // TODO: confirm how isEmpKillstreak assignment works on weapons — permitting it as an edge case for now.
+            if(entityType == ScrEntityTypes.Weapon && fieldName.Equals("isempkillstreak", StringComparison.OrdinalIgnoreCase))
+            {
+                if(!value.IsCompatibleWith(ScrDataTypes.Bool))
+                {
+                    return ScrEntitySetFieldResult.FieldTypeMismatch;
+                }
+                return ScrEntitySetFieldResult.Success;
+            }
             return ScrEntitySetFieldResult.EntityImmutable;
         }
 
@@ -702,7 +723,8 @@ internal static class ScrEntityRegistry
                 return ScrEntitySetFieldResult.FieldReadOnly;
             }
             // To be a valid assignment, the types must match.
-            if(value.Type != field.Type)
+            // If the value type is unknown (Any), we can't make assumptions — allow it.
+            if(!value.IsCompatibleWith(field.Type))
             {
                 return ScrEntitySetFieldResult.FieldTypeMismatch;
             }
@@ -715,18 +737,20 @@ internal static class ScrEntityRegistry
 
     private static bool TryFindFieldForEntityType(ScrEntityTypes entityType, string fieldName, [NotNullWhen(true)] out ScrEntityField? field)
     {
+        // Field names are case-insensitive in GSC — normalize to lowercase for lookup.
+        string key = fieldName.ToLowerInvariant();
         field = null;
         return entityType switch
         {
-            ScrEntityTypes.Weapon => _weaponFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.Vehicle => _vehicleFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.Player => _playerFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.Actor => _actorFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.AiType => _aiTypeFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.PathNode => _pathNodeFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.Sentient => _sentientFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.VehicleNode => _vehicleNodeFields.TryGetValue(fieldName, out field),
-            ScrEntityTypes.HudElem => _hudElemFields.TryGetValue(fieldName, out field),
+            ScrEntityTypes.Weapon => _weaponFields.TryGetValue(key, out field),
+            ScrEntityTypes.Vehicle => _vehicleFields.TryGetValue(key, out field),
+            ScrEntityTypes.Player => _playerFields.TryGetValue(key, out field),
+            ScrEntityTypes.Actor => _actorFields.TryGetValue(key, out field),
+            ScrEntityTypes.AiType => _aiTypeFields.TryGetValue(key, out field),
+            ScrEntityTypes.PathNode => _pathNodeFields.TryGetValue(key, out field),
+            ScrEntityTypes.Sentient => _sentientFields.TryGetValue(key, out field),
+            ScrEntityTypes.VehicleNode => _vehicleNodeFields.TryGetValue(key, out field),
+            ScrEntityTypes.HudElem => _hudElemFields.TryGetValue(key, out field),
             _ => false
         };
     }

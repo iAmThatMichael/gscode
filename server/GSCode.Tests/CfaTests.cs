@@ -9,6 +9,7 @@ using GSCode.Parser.CFA;
 using GSCode.Parser.Data;
 using GSCode.Parser.DFA;
 using GSCode.Parser.Lexical;
+using GSCode.Parser.Lexical;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using Xunit;
 
@@ -62,7 +63,7 @@ public class CfaTests
             Parameters = new(),
             Body = StmtListNodeFromList([
                 new ExprStmtNode(null),
-                new IfStmtNode(DataExprNode.From(new Token(TokenType.True, RangeHelper.From(0, 0, 0, 1), "true")))
+                new IfStmtNode(DataExprNode.From(new Token(TokenType.True, new TokenRange(0, 0, 0, 1))))
                 {
                     Then = new ExprStmtNode(null),
                     Else = null,
@@ -105,7 +106,7 @@ public class CfaTests
             Parameters = new(),
             Body = StmtListNodeFromList([
                 new ExprStmtNode(null), // logic
-                new IfStmtNode(DataExprNode.From(new Token(TokenType.True, RangeHelper.From(0, 0, 0, 1), "true")))
+                new IfStmtNode(DataExprNode.From(new Token(TokenType.True, new TokenRange(0, 0, 0, 1))))
                 {
                     Then = new ExprStmtNode(null), // then
                     Else = new IfStmtNode(null)
@@ -257,8 +258,8 @@ public class CfaTests
     {
         return new CaseLabelNode(
             AstNodeType.CaseLabel,
-            new Token(TokenType.Case, RangeHelper.From(0, 0, 0, 4), "case"),
-            DataExprNode.From(new Token(TokenType.Integer, RangeHelper.From(0, 0, 0, 1), value.ToString()))
+            new Token(TokenType.Case, new TokenRange(0, 0, 0, 4)),
+            DataExprNode.From(new LexemeToken(TokenType.Integer, new TokenRange(0, 0, 0, 1), value.ToString()))
         );
     }
 
@@ -269,7 +270,7 @@ public class CfaTests
     {
         return new CaseLabelNode(
             AstNodeType.DefaultLabel,
-            new Token(TokenType.Default, RangeHelper.From(0, 0, 0, 7), "default"),
+            new Token(TokenType.Default, new TokenRange(0, 0, 0, 7)),
             null
         );
     }
@@ -287,7 +288,7 @@ public class CfaTests
 
         return new SwitchStmtNode()
         {
-            Expression = expression ?? DataExprNode.From(new Token(TokenType.Integer, RangeHelper.From(0, 0, 0, 1), "1")),
+            Expression = expression ?? DataExprNode.From(new LexemeToken(TokenType.Integer, new TokenRange(0, 0, 0, 1), "1")),
             Cases = caseList
         };
     }
@@ -313,6 +314,262 @@ public class CfaTests
             new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
     }
 
+    // ===== Additional CFA tests =====
+
+    [Fact]
+    public void Test_WhileLoop()
+    {
+        // Expectation:
+        // (entry) -> (while decision) -> (body) -> back to (while decision)
+        //                              -> (continuation) -> (exit)
+
+        FunDefnNode root = new()
+        {
+            Name = null,
+            Keywords = new(),
+            Parameters = new(),
+            Body = StmtListNodeFromList([
+                new WhileStmtNode(
+                    DataExprNode.From(new Token(TokenType.True, new TokenRange(0, 0, 0, 4))),
+                    new ExprStmtNode(null)
+                ),
+                new ExprStmtNode(null), // continuation
+            ])
+        };
+
+        ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
+            root,
+            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+
+        // entry -> while decision
+        DecisionNode decision = GetSingleOutgoing<DecisionNode>(cfg.Start);
+
+        // decision.WhenTrue -> body
+        Assert.NotNull(decision.WhenTrue);
+        BasicBlock body = Assert.IsType<BasicBlock>(decision.WhenTrue);
+
+        // body loops back to decision
+        CfgNode loopBack = Assert.Single(body.Outgoing);
+        Assert.Equal(decision, loopBack);
+
+        // decision.WhenFalse -> continuation
+        Assert.NotNull(decision.WhenFalse);
+        BasicBlock continuation = Assert.IsType<BasicBlock>(decision.WhenFalse);
+
+        CfgNode exitNode = Assert.Single(continuation.Outgoing);
+        Assert.Equal(cfg.End, exitNode);
+    }
+
+    [Fact]
+    public void Test_ForLoop()
+    {
+        // Expectation:
+        // (entry) -> (iteration) -> (body) -> back to (iteration)
+        //                         -> (continuation) -> (exit)
+
+        FunDefnNode root = new()
+        {
+            Name = null,
+            Keywords = new(),
+            Parameters = new(),
+            Body = StmtListNodeFromList([
+                new ForStmtNode(
+                    null, // init
+                    DataExprNode.From(new Token(TokenType.True, new TokenRange(0, 0, 0, 4))), // condition
+                    null, // increment
+                    new ExprStmtNode(null) // body
+                ),
+                new ExprStmtNode(null), // continuation
+            ])
+        };
+
+        ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
+            root,
+            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+
+        // entry -> iteration node
+        IterationNode iteration = GetSingleOutgoing<IterationNode>(cfg.Start);
+
+        Assert.NotNull(iteration.Body);
+        Assert.NotNull(iteration.Continuation);
+
+        // body loops back to iteration
+        BasicBlock body = Assert.IsType<BasicBlock>(iteration.Body);
+        CfgNode loopBack = Assert.Single(body.Outgoing);
+        Assert.Equal(iteration, loopBack);
+
+        // continuation leads to exit
+        BasicBlock continuation = Assert.IsType<BasicBlock>(iteration.Continuation);
+        CfgNode exitNode = Assert.Single(continuation.Outgoing);
+        Assert.Equal(cfg.End, exitNode);
+    }
+
+    [Fact]
+    public void Test_DoWhile()
+    {
+        // Expectation:
+        // (entry) -> (body) -> (decision) -> (body) [loop]
+        //                                 -> (continuation) -> (exit)
+
+        FunDefnNode root = new()
+        {
+            Name = null,
+            Keywords = new(),
+            Parameters = new(),
+            Body = StmtListNodeFromList([
+                new DoWhileStmtNode(
+                    DataExprNode.From(new Token(TokenType.True, new TokenRange(0, 0, 0, 4))),
+                    new ExprStmtNode(null)
+                ),
+                new ExprStmtNode(null), // continuation
+            ])
+        };
+
+        ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
+            root,
+            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+
+        // entry -> body first (do-while executes body before condition)
+        BasicBlock body = GetSingleOutgoing<BasicBlock>(cfg.Start);
+
+        // body -> decision
+        DecisionNode decision = GetSingleOutgoing<DecisionNode>(body);
+
+        // decision.WhenTrue loops back to body
+        Assert.NotNull(decision.WhenTrue);
+        Assert.Equal(body, decision.WhenTrue);
+
+        // decision.WhenFalse -> continuation
+        Assert.NotNull(decision.WhenFalse);
+        BasicBlock continuation = Assert.IsType<BasicBlock>(decision.WhenFalse);
+
+        CfgNode exitNode = Assert.Single(continuation.Outgoing);
+        Assert.Equal(cfg.End, exitNode);
+    }
+
+    [Fact]
+    public void Test_NestedIfElse()
+    {
+        // Tests that nested if-else blocks have correct merge points
+
+        FunDefnNode root = new()
+        {
+            Name = null,
+            Keywords = new(),
+            Parameters = new(),
+            Body = StmtListNodeFromList([
+                new IfStmtNode(DataExprNode.From(new Token(TokenType.True, new TokenRange(0, 0, 0, 1))))
+                {
+                    Then = new IfStmtNode(DataExprNode.From(new Token(TokenType.True, new TokenRange(0, 0, 0, 1))))
+                    {
+                        Then = new ExprStmtNode(null),
+                        Else = new IfStmtNode(null)
+                        {
+                            Then = new ExprStmtNode(null),
+                            Else = null,
+                        },
+                    },
+                    Else = new IfStmtNode(null)
+                    {
+                        Then = new ExprStmtNode(null),
+                        Else = null,
+                    },
+                },
+                new ExprStmtNode(null), // final continuation
+            ])
+        };
+
+        ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
+            root,
+            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+
+        Assert.NotNull(cfg.Start);
+        Assert.NotNull(cfg.End);
+
+        // Outer if decision
+        DecisionNode outerDecision = GetSingleOutgoing<DecisionNode>(cfg.Start);
+        Assert.NotNull(outerDecision.WhenTrue);
+        Assert.NotNull(outerDecision.WhenFalse);
+    }
+
+    [Fact]
+    public void Test_BreakInLoop()
+    {
+        // while(true) { break; }
+        // continuation
+
+        FunDefnNode root = new()
+        {
+            Name = null,
+            Keywords = new(),
+            Parameters = new(),
+            Body = StmtListNodeFromList([
+                new WhileStmtNode(
+                    DataExprNode.From(new Token(TokenType.True, new TokenRange(0, 0, 0, 4))),
+                    StmtListNodeFromList([
+                        BreakStmt(),
+                    ])
+                ),
+                new ExprStmtNode(null), // continuation after loop
+            ])
+        };
+
+        ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
+            root,
+            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+
+        // entry -> while decision
+        DecisionNode decision = GetSingleOutgoing<DecisionNode>(cfg.Start);
+
+        // WhenTrue -> body with break
+        Assert.NotNull(decision.WhenTrue);
+        BasicBlock body = Assert.IsType<BasicBlock>(decision.WhenTrue);
+
+        // Break should jump to continuation (same as WhenFalse)
+        CfgNode breakTarget = Assert.Single(body.Outgoing);
+        Assert.Equal(decision.WhenFalse, breakTarget);
+    }
+
+    [Fact]
+    public void Test_ContinueInLoop()
+    {
+        // while(true) { continue; }
+        // continuation
+
+        FunDefnNode root = new()
+        {
+            Name = null,
+            Keywords = new(),
+            Parameters = new(),
+            Body = StmtListNodeFromList([
+                new WhileStmtNode(
+                    DataExprNode.From(new Token(TokenType.True, new TokenRange(0, 0, 0, 4))),
+                    StmtListNodeFromList([
+                        ContinueStmt(),
+                    ])
+                ),
+                new ExprStmtNode(null),
+            ])
+        };
+
+        ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
+            root,
+            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+
+        // entry -> while decision
+        DecisionNode decision = GetSingleOutgoing<DecisionNode>(cfg.Start);
+
+        // WhenTrue -> body with continue
+        Assert.NotNull(decision.WhenTrue);
+        BasicBlock body = Assert.IsType<BasicBlock>(decision.WhenTrue);
+
+        // Continue should jump back to decision (loop head)
+        CfgNode continueTarget = Assert.Single(body.Outgoing);
+        Assert.Equal(decision, continueTarget);
+    }
+
+    // ===== Helpers =====
+
     /// <summary>
     /// Creates a break statement node.
     /// </summary>
@@ -320,7 +577,7 @@ public class CfaTests
     {
         return new ControlFlowActionNode(
             AstNodeType.BreakStmt,
-            new Token(TokenType.Break, RangeHelper.From(0, 0, 0, 5), "break")
+            new Token(TokenType.Break, new TokenRange(0, 0, 0, 5))
         );
     }
 
@@ -331,7 +588,7 @@ public class CfaTests
     {
         return new ControlFlowActionNode(
             AstNodeType.ContinueStmt,
-            new Token(TokenType.Continue, RangeHelper.From(0, 0, 0, 8), "continue")
+            new Token(TokenType.Continue, new TokenRange(0, 0, 0, 8))
         );
     }
 

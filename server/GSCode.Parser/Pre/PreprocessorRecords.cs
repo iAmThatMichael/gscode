@@ -57,11 +57,12 @@ internal class MacroDefinition : ISenseDefinition
     /// <summary>
     /// Release LinkedToken chains to allow GC after preprocessing.
     /// The cached snippet strings remain available.
+    /// Parameters are preserved as they are lightweight structural metadata
+    /// needed by any concurrent parser sharing this cached definition.
     /// </summary>
     public void ReleaseTokenLists()
     {
         ExpansionTokens = TokenList.Empty;
-        Parameters = null;
     }
 
     public Hover GetHover()

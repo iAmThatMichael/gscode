@@ -39,11 +39,10 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
 
         ThirdPass();
 
-        // Release LinkedToken chains from macro definitions — snippet strings are already cached.
-        foreach (MacroDefinition macro in Defines.Values)
-        {
-            macro.ReleaseTokenLists();
-        }
+        // NOTE: Do NOT call ReleaseTokenLists() here. MacroDefinition instances are shared
+        // across concurrent parsers via the global MacroDefinitionCache. Releasing them here
+        // would destroy Parameters/ExpansionTokens that other threads are still reading.
+        // The cache manages object lifetime through RemoveFileMacros/Clear.
     }
 
     /// <summary>

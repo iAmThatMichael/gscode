@@ -33,9 +33,10 @@ public sealed class DocumentHoversLibrary
 
         IHoverable? bestMatch = null;
         int bestMatchSize = int.MaxValue;
-        int matchCount = 0;
 
-        // Binary search on sorted keys
+        // Binary search to find the last entry whose start character is <= cursor position.
+        // Then scan backwards from there: any earlier-starting hoverable whose range still
+        // encloses the cursor is also a valid candidate (overlapping ranges, different starts).
         var keys = lineList.Keys;
         int lo = 0, hi = keys.Count - 1;
         int bestIdx = -1;
@@ -53,9 +54,9 @@ public sealed class DocumentHoversLibrary
             }
         }
 
-        if (bestIdx >= 0)
+        for (int i = bestIdx; i >= 0; i--)
         {
-            IHoverable hoverable = lineList.Values[bestIdx];
+            IHoverable hoverable = lineList.Values[i];
 
             Log.Debug("[HOVER] Checking hoverable: Type={Type}, Range=[{StartChar}-{EndChar}), Size={Size}", 
                 hoverable.GetType().Name,
@@ -68,59 +69,30 @@ public sealed class DocumentHoversLibrary
             if (hoverable.Range.Start.Character <= location.Character &&
                 hoverable.Range.End.Character > location.Character)
             {
-                matchCount++;
                 // Calculate the size of this range
                 int rangeSize = hoverable.Range.End.Character - hoverable.Range.Start.Character;
-
-                Log.Debug("[HOVER]   MATCH #{MatchNum}: Type={Type}, Range=[{StartChar}-{EndChar}), Size={Size}", 
-                    matchCount,
-                    hoverable.GetType().Name,
-                    hoverable.Range.Start.Character, 
-                    hoverable.Range.End.Character,
-                    rangeSize);
 
                 // Keep the smallest (most specific) range
                 if (rangeSize < bestMatchSize)
                 {
-                    if (bestMatch != null)
-                    {
-                        Log.Debug("[HOVER]   Replacing previous best match (Type={OldType}, Size={OldSize}) with smaller match (Type={NewType}, Size={NewSize})",
-                            bestMatch.GetType().Name,
-                            bestMatchSize,
-                            hoverable.GetType().Name,
-                            rangeSize);
-                    }
-                    else
-                    {
-                        Log.Debug("[HOVER]   First match, setting as best match");
-                    }
-
                     bestMatch = hoverable;
                     bestMatchSize = rangeSize;
                 }
-                else
-                {
-                    Log.Debug("[HOVER]   Skipping (larger than current best: {BestSize} < {CurrentSize})", 
-                        bestMatchSize, rangeSize);
-                }
             }
-            else
+            else if (hoverable.Range.End.Character <= location.Character)
             {
-                Log.Debug("[HOVER]   No match: position {Pos} is outside range [{Start}-{End})", 
-                    location.Character,
-                    hoverable.Range.Start.Character,
-                    hoverable.Range.End.Character);
+                // Earlier entries can only have smaller end characters; no point continuing.
+                break;
             }
         }
 
         if (bestMatch != null)
         {
-            Log.Information("[HOVER] Returning best match: Type={Type}, Range=[{StartChar}-{EndChar}), Size={Size}, TotalMatches={MatchCount}",
+            Log.Debug("[HOVER] Returning best match: Type={Type}, Range=[{StartChar}-{EndChar}), Size={Size}",
                 bestMatch.GetType().Name,
                 bestMatch.Range.Start.Character,
                 bestMatch.Range.End.Character,
-                bestMatchSize,
-                matchCount);
+                bestMatchSize);
         }
         else
         {

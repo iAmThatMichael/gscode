@@ -385,13 +385,25 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         int idx = tokens.IndexOf(nameToken);
         if (idx < 0) return null;
 
-        // Walk backwards, skipping whitespace/linebreaks, to find an immediately preceding doc comment
+        // Walk backwards to the start of the current line (first LineBreak before the name token)
+        int lineStart = idx;
         for (int i = idx - 1; i >= 0; i--)
         {
             Token? t = tokens.GetAt(i);
             if (t == null) break;
+            if (t.Type == TokenType.LineBreak)
+            {
+                lineStart = i;
+                break;
+            }
+        }
+
+        // From the line start, scan backwards (up to ~50 tokens) for a DocComment
+        for (int i = lineStart - 1, count = 0; i >= 0 && count < 50; i--, count++)
+        {
+            Token? t = tokens.GetAt(i);
+            if (t == null) break;
             if (t.Type == TokenType.DocComment) return t;
-            if (!t.IsWhitespacey()) break;
         }
 
         return null;
@@ -451,48 +463,8 @@ internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseD
 
     public virtual Hover GetHover()
     {
-        // Prefer user doc comment, if present
-        if (!string.IsNullOrWhiteSpace(Source.DocComment))
-        {
-            return new()
-            {
-                Range = Range,
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = Source.DocComment
-                })
-            };
-        }
-
-        // For API functions with overloads, use the Documentation property which
-        // handles multi-overload display. For single-overload, build inline.
-        if (Source.Overloads.Count > 1)
-        {
-            return new()
-            {
-                Range = Range,
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = Source.Documentation
-                })
-            };
-        }
-
-        StringBuilder builder = new();
-
-        builder.AppendLine("```gsc");
-        builder.Append($"function {Source.Name}(");
-
-        bool first = true;
-        foreach (ScrFunctionArg parameter in Source.Overloads[0].Parameters ?? [])
-        {
-            AppendParameter(builder, parameter, ref first);
-        }
-        builder.AppendLine(")");
-        builder.AppendLine("```");
-
+        // Always use the Documentation property which handles formatting
+        // (including DocComment → Markdown conversion when present)
         return new()
         {
             Range = Range,
@@ -599,27 +571,8 @@ internal record ScrMethodSymbol(Token NameToken, ScrFunction Source, ScrClass Cl
 
     public override Hover GetHover()
     {
-        StringBuilder builder = new();
-
-        builder.AppendLine("```gsc");
-        foreach (var overload in Source.Overloads)
-        {
-            if (Source.Overloads.Count > 1)
-            {
-                builder.AppendLine($"// Overload {Source.Overloads.IndexOf(overload) + 1}");
-            }
-
-            builder.Append($"{ClassSource.Name}::{Source.Name}(");
-
-            bool first = true;
-            foreach (ScrFunctionArg parameter in overload.Parameters)
-            {
-                AppendParameter(builder, parameter, ref first);
-            }
-            builder.AppendLine(")");
-        }
-        builder.AppendLine("```");
-
+        // Use the function's Documentation property which handles both DocComment
+        // and generated documentation consistently
         return new()
         {
             Range = Range,

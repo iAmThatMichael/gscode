@@ -38,21 +38,28 @@ internal sealed class ParserIntelliSense
     public ScriptMode Mode { get; }
     public bool IsEditorMode => Mode == ScriptMode.Editor;
 
+    // ── Always populated (both Editor and Index modes) ──
+    // These are needed for preprocessing, macro tracking, and symbol extraction.
     /// <summary>
-    /// List of semantic tokens to push to the editor.
+    /// Insert regions (range on the source line) to resolved file path mapping.
     /// </summary>
-    public List<ISemanticToken> SemanticTokens { get; } = new();
-    private bool _semanticTokensSorted = false;
+    public List<InsertRegion> InsertRegions { get; } = new();
 
     /// <summary>
-    /// Hover storage for IntelliSense. Null in index mode.
+    /// Macro definitions for completions and IntelliSense, with source file info.
+    /// Key: macro name, Value: (definition, source display like "shared/shared.gsh")
     /// </summary>
-    public DocumentHoversLibrary? HoverLibrary { get; }
+    public Dictionary<string, (Pre.MacroDefinition Definition, string? SourceDisplay)> MacroDefinitions { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// List of folding ranges to push to the editor.
+    /// Library of tokens to quickly lookup a token at a given position.
     /// </summary>
-    public List<FoldingRange> FoldingRanges { get; } = [];
+    public DocumentTokensLibrary Tokens { get; } = new();
+
+    /// <summary>
+    /// List of dependencies to request from the Language Server.
+    /// </summary>
+    public List<DocumentUri> Dependencies { get; } = new();
 
     /// <summary>
     /// List of diagnostics to push to the editor.
@@ -65,20 +72,23 @@ internal sealed class ParserIntelliSense
     /// </summary>
     public bool SilentSenseTokens { get; set; } = false;
 
+    // ── Editor-only (null/empty in Index mode) ──
+    // These support IDE presentation features and are not needed during indexing.
     /// <summary>
-    /// List of dependencies to request from the Language Server.
+    /// Hover storage for IntelliSense. Null in index mode.
     /// </summary>
-    public List<DocumentUri> Dependencies { get; } = new();
+    public DocumentHoversLibrary? HoverLibrary { get; }
 
     /// <summary>
-    /// Library of tokens to quickly lookup a token at a given position.
+    /// List of folding ranges to push to the editor.
     /// </summary>
-    public DocumentTokensLibrary Tokens { get; } = new();
+    public List<FoldingRange> FoldingRanges { get; } = [];
 
     /// <summary>
-    /// Library of completions to quickly lookup completions at a given position. Null in index mode.
+    /// List of semantic tokens to push to the editor.
     /// </summary>
-    public DocumentCompletionsLibrary? Completions { get; }
+    public List<ISemanticToken> SemanticTokens { get; } = new();
+    private bool _semanticTokensSorted = false;
 
     private readonly string _scriptPath;
     public readonly string _languageId;
@@ -91,15 +101,9 @@ internal sealed class ParserIntelliSense
     public List<MacroOutlineItem> MacroOutlines { get; } = new();
 
     /// <summary>
-    /// Macro definitions for completions and IntelliSense, with source file info.
-    /// Key: macro name, Value: (definition, source display like "shared/shared.gsh")
+    /// Library of completions to quickly lookup completions at a given position. Null in index mode.
     /// </summary>
-    public Dictionary<string, (Pre.MacroDefinition Definition, string? SourceDisplay)> MacroDefinitions { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Insert regions (range on the source line) to resolved file path mapping.
-    /// </summary>
-    public List<InsertRegion> InsertRegions { get; } = new();
+    public DocumentCompletionsLibrary? Completions { get; }
 
     public ParserIntelliSense(int endLine, DocumentUri scriptUri, string languageId, ScriptMode mode = ScriptMode.Editor)
     {
@@ -117,7 +121,9 @@ internal sealed class ParserIntelliSense
 
     public void AddInsertRegion(Range range, string rawPath, string? resolvedPath)
     {
-        if (!IsEditorMode) return;
+        // Note: InsertRegions must be populated in ALL modes (including Index),
+        // because Preprocessor.Define() uses them to attribute macros from #insert'd
+        // GSH files to their source path for MacroDefinitionCache tracking.
         InsertRegions.Add(new InsertRegion(range, rawPath, resolvedPath));
     }
 

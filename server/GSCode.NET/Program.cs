@@ -67,9 +67,9 @@ LanguageServer server = await LanguageServer.From(options =>
 			x => x
 				.AddSerilog(Log.Logger)
 				.AddLanguageProtocolLogging()
-				.SetMinimumLevel(LogLevel.Trace)
+				.SetMinimumLevel(LogLevel.Debug)
 		)
-		.WithServices(x => x.AddLogging(b => b.SetMinimumLevel(LogLevel.Trace)))
+		.WithServices(x => x.AddLogging(b => b.SetMinimumLevel(LogLevel.Debug)))
 		.WithServices(services =>
 		{
 			// Inject ScriptManager with ILanguageServerFacade so it can publish diagnostics during indexing

@@ -185,18 +185,24 @@ public class DefinitionsTable
 
     public (string FilePath, TokenRange Range)? GetClassLocation(string ns, string name)
     {
+        lock (_lock)
+        {
+            // Check local dictionary first (current file has priority)
+            if (ns is not null && _classLocations.TryGetValue(NK(ns, name), out var loc))
+            {
+                return loc;
+            }
+        }
+
+        // Fall back to global provider for O(1) lookup across workspace
         if (_globalProvider is not null)
         {
             var result = _globalProvider.FindClassLocation(ns, name);
             if (result is not null)
                 return result;
         }
-        lock (_lock)
-        {
-            if (ns is not null && _classLocations.TryGetValue(NK(ns, name), out var loc))
-                return loc;
-            return null;
-        }
+
+        return null;
     }
 
     public (string FilePath, TokenRange Range)? GetFunctionLocationAnyNamespace(string name)

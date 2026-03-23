@@ -197,8 +197,8 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
         // Remove the define directive from the script.
         ConnectTokens(defineToken.Previous!, current.Next!);
 
-        // Create the macro
-        MacroDefinition definition = new(
+        // Create the macro (will be cached to avoid duplication across files)
+        MacroDefinition uncachedDefinition = new(
             nameToken.Token,
             new TokenList(defineToken, current),
             new TokenList(firstExpansionNode, lastExpansionNode),
@@ -206,7 +206,33 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
             documentation
             );
 
-        string srcDisplay = GetRelativeDisplay(Sense.ScriptUri);
+        // Determine source file path for caching
+        string? sourceFilePath = null;
+        string srcDisplay;
+        if (nameToken.Token.IsFromPreprocessor)
+        {
+            // This macro came from an insert, find which insert region it belongs to
+            foreach (var region in Sense.InsertRegions)
+            {
+                // Find the insert region that this macro line falls within
+                if (region.Range.Start.Line <= nameToken.Range.Start.Line &&
+                    region.ResolvedPath is not null)
+                {
+                    sourceFilePath = region.ResolvedPath;
+                    // Keep updating as we find later regions (use the most recent/closest one)
+                }
+            }
+            srcDisplay = GetRelativeDisplay(sourceFilePath ?? Sense.ScriptUri);
+        }
+        else
+        {
+            // Local macro - use the current script path
+            sourceFilePath = Sense.ScriptPath;
+            srcDisplay = GetRelativeDisplay(Sense.ScriptUri);
+        }
+
+        // Use the cache to deduplicate identical macros across files
+        MacroDefinition definition = MacroDefinitionCache.Instance.GetOrAdd(sourceFilePath, macroName, uncachedDefinition);
 
         // GSC doesn't allow redefinitions of existing macros.
         if(TryGetMacroDefinition(nameToken, out _))

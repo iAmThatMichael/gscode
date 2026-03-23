@@ -85,7 +85,7 @@ internal sealed class ReferencesHandler : ReferencesHandlerBase
                     if (loc is not null)
                     {
                         string normalized = ScriptFileResolver.NormalizeFilePathForUri(loc.Value.FilePath);
-                        results.Add(new Location { Uri = new Uri(normalized), Range = loc.Value.Range });
+                        results.Add(new Location { Uri = new Uri(normalized), Range = loc.Value.Range.ToRange() });
                     }
                 }
             }

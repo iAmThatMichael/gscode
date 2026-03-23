@@ -35,13 +35,7 @@ public sealed class DocumentHoversLibrary
         int bestMatchSize = int.MaxValue;
         int matchCount = 0;
 
-        Log.Debug("[HOVER] Found {Count} hoverables on line {Line}", lineList.Count, location.Line);
-
-        IHoverable? bestMatch = null;
-        int bestMatchSize = int.MaxValue;
-        int matchCount = 0;
-
-        // Binary search on sorted keys to find the hover at or before the character position
+        // Binary search on sorted keys
         var keys = lineList.Keys;
         int lo = 0, hi = keys.Count - 1;
         int bestIdx = -1;

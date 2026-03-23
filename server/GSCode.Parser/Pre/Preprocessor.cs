@@ -206,8 +206,7 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
             documentation
             );
 
-        // Use the cache to deduplicate identical macros across files
-        MacroDefinition definition = MacroDefinitionCache.Instance.GetOrAdd(sourceFilePath, macroName, uncachedDefinition);
+        string srcDisplay = GetRelativeDisplay(Sense.ScriptUri);
 
         // GSC doesn't allow redefinitions of existing macros.
         if(TryGetMacroDefinition(nameToken, out _))

@@ -103,7 +103,7 @@ internal class MacroDefinition : ISenseDefinition
         TokenList defineSource = TokenList.From(defineTokens);
         TokenList expansionSource = TokenList.From(expansion);
 
-        MacroDefinition uncached = new(sourceToken, defineSnippet, expansionSource, null, isBuiltIn: true);
+        MacroDefinition uncached = new(sourceToken, defineSource, expansionSource, null, isBuiltIn: true);
 
         // Use cache for built-in macros to avoid duplication across files
         return MacroDefinitionCache.Instance.GetOrAdd(null, source, uncached);

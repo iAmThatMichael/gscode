@@ -330,13 +330,13 @@ public class ScriptManager
                 {
                     var (ns, name) = kv.Key;
                     var (filePath, range) = kv.Value;
-                    script.DefinitionsTable.AddFunctionLocation(ns, name, filePath, range);
+                    script.DefinitionsTable.AddFunctionLocation(ns, name, filePath, TokenRange.FromRange(range));
                 }
                 foreach (var kv in mergeClassLocs)
                 {
                     var (ns, name) = kv.Key;
                     var (filePath, range) = kv.Value;
-                    script.DefinitionsTable.AddClassLocation(ns, name, filePath, range);
+                    script.DefinitionsTable.AddClassLocation(ns, name, filePath, TokenRange.FromRange(range));
                 }
             }
             await script.AnalyseAsync(exportedSymbols, cancellationToken);
@@ -392,7 +392,7 @@ public class ScriptManager
                         string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(funcFilePath);
                         if (relativePath != null)
                         {
-                            allFuncLocs.Add((funcLoc.Key.Namespace, funcLoc.Key.Name, relativePath, funcLoc.Value.Range));
+                            allFuncLocs.Add((funcLoc.Key.Namespace, funcLoc.Key.Name, relativePath, funcLoc.Value.Range.ToRange()));
                         }
                     }
                 }
@@ -408,7 +408,7 @@ public class ScriptManager
                         string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(classFilePath);
                         if (relativePath != null)
                         {
-                            allClassLocs.Add((classLoc.Key.Namespace, classLoc.Key.Name, relativePath, classLoc.Value.Range));
+                            allClassLocs.Add((classLoc.Key.Namespace, classLoc.Key.Name, relativePath, classLoc.Value.Range.ToRange()));
                         }
                     }
                 }
@@ -584,7 +584,7 @@ public class ScriptManager
 
             if (resolvedPath != null && File.Exists(resolvedPath))
             {
-                return new Location() { Uri = new Uri(resolvedPath), Range = symbol.Range };
+                return new Location() { Uri = new Uri(resolvedPath), Range = symbol.Range.ToRange() };
             }
         }
 
@@ -604,7 +604,7 @@ public class ScriptManager
                     string? resolved = GSCode.Parser.Util.ScriptFileResolver.GetScriptFilePath(currentFilePath ?? string.Empty, funcLoc.Value.FilePath);
                     if (resolved != null && File.Exists(resolved))
                     {
-                        return new Location() { Uri = new Uri(resolved), Range = funcLoc.Value.Range };
+                        return new Location() { Uri = new Uri(resolved), Range = funcLoc.Value.Range.ToRange() };
                     }
                 }
 
@@ -614,7 +614,7 @@ public class ScriptManager
                     string? resolved = GSCode.Parser.Util.ScriptFileResolver.GetScriptFilePath(currentFilePath ?? string.Empty, classLoc.Value.FilePath);
                     if (resolved != null && File.Exists(resolved))
                     {
-                        return new Location() { Uri = new Uri(resolved), Range = classLoc.Value.Range };
+                        return new Location() { Uri = new Uri(resolved), Range = classLoc.Value.Range.ToRange() };
                     }
                 }
             }
@@ -626,7 +626,7 @@ public class ScriptManager
                 string? resolved = GSCode.Parser.Util.ScriptFileResolver.GetScriptFilePath(currentFilePath ?? string.Empty, funcAny.Value.FilePath);
                 if (resolved != null && File.Exists(resolved))
                 {
-                    return new Location() { Uri = new Uri(resolved), Range = funcAny.Value.Range };
+                    return new Location() { Uri = new Uri(resolved), Range = funcAny.Value.Range.ToRange() };
                 }
             }
 
@@ -636,7 +636,7 @@ public class ScriptManager
                 string? resolved = GSCode.Parser.Util.ScriptFileResolver.GetScriptFilePath(currentFilePath ?? string.Empty, classAny.Value.FilePath);
                 if (resolved != null && File.Exists(resolved))
                 {
-                    return new Location() { Uri = new Uri(resolved), Range = classAny.Value.Range };
+                    return new Location() { Uri = new Uri(resolved), Range = classAny.Value.Range.ToRange() };
                 }
             }
         }
@@ -1000,13 +1000,13 @@ public class ScriptManager
                             ns, name, filePath);
                     }
 
-                    cached.Script.DefinitionsTable.AddFunctionLocation(ns, name, filePath, range);
+                    cached.Script.DefinitionsTable.AddFunctionLocation(ns, name, filePath, TokenRange.FromRange(range));
                 }
                 foreach (var kv in mergeClassLocs)
                 {
                     var (ns, name) = kv.Key;
                     var (filePath, range) = kv.Value;
-                    cached.Script.DefinitionsTable.AddClassLocation(ns, name, filePath, range);
+                    cached.Script.DefinitionsTable.AddClassLocation(ns, name, filePath, TokenRange.FromRange(range));
                 }
             }
             await Task.CompletedTask;

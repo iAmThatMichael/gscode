@@ -569,17 +569,15 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                     skippedFunctionCount++;
                     continue;
                 }
-        foreach (string identifier in GetCachedIdentifiers())
-        {
-            if (seenIdentifiers.Contains(identifier)) continue;
 
-            completions.Add(new CompletionItem()
-            {
-                Kind = CompletionItemKind.Variable,
-                Label = identifier,
-                InsertText = identifier
-            });
-            seenIdentifiers.Add(identifier);
+                completions.Add(new CompletionItem()
+                {
+                    Kind = CompletionItemKind.Variable,
+                    Label = token.Lexeme,
+                    InsertText = token.Lexeme
+                });
+                seenIdentifiers.Add(token.Lexeme);
+            }
         }
 
         Log.Debug("GetFileScopeCompletions: Macros found={MacroCount}, Skipped: API={SkipApi}, Preprocessor={SkipPreproc}, Functions={SkipFunc}, Total completions={Total}",
@@ -758,7 +756,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             sortPrefix = "1_";  // Sort after API but before namespace functions
         }
 
-        string? detail = function.Description;
+        // Append overload count to detail if needed
         if (function.Overloads.Count > 1)
         {
             string overloadSuffix = $"(+{function.Overloads.Count - 1} overload{(function.Overloads.Count > 2 ? "s" : "")})";
@@ -853,6 +851,19 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
         return context;
     }
+
+    private sealed class DirectivePathContext
+    {
+        public string DirectiveType { get; init; } = string.Empty;
+    }
+
+    private DirectivePathContext? GetDirectivePathContext(Token token) => null;
+
+    private IEnumerable<CompletionItem> GetDirectivePathCompletions(DirectivePathContext context)
+        => Enumerable.Empty<CompletionItem>();
+
+    private IEnumerable<CompletionItem> GetDirectiveCompletions(HashSet<string> seenIdentifiers, Token token)
+        => Enumerable.Empty<CompletionItem>();
 }
 
 

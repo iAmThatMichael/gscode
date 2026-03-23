@@ -283,9 +283,33 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     /// </summary>
     private bool TryGetQualifiedFunctionTokenByIndex(int tokenIndex, out int functionTokenIndex)
     {
-        // identifier may be part of ns::name; find left-most identifier
-        Token leftMost = identifier;
-        if (identifier.Previous is { Type: TokenType.ScopeResolution } scope && scope.Previous is { Type: TokenType.Identifier } ns)
+        var tokens = Sense.Tokens;
+        functionTokenIndex = -1;
+
+        int nextIdx = tokens.NextNonTriviaIndex(tokenIndex);
+        if (nextIdx < 0 || tokens.GetAt(nextIdx)!.Type != TokenType.ScopeResolution)
+            return false;
+
+        int funcIdx = tokens.NextNonTriviaIndex(nextIdx);
+        if (funcIdx < 0 || tokens.GetAt(funcIdx)!.Type != TokenType.Identifier)
+            return false;
+
+        functionTokenIndex = funcIdx;
+        return true;
+    }
+
+    private bool IsOnUsingLineByIndex(int tokenIndex, out string? usingPath, out Range? usingRange)
+    {
+        var tokens = Sense.Tokens;
+        usingPath = null;
+        usingRange = null;
+
+        Token token = tokens.GetAt(tokenIndex)!;
+        int line = token.Range.Start.Line;
+
+        // Walk to start of line
+        int cursorIdx = tokenIndex;
+        while (cursorIdx > 0)
         {
             Token prev = tokens.GetAt(cursorIdx - 1)!;
             if (prev.Range.End.Line != line) break;
@@ -298,11 +322,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         {
             Token t = tokens.GetAt(i)!;
             if (t.Range.Start.Line != line) break;
-            if (t.Lexeme == "#using")
-            {
-                usingIdx = i;
-                break;
-            }
+            if (t.Lexeme == "#using") { usingIdx = i; break; }
         }
         if (usingIdx < 0) return false;
 
@@ -333,86 +353,6 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         usingPath = sb.ToString();
         usingRange = RangeHelper.From(startToken.Range.Start, endToken.Range.End);
         return true;
-    }
-
-    private static string NormalizeDocComment(string raw)
-    {
-        var tokens = Sense.Tokens;
-        idTokenIndex = -1;
-        activeParam = 0;
-
-        // Scan left to find the nearest unmatched '('
-        int cursorIdx = tokenIndex;
-        int parenDepth = 0;
-        while (cursorIdx >= 0)
-        {
-            Token cursor = tokens.GetAt(cursorIdx)!;
-            if (cursor.Type == TokenType.CloseParen) parenDepth++;
-            if (cursor.Type == TokenType.OpenParen)
-            {
-                if (parenDepth == 0) break;
-                parenDepth--;
-            }
-            cursorIdx--;
-        }
-        if (cursorIdx < 0)
-            return false;
-
-        // Find the identifier before this '('
-        int idIdx = tokens.PrevNonTriviaIndex(cursorIdx);
-        if (idIdx < 0) return false;
-        Token id = tokens.GetAt(idIdx)!;
-        if (id.Type != TokenType.Identifier) return false;
-
-        idTokenIndex = idIdx;
-
-        // Count commas between '(' and cursor position, respecting nesting
-        int depthParen = 0, depthBracket = 0, depthBrace = 0;
-        int index = 0;
-        for (int i = cursorIdx + 1; i <= tokenIndex; i++)
-        {
-            Token walker = tokens.GetAt(i)!;
-            if (walker.Type == TokenType.OpenParen) depthParen++;
-            else if (walker.Type == TokenType.CloseParen)
-            {
-                if (depthParen == 0) break;
-                depthParen--;
-            }
-            else if (walker.Type == TokenType.OpenBracket) depthBracket++;
-            else if (walker.Type == TokenType.CloseBracket && depthBracket > 0) depthBracket--;
-            else if (walker.Type == TokenType.OpenBrace) depthBrace++;
-            else if (walker.Type == TokenType.CloseBrace && depthBrace > 0) depthBrace--;
-            else if (walker.Type == TokenType.Comma && depthParen == 0 && depthBracket == 0 && depthBrace == 0)
-            {
-                index++;
-            }
-        }
-        activeParam = index;
-        return true;
-    }
-
-    /// <summary>
-    /// Index-based: checks if token is on a #using line and extracts the path.
-    /// </summary>
-    private bool IsOnUsingLineByIndex(int tokenIndex, out string? usingPath, out Range? usingRange)
-    {
-        var tokens = Sense.Tokens;
-        usingPath = null;
-        usingRange = null;
-
-        Token token = tokens.GetAt(tokenIndex)!;
-        int line = token.Range.Start.Line;
-
-        // Walk to start of line
-        int cursorIdx = tokenIndex;
-        while (cursorIdx > 0)
-        {
-            Token prev = tokens.GetAt(cursorIdx - 1)!;
-            if (prev.Range.End.Line != line) break;
-            cursorIdx--;
-        }
-        Token? prev = PreviousNonTrivia(leftMost);
-        return prev is not null && prev.Type == TokenType.BitAnd;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -871,11 +811,9 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             }
         }
 
-        IHoverable? result = Sense.HoverLibrary!.Get(position);
-        if (result is not null)
         // Priority 0: Check HoverLibrary first for special cases (preprocessor macros, directives, etc.)
         // These might not have regular tokens but still need hover support
-        IHoverable? hoverable = Sense.HoverLibrary.Get(position);
+        IHoverable? hoverable = Sense.HoverLibrary!.Get(position);
         if (hoverable is not null)
         {
             Log.Debug("[HOVER] Priority 0: Returning hoverable from library at position {Pos}", position);
@@ -927,12 +865,6 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
             return hoverable.GetHover();
         }
 
-        int tokenIdx = Sense.Tokens.GetIndex(position);
-        Token? token = Sense.Tokens.GetAt(tokenIdx);
-        if (token is null)
-        {
-            return null;
-        }
         // Priority 4: Fallback - try to synthesize basic hover for script functions without SenseDefinition
         // This handles edge cases where analysis might have missed something
         if (token.Type == TokenType.Identifier && !IsBuiltinFunction(token.Lexeme))
@@ -982,26 +914,26 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     /// </summary>
     private Hover? BuildCallSignatureHover(Token functionToken, int activeParam)
     {
-        var (qualifier, funcName) = ParseNamespaceQualifiedIdentifier(functionToken);
+        var (qualifier, funcName) = ParseNamespaceQualifiedIdentifierByIndex(Sense.Tokens.IndexOf(functionToken));
 
-        Log.Debug("[HOVER] BuildCallSignatureHover: funcName='{FuncName}', qualifier='{Qualifier}', token.SenseDefinition={SenseDefType}",
-            funcName, qualifier ?? "(none)", functionToken.SenseDefinition?.GetType().Name ?? "null");
+        Log.Debug("[HOVER] BuildCallSignatureHover: funcName='{FuncName}', qualifier='{Qualifier}', senseDef={SenseDefType}",
+            funcName, qualifier ?? "(none)", Sense.GetSenseDefinition(functionToken)?.GetType().Name ?? "null");
 
         // Try to get the function definition to show its full documentation
         ScrFunction? function = null;
 
         // First, check if the function token has a SenseDefinition with the function
-        if (functionToken.SenseDefinition is ScrFunctionSymbol funcSymbol)
+        if (Sense.GetSenseDefinition(functionToken) is ScrFunctionSymbol funcSymbol)
         {
             Log.Debug("[HOVER] Found function via ScrFunctionSymbol");
             function = funcSymbol.Source;
         }
-        else if (functionToken.SenseDefinition is ScrMethodSymbol methodSymbol)
+        else if (Sense.GetSenseDefinition(functionToken) is ScrMethodSymbol methodSymbol)
         {
             Log.Debug("[HOVER] Found function via ScrMethodSymbol");
             function = methodSymbol.Source;
         }
-        else if (functionToken.SenseDefinition is ScrFunctionReferenceSymbol refSymbol)
+        else if (Sense.GetSenseDefinition(functionToken) is ScrFunctionReferenceSymbol refSymbol)
         {
             Log.Debug("[HOVER] Found ScrFunctionReferenceSymbol, looking up function in definitions table");
             // Function reference doesn't contain the full function, need to look it up
@@ -1064,32 +996,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         // Fallback: use simplified signature if function not found
         string? markdown = BuildSignatureMarkdown(funcName, qualifier, activeParam);
         if (markdown is null)
-        // If cursor is inside a call's argument list, synthesize a signature-like hover with current parameter highlighted
-        if (TryGetCallInfoByIndex(tokenIdx, out int idTokenIdx, out int activeParam))
-        {
-            Token idToken = Sense.Tokens.GetAt(idTokenIdx)!;
-            var (q, funcName) = ParseNamespaceQualifiedIdentifierByIndex(idTokenIdx);
-            string? md = BuildSignatureMarkdown(funcName, q, activeParam);
-            if (md is not null)
-            {
-                return new Hover
-                {
-                    Range = idToken.Range,
-                    Contents = new MarkedStringsOrMarkupContent(new MarkupContent
-                    {
-                        Kind = MarkupKind.Markdown,
-                        Value = md
-                    })
-                };
-            }
-        }
-
-        // No precomputed hover — try to synthesize one for local/external (non-builtin) function identifiers
-        // Only for identifiers (namespace::name or plain name)
-        if (token.Type != TokenType.Identifier)
-        {
             return null;
-        }
 
         return new Hover
         {
@@ -1107,10 +1014,10 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
     /// </summary>
     private Hover? TryBuildFallbackFunctionHover(Token token)
     {
-        var (qualifier, name) = ParseNamespaceQualifiedIdentifier(token);
-
-        // Try to get doc/params from definitions table
-        var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(tokenIdx);
+        int tokenIdx = Sense.Tokens.IndexOf(token);
+        var (qualifier, name) = tokenIdx >= 0
+            ? ParseNamespaceQualifiedIdentifierByIndex(tokenIdx)
+            : (null, token.Lexeme);
 
         // Exclude builtin API functions
         if (IsBuiltinFunction(name))
@@ -1241,23 +1148,6 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
     public async Task<CompletionList?> GetCompletionAsync(Position position, CancellationToken cancellationToken)
     {
-        Log.Information("GetCompletionAsync: Starting, waiting for analysis...");
-        try
-        {
-            await WaitUntilAnalysedAsync(cancellationToken);
-            Log.Information("GetCompletionAsync: Analysis complete, calling GetCompletionsFromPosition at {Position}", position);
-            var result = Sense.Completions.GetCompletionsFromPosition(position);
-            Log.Information("GetCompletionAsync: Returning {Count} completions", result?.Count() ?? 0);
-            return result;
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "GetCompletionAsync: Exception occurred");
-            throw;
-        }
-
-    public async Task<CompletionList?> GetCompletionAsync(Position position, CancellationToken cancellationToken)
-    {
         if (!Sense.IsEditorMode) return null;
         await WaitUntilAnalysedAsync(cancellationToken);
         return Sense.Completions!.GetCompletionsFromPosition(position);
@@ -1358,26 +1248,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
         idToken = id;
 
-        // Some paths are produced like "/g:/path/..." on Windows; remove leading slash if followed by drive letter
-        if (filePath.Length >= 3 && filePath[0] == '/' && char.IsLetter(filePath[1]) && filePath[2] == ':')
-        {
-            filePath = filePath.Substring(1);
-        }
-
-        if (cursor is null)
-            return false; // not in a call
-
-        // Find the identifier before this '('
-        Token? id = cursor.Previous;
-        while (id is not null && (id.IsWhitespacey() || id.IsComment())) 
-            id = id.Previous;
-
-        if (id is null || id.Type != TokenType.Identifier)
-            return false;
-
-        idToken = id;
-
-        // Count parameter index by scanning commas from cursor to current position
+        // Count parameter index
         // without nesting into inner parens/brackets/braces
         Token? walker = cursor.Next;
         int depthParen = 0, depthBracket = 0, depthBrace = 0;
@@ -1454,7 +1325,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         }
 
         // Check if this is a variable reference - go to its definition
-        if (token.SenseDefinition is ScrVariableSymbol varSymbol && varSymbol.DefinitionSource is not null)
+        if (Sense.GetSenseDefinition(token) is ScrVariableSymbol varSymbol && varSymbol.DefinitionSource is not null)
         {
             Log.Debug("GetDefinitionAsync: Token is a variable reference, navigating to definition");
             // Navigate to the definition (the identifier token where it was first declared)
@@ -1474,7 +1345,7 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         }
 
         // Check if this is a parameter reference - go to its definition
-        if (token.SenseDefinition is ScrParameterSymbol paramSymbol && paramSymbol.DefinitionSource is not null)
+        if (Sense.GetSenseDefinition(token) is ScrParameterSymbol paramSymbol && paramSymbol.DefinitionSource is not null)
         {
             Log.Debug("GetDefinitionAsync: Token is a parameter reference, navigating to definition");
             // Navigate to the parameter definition
@@ -1678,9 +1549,20 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         return null;
     }
 
+    private bool TryGetCallInfoByIndex(int tokenIdx, out int idTokenIdx, out int activeParam)
+    {
+        idTokenIdx = -1;
+        activeParam = 0;
+        Token? token = Sense.Tokens.GetAt(tokenIdx);
+        if (token is null) return false;
+        if (!TryFindCallContext(token, out Token? idToken, out activeParam)) return false;
+        if (idToken is null) return false;
+        idTokenIdx = Sense.Tokens.IndexOf(idToken);
+        return idTokenIdx >= 0;
+    }
+
     public async Task<SignatureHelp?> GetSignatureHelpAsync(Position position, CancellationToken cancellationToken)
     {
-        if (!Sense.IsEditorMode) return null;
         await WaitUntilParsedAsync(cancellationToken);
 
         var tokens = Sense.Tokens;

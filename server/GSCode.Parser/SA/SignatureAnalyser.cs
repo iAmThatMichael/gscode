@@ -379,51 +379,19 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         return result;
     }
 
-    private static Token? FindDocCommentTokenBefore(Token nameToken)
+    private Token? FindDocCommentTokenBefore(Token nameToken)
     {
         DocumentTokensLibrary tokens = Sense.Tokens;
         int idx = tokens.IndexOf(nameToken);
-        if (idx < 0)
-        {
-            return null;
-        }
+        if (idx < 0) return null;
 
-        // Walk backwards to find the line break before the function definition
-        while (idx > 0)
+        // Walk backwards, skipping whitespace/linebreaks, to find an immediately preceding doc comment
+        for (int i = idx - 1; i >= 0; i--)
         {
-            Token? t = tokens.GetAt(idx);
-            if (t == null)
-            {
-                return null;
-            }
-            if (t.Type == TokenType.LineBreak)
-            {
-                break;
-            }
-            idx--;
-        }
-
-        // Now scan backwards up to 50 tokens looking for a doc comment
-        int count = 50;
-        while (count > 0 && idx > 0)
-        {
-            idx--;
-            count--;
-
-            Token? t = tokens.GetAt(idx);
-            if (t == null)
-            {
-                return null;
-            }
-        }
-
-        if (nameToken.Previous.Type == TokenType.DocComment)
-        {
-            return nameToken.Previous;
-            if (t.Type == TokenType.DocComment)
-            {
-                return SanitizeDocForMarkdown(t.Lexeme);
-            }
+            Token? t = tokens.GetAt(i);
+            if (t == null) break;
+            if (t.Type == TokenType.DocComment) return t;
+            if (!t.IsWhitespacey()) break;
         }
 
         return null;
@@ -473,35 +441,6 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
     }
 }
 
-
-/// <summary>
-/// Records the definition of a function parameter for semantics & hovers
-/// </summary>
-/// <param name="Source">The parameter source</param>
-internal record ScrParameterSymbol(ScrParameter Source) : ISenseDefinition
-{
-    // I'm pretty sure this is redundant
-
-    public Range Range { get; } = Source.Range;
-
-    public string SemanticTokenType { get; } = "parameter";
-    public string[] SemanticTokenModifiers { get; } = [];
-
-    public Hover GetHover()
-    {
-        string parameterName = $"{Source.Name}";
-        return new()
-        {
-            Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
-                Kind = MarkupKind.Markdown,
-                Value = string.Format("```gsc\n{0}\n```",
-                   parameterName)
-            })
-        };
-    }
-}
 
 internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseDefinition
 {

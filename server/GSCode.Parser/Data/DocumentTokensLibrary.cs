@@ -167,15 +167,7 @@ public sealed class DocumentTokensLibrary
             }
         }
 
-        Token token = TokenList[index];
-
-        // If current token is an open paren, use the previous token instead (e.g., function name before the paren)
-        if (token.Type == TokenType.OpenParen && index > 0)
-        {
-            return TokenList[index - 1];
-        }
-
-        return token;
+        return index;
     }
 
     /// <summary>
@@ -199,6 +191,13 @@ public sealed class DocumentTokensLibrary
             currentNode = currentNode.Next;
         }
         TokenList.TrimExcess();
+
+        // Wire up Previous/Next links on the stored Token objects so navigation methods work.
+        for (int i = 0; i < TokenList.Count; i++)
+        {
+            TokenList[i].Previous = i > 0 ? TokenList[i - 1] : null;
+            TokenList[i].Next = i < TokenList.Count - 1 ? TokenList[i + 1] : null;
+        }
     }
 
     internal IEnumerable<Token> GetAll()

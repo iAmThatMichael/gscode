@@ -53,6 +53,16 @@ internal record class Token(TokenType Type, TokenRange TokenRange)
 
     public int Length => Lexeme.Length;
 
+    /// <summary>
+    /// Link to the previous token in the stored flat list. Set by DocumentTokensLibrary.
+    /// </summary>
+    public Token? Previous { get; set; }
+
+    /// <summary>
+    /// Link to the next token in the stored flat list. Set by DocumentTokensLibrary.
+    /// </summary>
+    public Token? Next { get; set; }
+
     public bool IsWhitespacey()
     {
         return Type == TokenType.Whitespace

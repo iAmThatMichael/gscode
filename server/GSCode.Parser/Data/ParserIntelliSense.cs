@@ -138,19 +138,8 @@ internal sealed class ParserIntelliSense
         Completions.MacroDefinitions = MacroDefinitions;
     }
 
-    public void AddMacroDefinition(string name, Pre.MacroDefinition definition, string? sourceDisplay = null)
-    {
-        MacroDefinitions[name] = (definition, sourceDisplay);
-    }
-
-    public void SetDefinitionsTable(SA.DefinitionsTable? definitionsTable)
-    {
-        Completions.DefinitionsTable = definitionsTable;
-        Completions.MacroDefinitions = MacroDefinitions;
-    }
-
     /// <summary>
-    /// Sparse store for token → ISenseDefinition mappings. Only tokens with semantic meaning
+    /// Sparse store for token → ISenseDefinition mappings.
     /// (identifiers with hovers/highlighting) are stored here, avoiding an 8-byte pointer on every token.
     /// </summary>
     private readonly Dictionary<Token, ISenseDefinition> _senseDefinitions = new();

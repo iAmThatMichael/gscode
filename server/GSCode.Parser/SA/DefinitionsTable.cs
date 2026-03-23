@@ -180,12 +180,7 @@ public class DefinitionsTable
             if (result is not null)
                 return result;
         }
-        lock (_lock)
-        {
-            if (ns is not null && _functionLocations.TryGetValue(NK(ns, name), out var loc))
-                return loc;
-            return null;
-        }
+        return null;
     }
 
     public (string FilePath, TokenRange Range)? GetClassLocation(string ns, string name)

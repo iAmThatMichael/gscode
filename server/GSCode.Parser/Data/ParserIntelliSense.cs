@@ -134,6 +134,7 @@ internal sealed class ParserIntelliSense
 
     public void SetDefinitionsTable(SA.DefinitionsTable? definitionsTable)
     {
+        if (Completions is null) return;
         Completions.DefinitionsTable = definitionsTable;
         Completions.MacroDefinitions = MacroDefinitions;
     }
@@ -142,7 +143,7 @@ internal sealed class ParserIntelliSense
     /// Sparse store for token → ISenseDefinition mappings.
     /// (identifiers with hovers/highlighting) are stored here, avoiding an 8-byte pointer on every token.
     /// </summary>
-    private readonly Dictionary<Token, ISenseDefinition> _senseDefinitions = new();
+    private readonly Dictionary<Token, ISenseDefinition> _senseDefinitions = new(ReferenceEqualityComparer.Instance);
 
     public ISenseDefinition? GetSenseDefinition(Token token)
         => _senseDefinitions.GetValueOrDefault(token);

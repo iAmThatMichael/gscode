@@ -183,8 +183,11 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         // Gather signatures for all functions and classes.
         DefinitionsTable = new(ScriptFileName, GlobalSymbolProvider);
 
-        // Set the DefinitionsTable in the completions library
-        Sense.SetDefinitionsTable(DefinitionsTable);
+        // Set the DefinitionsTable in the completions library (editor mode only)
+        if (sense.IsEditorMode)
+        {
+            sense.SetDefinitionsTable(DefinitionsTable);
+        }
 
         SignatureAnalyser signatureAnalyser = new(RootNode, DefinitionsTable, Sense);
         try

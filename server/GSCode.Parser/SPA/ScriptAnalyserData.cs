@@ -130,7 +130,7 @@ public class ScriptAnalyserData
             }
 
             if (_languageLibraries.TryGetValue(library.LanguageId, out ScrLibraryData? existingLibrary)
-                && existingLibrary!.Library.Revision > library.Revision)
+                && existingLibrary!.Library.Revision >= library.Revision)
             {
                 return false;
             }

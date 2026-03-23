@@ -324,7 +324,7 @@ _ = Task.Run(async () =>
 			macroCount = macroStats.TotalMacros;
 			gshFilesCount = macroStats.GshFiles;
 
-			Log.Debug("Memory Usage - Working Set: {WorkingSet:F2} MB, Private: {Private:F2} MB | Functions: {Functions}, Classes: {Classes}, Files: GSC={Gsc} CSC={Csc} GSH={Gsh}, Macros: {Macros}", 
+			Log.Information("Memory Usage - Working Set: {WorkingSet:F2} MB, Private: {Private:F2} MB | Functions: {Functions}, Classes: {Classes}, Files: GSC={Gsc} CSC={Csc} GSH={Gsh}, Macros: {Macros}", 
 				memoryMB, privateMemoryMB, functionCount, classCount, gscCount, cscCount, gshFilesCount, macroCount);
 
 			await Task.Delay(250, memoryMonitorCts.Token);

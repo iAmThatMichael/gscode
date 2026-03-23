@@ -358,6 +358,27 @@ internal record struct ScrData
             return new ScrData(ScrDataTypes.Array);
         }
 
+        // Handle union types (pipe-separated, e.g. "hash | int | string")
+        if (apiType.DataType.Contains('|'))
+        {
+            var parts = apiType.DataType.Split('|', StringSplitOptions.TrimEntries);
+            ScrDataTypes combined = ScrDataTypes.Void;
+            List<IScrDataSubType>? subTypes = null;
+
+            foreach (var part in parts)
+            {
+                var (type, subType) = ParseSingleApiTypeWithSubType(part, apiType.InstanceType);
+                combined |= type;
+                if (subType is not null)
+                {
+                    subTypes ??= new();
+                    subTypes.Add(subType);
+                }
+            }
+
+            return combined == ScrDataTypes.Void ? Default : new ScrData(combined, subTypes);
+        }
+
         return ParseSingleApiType(apiType.DataType, apiType.InstanceType);
     }
 
@@ -783,6 +804,12 @@ internal record struct ScrData
             return true;
         }
 
+        // IString is implicitly compatible with String (localized strings are still strings)
+        if ((expected & ScrDataTypes.String) != ScrDataTypes.Void)
+        {
+            expected |= ScrDataTypes.IString;
+        }
+
         if (Indeterminate)
         {
             return (Type & expected) != ScrDataTypes.Void;
@@ -801,12 +828,20 @@ internal record struct ScrData
             return true;
         }
 
-        if (Indeterminate || expected.Indeterminate)
+        ScrDataTypes expectedType = expected.Type;
+
+        // IString is implicitly compatible with String (localized strings are still strings)
+        if ((expectedType & ScrDataTypes.String) != ScrDataTypes.Void)
         {
-            return (Type & expected.Type) != ScrDataTypes.Void;
+            expectedType |= ScrDataTypes.IString;
         }
 
-        return (Type & ~expected.Type) == ScrDataTypes.Void;
+        if (Indeterminate || expected.Indeterminate)
+        {
+            return (Type & expectedType) != ScrDataTypes.Void;
+        }
+
+        return (Type & ~expectedType) == ScrDataTypes.Void;
     }
 
     public string TypeToString()

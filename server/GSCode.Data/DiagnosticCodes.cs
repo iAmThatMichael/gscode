@@ -127,9 +127,11 @@ public enum GSCErrorCodes
         ExpectedConstantExpression = 3060,
         CannotAssignToImmutableEntity = 3061,
         PredefinedFieldTypeMismatch = 3062,
+        ArgumentTypeMismatchUnverified = 3063,
 
         // 8xxx errors are issued by the IDE for conventions
         UnterminatedRegion = 8000,
+        PreferBooleanLiteral = 8001,
 
         // 9xxx errors are issued by the IDE for GSCode.NET faults
         UnhandledLexError = 9000,
@@ -258,9 +260,11 @@ public static class DiagnosticCodes
         { GSCErrorCodes.ExpectedConstantExpression, new("A constant declaration must have a compile-time constant expression on the right-hand side.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.CannotAssignToImmutableEntity, new("The entity type '{0}' is immutable and cannot be assigned to.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.PredefinedFieldTypeMismatch, new("Cannot assign value of type '{0}' to entity field of type '{1}'.", DiagnosticSeverity.Error) },
+        { GSCErrorCodes.ArgumentTypeMismatchUnverified, new("Argument {0} to '{1}' expects '{2}', got '{3}'.\nNote: Argument types are derived from Treyarch's API, which may contain errors.", DiagnosticSeverity.Warning) },
 
         // 8xxx
         { GSCErrorCodes.UnterminatedRegion, new("No corresponding '/* endregion */' found to terminate '{0}' region.", DiagnosticSeverity.Warning) },
+        { GSCErrorCodes.PreferBooleanLiteral, new("Prefer the use of boolean keyword '{0}' over integer literal '{1}'.", DiagnosticSeverity.Hint) },
       
         // 9xxx
         { GSCErrorCodes.UnhandledLexError, new("An unhandled exception '{0}' caused tokenisation (gscode-lex) of the script to fail. File a GSCode issue report and provide this script file for error reproduction.", DiagnosticSeverity.Error) },

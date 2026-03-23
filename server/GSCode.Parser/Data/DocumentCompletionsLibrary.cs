@@ -44,6 +44,11 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
     // Use shared API instance to avoid redundant allocations
     private readonly ScriptAnalyserData? _scriptAnalyserData = ScriptAnalyserData.GetShared(languageId);
 
+    /// <summary>
+    /// Pre-cached unique identifiers from the token stream for fast completions.
+    /// </summary>
+    private HashSet<string>? _cachedIdentifiers;
+
     public CompletionList GetCompletionsFromPosition(Position position)
     {
         Token? token = Tokens.Get(position);
@@ -564,15 +569,17 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                     skippedFunctionCount++;
                     continue;
                 }
+        foreach (string identifier in GetCachedIdentifiers())
+        {
+            if (seenIdentifiers.Contains(identifier)) continue;
 
-                completions.Add(new CompletionItem()
-                {
-                    Kind = CompletionItemKind.Variable,
-                    Label = token.Lexeme,
-                    InsertText = token.Lexeme
-                });
-                seenIdentifiers.Add(token.Lexeme);
-            }
+            completions.Add(new CompletionItem()
+            {
+                Kind = CompletionItemKind.Variable,
+                Label = identifier,
+                InsertText = identifier
+            });
+            seenIdentifiers.Add(identifier);
         }
 
         Log.Debug("GetFileScopeCompletions: Macros found={MacroCount}, Skipped: API={SkipApi}, Preprocessor={SkipPreproc}, Functions={SkipFunc}, Total completions={Total}",
@@ -676,10 +683,20 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             List<string> paramSnippets = new List<string>();
             int tabIndex = 1;
 
-            foreach (var param in mandatoryParams)
+            foreach (var param in function.Overloads.First().Parameters)
             {
-                paramSnippets.Add($"${{{tabIndex}:{param.Name ?? $"param{tabIndex}"}}}");
-                tabIndex++;
+                // Add mandatory parameters with tabstops
+                if (param.Mandatory.GetValueOrDefault(false))
+                {
+                    paramSnippets.Add($"${{{tabIndex}:{param.Name ?? $"param{tabIndex}"}}}");
+                    tabIndex++;
+                }
+                // Optional parameters are added with brackets
+                else
+                {
+                    paramSnippets.Add($"${{{tabIndex}:[{param.Name ?? $"optionalParam{tabIndex}"}]}}");
+                    tabIndex++;
+                }
             }
 
             insertText += string.Join(", ", paramSnippets);
@@ -741,6 +758,13 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             sortPrefix = "1_";  // Sort after API but before namespace functions
         }
 
+        string? detail = function.Description;
+        if (function.Overloads.Count > 1)
+        {
+            string overloadSuffix = $"(+{function.Overloads.Count - 1} overload{(function.Overloads.Count > 2 ? "s" : "")})";
+            detail = string.IsNullOrEmpty(detail) ? overloadSuffix : $"{detail} {overloadSuffix}";
+        }
+
         return new CompletionItem()
         {
             Label = label,
@@ -754,589 +778,35 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             }),
             InsertText = insertText,
             InsertTextFormat = InsertTextFormat.Snippet,
-            Kind = kind,
-            // Add sorting with prefix to group by type
-            SortText = sortPrefix + function.Name.ToLowerInvariant()
+            Kind = CompletionItemKind.Function,
+            // Add sorting information to keep API functions organized
+            SortText = function.Name.ToLowerInvariant(),
+            // Add commit characters to automatically complete when typing these
+            CommitCharacters = new Container<string>(new[] { "(", ")", ";" })
         };
     }
 
-    private List<CompletionItem> GetDirectiveCompletions(HashSet<string> seenIdentifiers, Token token)
+    /// <summary>
+    /// Builds or returns the cached set of unique non-API identifiers from the token stream.
+    /// </summary>
+    private HashSet<string> GetCachedIdentifiers()
     {
-        List<CompletionItem> completions = new();
+        if (_cachedIdentifiers is not null) return _cachedIdentifiers;
 
-        // Check if the previous non-whitespace token is # (meaning user just typed #)
-        // If so, DON'T include # in InsertText to avoid ##using
-        Token? prev = token.PreviousNonWhitespace();
-        bool includeHash = prev?.Type != TokenType.Hash;
-
-        Log.Information("GetDirectiveCompletions: token type={Type}, prev type={PrevType}, includeHash={IncludeHash}", 
-            token.Type, prev?.Type, includeHash);
-
-        // Define directives with their snippet patterns (always include # in InsertText)
-        var directives = new[]
+        _cachedIdentifiers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Token token in Tokens.GetAll())
         {
-            new {
-                Label = "#using",
-                InsertText = "#using ${1:scripts\\path\\to\\script};$0",
-                Detail = "Import a script file",
-                Documentation = "Imports functions and variables from another script file.\n\nExample: `#using scripts\\codescripts\\struct;`"
-            },
-            new {
-                Label = "#insert",
-                InsertText = "#insert ${1:scripts\\shared\\header.gsh};$0",
-                Detail = "Insert a header file",
-                Documentation = "Includes the contents of a header file into the current script.\n\nExample: `#insert scripts\\shared\\shared.gsh;`"
-            },
-            new {
-                Label = "#namespace",
-                InsertText = "#namespace ${1:namespace_name};$0",
-                Detail = "Define a namespace",
-                Documentation = "Defines the namespace for the current script.\n\nExample: `#namespace foo;`"
-            },
-            new {
-                Label = "#define",
-                InsertText = "#define ${1:CONSTANT_NAME} ${2:value}$0",
-                Detail = "Define a constant or macro",
-                Documentation = "Defines a preprocessor constant or macro.\n\nExamples:\n- `#define BAR 0`\n- `#define BAZ(_x) _x`"
-            },
-            new {
-                Label = "#precache",
-                InsertText = "#precache( ${1:\"string\"}, ${2:\"value\"} );$0",
-                Detail = "Precache game assets",
-                Documentation = "Precaches game assets for use in the script.\n\nExample: `#precache( \"string\", \"TEAM_GATHER_TEAM_STEALTH_ENTER\" );`"
-            },
-            new {
-                Label = "#using_animtree",
-                InsertText = "#using_animtree( ${1:\"animtree_name\"} );$0",
-                Detail = "Specify animation tree",
-                Documentation = "Specifies the animation tree to use for the script.\n\nExample: `#using_animtree( \"generic_human\" );`"
-            },
-            new {
-                Label = "#if",
-                InsertText = "#if ${1:condition}\n\t$0\n#endif",
-                Detail = "Conditional compilation",
-                Documentation = "Conditionally includes code based on a preprocessor condition.\n\nExample:\n```\n#if DEBUG\n    // debug code\n#endif\n```"
-            },
-            new {
-                Label = "#elif",
-                InsertText = "#elif ${1:condition}$0",
-                Detail = "Else if condition",
-                Documentation = "Alternative condition in a preprocessor conditional block."
-            },
-            new {
-                Label = "#else",
-                InsertText = "#else$0",
-                Detail = "Else condition",
-                Documentation = "Default branch in a preprocessor conditional block."
-            },
-            new {
-                Label = "#endif",
-                InsertText = "#endif$0",
-                Detail = "End conditional block",
-                Documentation = "Ends a preprocessor conditional block."
-            }
-        };
-
-        foreach (var directive in directives)
-        {
-            if (!seenIdentifiers.Contains(directive.Label))
+            if (token.Type == TokenType.Identifier && !_cachedIdentifiers.Contains(token.Lexeme))
             {
-                // If # is already present, skip the first character to avoid ##using
-                string insertText = includeHash ? directive.InsertText : directive.InsertText.Substring(1);
-
-                completions.Add(new CompletionItem()
+                // Skip identifiers that are API function names to avoid duplicates
+                if (_scriptAnalyserData?.GetApiFunction(token.Lexeme) is not null)
                 {
-                    Label = directive.Label,
-                    Kind = CompletionItemKind.Keyword,
-                    InsertText = insertText,
-                    InsertTextFormat = InsertTextFormat.Snippet,
-                    InsertTextMode = InsertTextMode.AdjustIndentation,
-                    FilterText = directive.Label.TrimStart('#'), // Allow filtering without the # prefix
-                    Detail = directive.Detail,
-                    Documentation = new StringOrMarkupContent(new MarkupContent()
-                    {
-                        Kind = MarkupKind.Markdown,
-                        Value = directive.Documentation
-                    }),
-                    SortText = directive.Label
-                });
-                seenIdentifiers.Add(directive.Label);
+                    continue;
+                }
+                _cachedIdentifiers.Add(token.Lexeme);
             }
         }
-
-        return completions;
-    }
-
-    private record DirectivePathContext(TokenType DirectiveType, string PartialPath);
-
-    private record GameRootInfo(string PrimaryRoot, string? SecondaryRoot = null, string? ModName = null);
-
-    private GameRootInfo? FindGameRoot(string startPath)
-    {
-        // Check if user has configured a custom raw path (will be used as secondary root if in a mod)
-        string? customRawPath = CompletionConfiguration.CustomRawPath;
-        bool hasValidCustomRawPath = false;
-
-        if (!string.IsNullOrEmpty(customRawPath))
-        {
-            if (!Directory.Exists(customRawPath))
-            {
-                Log.Warning("FindGameRoot: Custom raw path is configured but does not exist: {Path}", customRawPath);
-            }
-            else
-            {
-                // Verify it actually contains a scripts folder
-                string scriptsDir = Path.Combine(customRawPath, "scripts");
-                if (!Directory.Exists(scriptsDir))
-                {
-                    Log.Warning("FindGameRoot: Custom raw path exists but does not contain a 'scripts' folder: {Path}. Path may be misconfigured.", customRawPath);
-                }
-                else
-                {
-                    hasValidCustomRawPath = true;
-                    Log.Information("FindGameRoot: Found valid custom raw path from configuration: {Path}", customRawPath);
-                }
-            }
-        }
-
-        // Try to get the game path from environment variable (set by tooling)
-        string? taGamePath = Environment.GetEnvironmentVariable("TA_GAME_PATH");
-        if (!string.IsNullOrEmpty(taGamePath) && Directory.Exists(taGamePath))
-        {
-            Log.Information("FindGameRoot: Found TA_GAME_PATH environment variable: {Path}", taGamePath);
-
-            // Check if the current file is in a mod folder
-            // Mod structure: TA_GAME_PATH\mods\<modname>\scripts\...
-            if (startPath.Contains("\\mods\\", StringComparison.OrdinalIgnoreCase))
-            {
-                // Extract the mod root path
-                int modsIndex = startPath.IndexOf("\\mods\\", StringComparison.OrdinalIgnoreCase);
-                if (modsIndex >= 0)
-                {
-                    // Find the mod name (the folder immediately after \mods\)
-                    string afterMods = startPath.Substring(modsIndex + 6); // Skip "\mods\"
-                    int nextSlash = afterMods.IndexOf('\\');
-
-                    if (nextSlash > 0)
-                    {
-                        string modName = afterMods.Substring(0, nextSlash);
-                        string modRoot = Path.Combine(taGamePath, "mods", modName);
-
-                        if (Directory.Exists(modRoot))
-                        {
-                            // Determine secondary root: custom raw path takes priority over share\raw
-                            string? secondaryRoot = null;
-
-                            if (hasValidCustomRawPath)
-                            {
-                                secondaryRoot = customRawPath;
-                                Log.Information("FindGameRoot: Current file is in mod '{ModName}', using mod root: {ModRoot} with custom secondary root: {CustomRaw}", 
-                                    modName, modRoot, customRawPath);
-                            }
-                            else
-                            {
-                                string tentativeShareRaw = Path.Combine(taGamePath, "share", "raw");
-                                if (Directory.Exists(tentativeShareRaw))
-                                {
-                                    secondaryRoot = tentativeShareRaw;
-                                    Log.Information("FindGameRoot: Current file is in mod '{ModName}', using mod root: {ModRoot} with secondary root: {ShareRaw}", 
-                                        modName, modRoot, tentativeShareRaw);
-                                }
-                                else
-                                {
-                                    Log.Information("FindGameRoot: Current file is in mod '{ModName}', using mod root: {ModRoot} (no share\\raw found)", 
-                                        modName, modRoot);
-                                }
-                            }
-
-                            return new GameRootInfo(modRoot, secondaryRoot, modName);
-                        }
-                    }
-                }
-            }
-
-            // Not in a mod folder - use custom raw path if available, otherwise share\raw
-            if (hasValidCustomRawPath)
-            {
-                Log.Information("FindGameRoot: Using custom raw path as primary root: {Path}", customRawPath);
-                return new GameRootInfo(customRawPath);
-            }
-
-            // TA_GAME_PATH points to the game installation, but GSC scripts are in share\raw
-            // Check if share\raw exists
-            string shareRawPath = Path.Combine(taGamePath, "share", "raw");
-            if (Directory.Exists(shareRawPath))
-            {
-                Log.Information("FindGameRoot: Using share\\raw subdirectory: {Path}", shareRawPath);
-                return new GameRootInfo(shareRawPath);
-            }
-
-            // Check if there's a scripts folder directly in TA_GAME_PATH
-            string scriptsPath = Path.Combine(taGamePath, "scripts");
-            if (Directory.Exists(scriptsPath))
-            {
-                Log.Information("FindGameRoot: Using TA_GAME_PATH directly (contains scripts): {Path}", taGamePath);
-                return new GameRootInfo(taGamePath);
-            }
-
-            Log.Warning("FindGameRoot: TA_GAME_PATH doesn't contain share\\raw or scripts, falling back to directory search");
-        }
-
-        // If custom raw path is set but TA_GAME_PATH is not, use custom raw path
-        if (hasValidCustomRawPath)
-        {
-            Log.Information("FindGameRoot: TA_GAME_PATH not set, using custom raw path: {Path}", customRawPath);
-            return new GameRootInfo(customRawPath);
-        }
-
-        // Fallback: Walk up the directory tree to find a directory that contains "scripts" folder
-        Log.Information("FindGameRoot: TA_GAME_PATH not set or invalid, searching for scripts folder");
-        string? current = startPath;
-
-        while (current != null)
-        {
-            // Check if this directory contains a "scripts" subdirectory
-            string scriptsDir = Path.Combine(current, "scripts");
-            if (Directory.Exists(scriptsDir))
-            {
-                Log.Information("FindGameRoot: Found scripts folder at: {Path}", current);
-                return new GameRootInfo(current);
-            }
-
-            // Move up one level
-            string? parent = Path.GetDirectoryName(current);
-            if (parent == current) // Reached root
-            {
-                break;
-            }
-            current = parent;
-        }
-
-        Log.Warning("FindGameRoot: Could not find game root directory");
-        return null;
-    }
-
-    private DirectivePathContext? GetDirectivePathContext(Token token)
-    {
-        // Walk backwards to find a directive token on the same line
-        Token? current = token;
-        TokenType? directiveType = null;
-        int currentLine = token.Range.Start.Line;
-
-        while (current != null && current.Range.Start.Line == currentLine)
-        {
-            // Check if this is a directive that takes a path parameter
-            if (current.Type == TokenType.Using || current.Type == TokenType.Insert)
-            {
-                directiveType = current.Type;
-                break;
-            }
-
-            current = current.Previous;
-        }
-
-        if (directiveType == null)
-        {
-            return null;
-        }
-
-        // We're on a line with #using or #insert
-        // Now we need to collect all tokens after the directive to build the partial path
-        // Start from the directive and move forward
-        Token? pathStart = current.Next;
-        StringBuilder pathBuilder = new StringBuilder();
-
-        while (pathStart != null && pathStart.Range.Start.Line == currentLine && pathStart != token.Next)
-        {
-            Log.Information("GetDirectivePathContext: Processing token type={Type}, lexeme='{Lexeme}', isWhitespace={IsWhite}", 
-                pathStart.Type, pathStart.Lexeme, pathStart.IsWhitespacey());
-
-            // Handle backslashes BEFORE the whitespace check (since Backslash is considered whitespace in GSC)
-            if (pathStart.Type == TokenType.Backslash || pathStart.Lexeme == "\\")
-            {
-                pathBuilder.Append("\\");
-                Log.Information("GetDirectivePathContext: Added backslash");
-            }
-            // Skip other whitespace
-            else if (!pathStart.IsWhitespacey())
-            {
-                // Add token to path, handling strings specially
-                if (pathStart.Type == TokenType.String)
-                {
-                    pathBuilder.Append(pathStart.Lexeme.Trim('"'));
-                    Log.Information("GetDirectivePathContext: Added string: '{Text}'", pathStart.Lexeme.Trim('"'));
-                }
-                else if (pathStart.Lexeme == "/")
-                {
-                    pathBuilder.Append("/");
-                    Log.Information("GetDirectivePathContext: Added forward slash");
-                }
-                else if (pathStart.Type == TokenType.Identifier)
-                {
-                    pathBuilder.Append(pathStart.Lexeme);
-                    Log.Information("GetDirectivePathContext: Added identifier: '{Text}'", pathStart.Lexeme);
-                }
-                else if (pathStart.Type == TokenType.Semicolon)
-                {
-                    // Don't append semicolon, just break
-                    Log.Information("GetDirectivePathContext: Encountered semicolon, stopping");
-                    break;
-                }
-                else
-                {
-                    // Log unexpected token types for debugging
-                    Log.Information("GetDirectivePathContext: Skipping unexpected token type {Type} with lexeme '{Lexeme}'", 
-                        pathStart.Type, pathStart.Lexeme);
-                }
-            }
-
-            if (pathStart == token)
-            {
-                break;
-            }
-
-            pathStart = pathStart.Next;
-        }
-
-        string partialPath = pathBuilder.ToString().TrimEnd(';');
-
-        Log.Information("GetDirectivePathContext: Built partialPath='{PartialPath}'", partialPath);
-
-        // Only return a path context if we have some path content or just typed a separator
-        if (!string.IsNullOrEmpty(partialPath) || token.Lexeme == "\\" || token.Lexeme == "/")
-        {
-            Log.Information("Detected directive path context: directive={DirectiveType}, partialPath='{PartialPath}'", 
-                directiveType, partialPath);
-            return new DirectivePathContext(directiveType.Value, partialPath);
-        }
-
-        return null;
-    }
-
-    private List<CompletionItem> GetDirectivePathCompletions(DirectivePathContext context)
-    {
-        List<CompletionItem> completions = new();
-
-        Log.Information("GetDirectivePathCompletions: ScriptPath='{ScriptPath}', PartialPath='{PartialPath}'", 
-            ScriptPath, context.PartialPath);
-
-        if (ScriptPath == null)
-        {
-            Log.Warning("GetDirectivePathCompletions: ScriptPath is null, cannot resolve paths");
-            return completions;
-        }
-
-        try
-        {
-            // Convert URI path to local file system path
-            string localPath = ScriptPath;
-            if (Uri.TryCreate(ScriptPath, UriKind.Absolute, out Uri? uri) && uri.IsFile)
-            {
-                localPath = uri.LocalPath;
-            }
-            else if (ScriptPath.StartsWith("/") && ScriptPath.Length > 2 && ScriptPath[2] == ':')
-            {
-                // Handle URI-style path like "/g:/..." -> "G:\..."
-                localPath = ScriptPath.Substring(1).Replace('/', '\\');
-            }
-
-            Log.Information("GetDirectivePathCompletions: localPath='{LocalPath}'", localPath);
-
-            // Get the directory of the current script
-            string? scriptDir = Path.GetDirectoryName(localPath);
-            if (scriptDir == null)
-            {
-                Log.Warning("GetDirectivePathCompletions: Could not get directory from localPath");
-                return completions;
-            }
-
-            // In GSC/CSC, paths are relative to the game root (typically the directory containing "scripts")
-            // Walk up the directory tree to find the root
-            GameRootInfo? gameRootInfo = FindGameRoot(scriptDir);
-            if (gameRootInfo == null)
-            {
-                Log.Warning("GetDirectivePathCompletions: Could not find game root, using script directory");
-                gameRootInfo = new GameRootInfo(scriptDir);
-            }
-
-            Log.Information("GetDirectivePathCompletions: scriptDir='{ScriptDir}', primaryRoot='{PrimaryRoot}', secondaryRoot='{SecondaryRoot}'", 
-                scriptDir, gameRootInfo.PrimaryRoot, gameRootInfo.SecondaryRoot ?? "(none)");
-
-            // Parse the partial path to determine what directory to search
-            string searchPath = context.PartialPath.Replace('/', '\\');
-            bool endsWithSeparator = searchPath.EndsWith("\\");
-            searchPath = searchPath.TrimEnd('\\');
-
-            // We'll search in both roots (if secondary exists) and combine results
-            List<string> searchRoots = new List<string> { gameRootInfo.PrimaryRoot };
-            if (!string.IsNullOrEmpty(gameRootInfo.SecondaryRoot))
-            {
-                searchRoots.Add(gameRootInfo.SecondaryRoot);
-            }
-
-            string fileFilter = "";
-            List<string> searchDirs = new List<string>();
-
-            foreach (string root in searchRoots)
-            {
-                string searchDir = root;
-
-                if (!string.IsNullOrEmpty(searchPath))
-                {
-                    if (searchPath.Contains('\\'))
-                    {
-                        // Path contains directory separators (e.g., "scripts\shared" or "scripts\shared\")
-                        int lastSeparator = searchPath.LastIndexOf('\\');
-                        string dirPart = searchPath.Substring(0, lastSeparator);
-                        string lastPart = searchPath.Substring(lastSeparator + 1);
-
-                        // Try to resolve the directory relative to game root
-                        string tentativeDir = Path.Combine(root, dirPart);
-                        Log.Information("GetDirectivePathCompletions: tentativeDir='{TentativeDir}', exists={Exists}", 
-                            tentativeDir, Directory.Exists(tentativeDir));
-
-                        if (Directory.Exists(tentativeDir))
-                        {
-                            searchDir = tentativeDir;
-
-                            // If original path ended with \, the last part is a directory, not a filter
-                            if (endsWithSeparator && !string.IsNullOrEmpty(lastPart))
-                            {
-                                string fullDir = Path.Combine(searchDir, lastPart);
-                                if (Directory.Exists(fullDir))
-                                {
-                                    searchDir = fullDir;
-                                    fileFilter = "";
-                                }
-                                else
-                                {
-                                    fileFilter = lastPart;
-                                }
-                            }
-                            else
-                            {
-                                fileFilter = lastPart;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // No directory separators - check if it's a directory or a file filter
-                        string tentativeDir = Path.Combine(root, searchPath);
-                        if (Directory.Exists(tentativeDir))
-                        {
-                            // It's a directory that exists
-                            searchDir = tentativeDir;
-                            fileFilter = endsWithSeparator ? "" : searchPath;
-                        }
-                        else
-                        {
-                            // It's a file filter in the game root
-                            fileFilter = searchPath;
-                        }
-                    }
-                }
-
-                if (Directory.Exists(searchDir))
-                {
-                    searchDirs.Add(searchDir);
-                }
-            }
-
-            Log.Information("GetDirectivePathCompletions: fileFilter='{FileFilter}', searchDirs={SearchDirs}", 
-                fileFilter, string.Join(", ", searchDirs));
-
-            // Determine file extensions based on directive type
-            string[] extensions;
-            if (context.DirectiveType == TokenType.Using)
-            {
-                // For #using, only show files matching the current languageId
-                string ext = "." + _languageId.ToLowerInvariant();
-                extensions = new[] { ext };
-                Log.Information("GetDirectivePathCompletions: #using directive, filtering to {Ext} files only", ext);
-            }
-            else
-            {
-                // For #insert, show all .gsh header files
-                extensions = new[] { ".gsh" };
-                Log.Information("GetDirectivePathCompletions: #insert directive, showing .gsh files");
-            }
-
-            // Use HashSets to track unique entries (case-insensitive)
-            HashSet<string> seenDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            HashSet<string> seenFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            // Search in all directories and collect unique results
-            foreach (string searchDir in searchDirs)
-            {
-                Log.Information("GetDirectivePathCompletions: Searching in {SearchDir}", searchDir);
-
-                // Add directories
-                var dirs = Directory.GetDirectories(searchDir);
-                Log.Information("GetDirectivePathCompletions: Found {Count} directories in {SearchDir}", 
-                    dirs.Length, searchDir);
-
-                foreach (var dir in dirs)
-                {
-                    string dirName = Path.GetFileName(dir);
-                    if ((string.IsNullOrEmpty(fileFilter) || dirName.StartsWith(fileFilter, StringComparison.OrdinalIgnoreCase))
-                        && !seenDirs.Contains(dirName))
-                    {
-                        completions.Add(new CompletionItem()
-                        {
-                            Label = dirName,
-                            Kind = CompletionItemKind.Folder,
-                            InsertText = dirName + "\\\\",
-                            Detail = "Folder",
-                            SortText = "0_" + dirName // Folders first
-                        });
-                        seenDirs.Add(dirName);
-                    }
-                }
-
-                // Add files with appropriate extensions
-                foreach (var ext in extensions)
-                {
-                    var files = Directory.GetFiles(searchDir, "*" + ext);
-                    Log.Information("GetDirectivePathCompletions: Found {Count} {Ext} files in {SearchDir}", 
-                        files.Length, ext, searchDir);
-
-                    foreach (var file in files)
-                    {
-                        string fileName = Path.GetFileName(file);
-                        string fileNameWithoutExt = Path.GetFileNameWithoutExtension(file);
-
-                        if ((string.IsNullOrEmpty(fileFilter) || fileName.StartsWith(fileFilter, StringComparison.OrdinalIgnoreCase) || fileNameWithoutExt.StartsWith(fileFilter, StringComparison.OrdinalIgnoreCase))
-                            && !seenFiles.Contains(fileName))
-                        {
-                            // For #insert, keep the .gsh extension; for #using, remove the .gsc/.csc extension
-                            string insertText = context.DirectiveType == TokenType.Insert 
-                                ? fileName + ";"  // Keep extension for .gsh files
-                                : fileNameWithoutExt + ";";  // Remove extension for .gsc/.csc files
-
-                            completions.Add(new CompletionItem()
-                            {
-                                Label = fileName,
-                                Kind = CompletionItemKind.File,
-                                InsertText = insertText,
-                                Detail = $"Script file ({ext})",
-                                SortText = "1_" + fileName // Files after folders
-                            });
-                            seenFiles.Add(fileName);
-                        }
-                    }
-                }
-            }
-
-            Log.Information("GetDirectivePathCompletions: Returning {Count} completions (from {SearchDirCount} directories)", 
-                completions.Count, searchDirs.Count);
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "Failed to get directive path completions");
-        }
-
-        return completions;
+        return _cachedIdentifiers;
     }
 
     private CompletionContext AnalyseCompletionContext(Token token, Position position)
@@ -1344,8 +814,10 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         var context = new CompletionContext { Position = position };
 
         TokenType currentType = token.Type;
-        TokenType? previousType = token.Previous?.Type;
-        TokenType? previousPreviousType = token.Previous?.Previous?.Type;
+        int tokenIdx = Tokens.IndexOf(token);
+        // Use immediate adjacency (not skip-trivia) to preserve whitespace checks
+        TokenType? previousType = tokenIdx > 0 ? Tokens.GetAt(tokenIdx - 1)?.Type : null;
+        TokenType? previousPreviousType = tokenIdx > 1 ? Tokens.GetAt(tokenIdx - 2)?.Type : null;
 
         // // Check for member access (obj.__|)
         // if (previousType == TokenType.Dot)

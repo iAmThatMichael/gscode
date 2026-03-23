@@ -44,8 +44,6 @@ public record class ScrFunction : IExportedSymbol
 
     private string? _cachedDocumentation = null;
 
-    // TODO: has been hacked to show first only, but we need to handle all overloads eventually.
-
     /// <summary>
     /// Yields a documentation hover string for this function. Generated once, then cached.
     /// </summary>
@@ -66,24 +64,60 @@ public record class ScrFunction : IExportedSymbol
                 return _cachedDocumentation;
             }
 
-            // Otherwise, generate documentation from API-defined properties
-            string calledOnString = Overloads.First().CalledOn is ScrFunctionArg calledOn ? $"{calledOn.Name} " : string.Empty;
+            if (Overloads.Count <= 1)
+            {
+                // Single overload (or none) — original format
+                string calledOnString = Overloads.FirstOrDefault()?.CalledOn is ScrFunctionArg calledOn ? $"{calledOn.Name} " : string.Empty;
 
-            // Built-in API functions don't show "function" keyword
-            // Script functions show the "function" keyword
-            string functionKeyword = IsBuiltIn ? string.Empty : "function ";
+                _cachedDocumentation =
+                    $"""
+                    ```gsc
+                    {calledOnString}function {Name}({GetCodedParameterList(Overloads.FirstOrDefault())})
+                    ```
+                    ---
+                    {GetDescriptionString()}
+                    {GetParametersString(Overloads.FirstOrDefault())}
+                    {GetFlagsString()}
+                    """;
+            }
+            else
+            {
+                // Multiple overloads — show all signatures
+                StringBuilder sb = new();
+                sb.AppendLine("```gsc");
+                for (int i = 0; i < Overloads.Count; i++)
+                {
+                    var overload = Overloads[i];
+                    string calledOnStr = overload.CalledOn is ScrFunctionArg co ? $"{co.Name} " : string.Empty;
+                    sb.AppendLine($"// Overload {i + 1}");
+                    sb.AppendLine($"{calledOnStr}function {Name}({GetCodedParameterList(overload)})");
+                }
+                sb.AppendLine("```");
+                sb.AppendLine("---");
 
-            _cachedDocumentation =
-                $"""
-                ```gsc
-                {calledOnString}{functionKeyword}{Name}({GetCodedParameterList()})
-                ```
-                ---
-                {GetDescriptionString()}
-                {GetParametersString()}
-                {GetExampleString()}
-                {GetFlagsString()}
-                """;
+                string desc = GetDescriptionString();
+                if (!string.IsNullOrEmpty(desc))
+                {
+                    sb.AppendLine(desc);
+                }
+
+                for (int i = 0; i < Overloads.Count; i++)
+                {
+                    string paramStr = GetParametersString(Overloads[i], $"**Overload {i + 1}** ");
+                    if (!string.IsNullOrEmpty(paramStr))
+                    {
+                        sb.AppendLine(paramStr);
+                    }
+                }
+
+                string flags = GetFlagsString();
+                if (!string.IsNullOrEmpty(flags))
+                {
+                    sb.Append(flags);
+                }
+
+                _cachedDocumentation = sb.ToString().TrimEnd();
+            }
 
             return _cachedDocumentation;
         }
@@ -91,9 +125,9 @@ public record class ScrFunction : IExportedSymbol
 
     private string GetDescriptionString() => FunctionDocumentationFormatter.FormatDescription(Description);
 
-    private string GetCodedParameterList()
+    private string GetCodedParameterList(ScrFunctionOverload? overload)
     {
-        if (Overloads.First().Parameters.Count == 0)
+        if (overload is null || overload.Parameters.Count == 0)
         {
             return string.Empty;
         }
@@ -104,7 +138,7 @@ public record class ScrFunction : IExportedSymbol
             p => p.Mandatory);
     }
 
-    private string GetParametersString()
+    private string GetParametersString(ScrFunctionOverload? overload, string prefix = "")
     {
         // Built-in API functions show CalledOn in the signature, so don't repeat it in parameters section
         // Script functions don't show CalledOn in signature, so include it in parameters section

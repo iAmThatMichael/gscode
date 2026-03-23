@@ -9,9 +9,6 @@ namespace GSCode.Parser.Data;
 
 public interface ISenseDefinition : ISemanticToken, IHoverable
 {
-    // TODO: decide whether this can be scrapped, as it's not currently being used
-    // anywhere.
-    public bool IsFromPreprocessor { get; }
 }
 
 public interface ISemanticToken

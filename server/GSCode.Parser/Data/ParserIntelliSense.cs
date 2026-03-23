@@ -1,4 +1,4 @@
-﻿using GSCode.Data;
+using GSCode.Data;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.Util;
 using OmniSharp.Extensions.LanguageServer.Protocol;
@@ -8,6 +8,8 @@ using System.Collections.Generic;
 using System.IO;
 
 namespace GSCode.Parser.Data;
+
+public enum ScriptMode { Editor, Index }
 
 public sealed record class SemanticToken(Range Range, string SemanticTokenType, string[] SemanticTokenModifiers) : ISemanticToken;
 
@@ -26,41 +28,26 @@ public sealed record class InsertRegion(Range Range, string RawPath, string? Res
 
 internal sealed class ParserIntelliSense
 {
-    private class SemanticTokenComparer : IComparer<ISemanticToken>
+    private static readonly Comparison<ISemanticToken> s_semanticTokenComparison = (x, y) =>
     {
-        public int Compare(ISemanticToken? x, ISemanticToken? y)
-        {
-            if (x?.Range is null && y?.Range is null)
-            {
-                return 0;
-            }
-            if (x?.Range is null)
-            {
-                return -1;
-            }
-            if (y?.Range is null)
-            {
-                return 1;
-            }
+        int lineComparison = x.Range.Start.Line.CompareTo(y.Range.Start.Line);
+        if (lineComparison != 0) return lineComparison;
+        return x.Range.Start.Character.CompareTo(y.Range.Start.Character);
+    };
 
-            int lineComparison = x.Range.Start.Line.CompareTo(y.Range.Start.Line);
-            if (lineComparison != 0)
-            {
-                return lineComparison;
-            }
-            return x.Range.Start.Character.CompareTo(y.Range.Start.Character);
-        }
-    }
+    public ScriptMode Mode { get; }
+    public bool IsEditorMode => Mode == ScriptMode.Editor;
 
     /// <summary>
     /// List of semantic tokens to push to the editor.
     /// </summary>
-    public SortedSet<ISemanticToken> SemanticTokens { get; } = new(new SemanticTokenComparer());
+    public List<ISemanticToken> SemanticTokens { get; } = new();
+    private bool _semanticTokensSorted = false;
 
     /// <summary>
-    /// Hover storage for IntelliSense
+    /// Hover storage for IntelliSense. Null in index mode.
     /// </summary>
-    public DocumentHoversLibrary HoverLibrary { get; }
+    public DocumentHoversLibrary? HoverLibrary { get; }
 
     /// <summary>
     /// List of folding ranges to push to the editor.
@@ -89,9 +76,9 @@ internal sealed class ParserIntelliSense
     public DocumentTokensLibrary Tokens { get; } = new();
 
     /// <summary>
-    /// Library of completions to quickly lookup completions at a given position.
+    /// Library of completions to quickly lookup completions at a given position. Null in index mode.
     /// </summary>
-    public DocumentCompletionsLibrary Completions { get; }
+    public DocumentCompletionsLibrary? Completions { get; }
 
     private readonly string _scriptPath;
     public readonly string _languageId;
@@ -114,22 +101,29 @@ internal sealed class ParserIntelliSense
     /// </summary>
     public List<InsertRegion> InsertRegions { get; } = new();
 
-    public ParserIntelliSense(int endLine, DocumentUri scriptUri, string languageId)
+    public ParserIntelliSense(int endLine, DocumentUri scriptUri, string languageId, ScriptMode mode = ScriptMode.Editor)
     {
-        HoverLibrary = new(endLine + 1);
+        Mode = mode;
         _scriptPath = scriptUri.Path;
         ScriptUri = scriptUri.Path;
         _languageId = languageId;
-        Completions = new(Tokens, languageId, scriptUri.Path);
+
+        if (mode == ScriptMode.Editor)
+        {
+            HoverLibrary = new(endLine + 1);
+            Completions = new(Tokens, languageId, scriptUri.Path);
+        }
     }
 
     public void AddInsertRegion(Range range, string rawPath, string? resolvedPath)
     {
+        if (!IsEditorMode) return;
         InsertRegions.Add(new InsertRegion(range, rawPath, resolvedPath));
     }
 
     public void AddMacroOutline(string name, Range range, string? sourceDisplay = null)
     {
+        if (!IsEditorMode) return;
         MacroOutlines.Add(new MacroOutlineItem(name, range, sourceDisplay));
     }
 
@@ -144,31 +138,65 @@ internal sealed class ParserIntelliSense
         Completions.MacroDefinitions = MacroDefinitions;
     }
 
+    public void AddMacroDefinition(string name, Pre.MacroDefinition definition, string? sourceDisplay = null)
+    {
+        MacroDefinitions[name] = (definition, sourceDisplay);
+    }
+
+    public void SetDefinitionsTable(SA.DefinitionsTable? definitionsTable)
+    {
+        Completions.DefinitionsTable = definitionsTable;
+        Completions.MacroDefinitions = MacroDefinitions;
+    }
+
+    /// <summary>
+    /// Sparse store for token → ISenseDefinition mappings. Only tokens with semantic meaning
+    /// (identifiers with hovers/highlighting) are stored here, avoiding an 8-byte pointer on every token.
+    /// </summary>
+    private readonly Dictionary<Token, ISenseDefinition> _senseDefinitions = new();
+
+    public ISenseDefinition? GetSenseDefinition(Token token)
+        => _senseDefinitions.GetValueOrDefault(token);
+
     public void AddSenseToken(Token token, ISenseDefinition definition)
     {
+        if (!IsEditorMode) return;
+
         // Suppress during dataflow worklist phase to avoid recording incomplete type info.
         if (SilentSenseTokens)
         {
             return;
         }
 
-        // The token is from an insert (which we don't show) or it's already had a definition pushed.
+        // The token is from an insert/macro (which we don't show) or it's already had a definition pushed.
         // In these cases, skip (for existing, the first gets precedence).
-        if (token.IsFromPreprocessor || token.SenseDefinition is not null)
+        if (token.IsFromPreprocessor || _senseDefinitions.ContainsKey(token))
         {
             return;
         }
 
-        // Link the definition to the token so that we don't have duplicates later on.
-        token.SenseDefinition = definition;
+        _senseDefinitions[token] = definition;
 
         AddSenseDefinition(definition);
     }
 
     public void AddSenseDefinition(ISenseDefinition definition)
     {
+        if (!IsEditorMode) return;
         SemanticTokens.Add(definition);
-        HoverLibrary.Add(definition);
+        _semanticTokensSorted = false;
+        HoverLibrary!.Add(definition);
+    }
+
+    /// <summary>
+    /// Sorts and deduplicates semantic tokens. Call once after all tokens have been added.
+    /// </summary>
+    public void FinalizeSemanticTokens()
+    {
+        if (!IsEditorMode) return;
+        if (_semanticTokensSorted) return;
+        SemanticTokens.Sort(s_semanticTokenComparison);
+        _semanticTokensSorted = true;
     }
 
     public void AddDiagnostic(Range range, string source, GSCErrorCodes code, params object?[] args)
@@ -206,7 +234,7 @@ internal sealed class ParserIntelliSense
     /// </summary>
     private static readonly ConcurrentDictionary<string, TokenList> _insertTokenCache = new();
 
-    public TokenList? GetFileTokens(string dependencyPath, Range? belongToRange = null)
+    public TokenList? GetFileTokens(string dependencyPath, TokenRange? belongToRange = null)
     {
         string? resolvedPath = ParserUtil.GetScriptFilePath(_scriptPath, dependencyPath);
 
@@ -228,9 +256,9 @@ internal sealed class ParserIntelliSense
         return cachedTokens.CloneList(belongToRange);
     }
 
-    public void CommitTokens(Token startToken)
+    public void CommitTokens(LinkedToken startNode)
     {
-        Tokens.AddRange(startToken);
+        Tokens.AddRange(startNode);
     }
 
     public string? ResolveInsertPath(string dependencyPath, Range sourceRange)

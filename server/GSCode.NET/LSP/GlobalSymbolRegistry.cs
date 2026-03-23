@@ -15,7 +15,7 @@ public sealed record SymbolDefinition(
     string Name,
     ExportedSymbolType Type,
     string FilePath,
-    Range Range,
+    TokenRange Range,
     string[]? Parameters = null,
     string[]? Flags = null,
     string? Documentation = null,
@@ -40,7 +40,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<(string Namespace, string Name), byte>> _nameIndex = new(StringComparer.OrdinalIgnoreCase);
 
     // Reader-writer lock for operations that need atomicity across multiple dictionaries
-    private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
+    private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
 
     private static (string Namespace, string Name) NormalizeKey(string ns, string name)
         => (StringPool.Intern(ns?.ToLowerInvariant() ?? string.Empty), StringPool.Intern(name?.ToLowerInvariant() ?? string.Empty));
@@ -103,7 +103,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
             }
 
             // Fall back to name-only search
-            return FindSymbolByNameOnly(name);
+            return FindSymbolByNameOnlyCore(name);
         }
         finally
         {
@@ -119,21 +119,29 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         _lock.EnterReadLock();
         try
         {
-            var normalizedName = name?.ToLowerInvariant() ?? string.Empty;
-            if (_nameIndex.TryGetValue(normalizedName, out var keys))
-            {
-                foreach (var key in keys.Keys)
-                {
-                    if (_symbols.TryGetValue(key, out var def))
-                        return def;
-                }
-            }
-            return null;
+            return FindSymbolByNameOnlyCore(name);
         }
         finally
         {
             _lock.ExitReadLock();
         }
+    }
+
+    /// <summary>
+    /// Internal name-only lookup. Caller must already hold the read lock.
+    /// </summary>
+    private SymbolDefinition? FindSymbolByNameOnlyCore(string name)
+    {
+        var normalizedName = name?.ToLowerInvariant() ?? string.Empty;
+        if (_nameIndex.TryGetValue(normalizedName, out var keys))
+        {
+            foreach (var key in keys.Keys)
+            {
+                if (_symbols.TryGetValue(key, out var def))
+                    return def;
+            }
+        }
+        return null;
     }
 
     /// <summary>
@@ -243,15 +251,16 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
             if (!_fileIndex.TryGetValue(filePath, out var keys))
                 return 0;
 
-            int hash = 17;
-            foreach (var key in keys.Keys.OrderBy(k => k.Namespace).ThenBy(k => k.Name))
+            int hash = keys.Count;
+            foreach (var key in keys.Keys)
             {
                 if (_symbols.TryGetValue(key, out var def))
                 {
-                    hash = hash * 31 + key.GetHashCode();
-                    hash = hash * 31 + (def.FilePath?.GetHashCode() ?? 0);
-                    hash = hash * 31 + def.Range.GetHashCode();
-                    hash = hash * 31 + (def.Parameters?.Length ?? 0);
+                    int entryHash = key.GetHashCode();
+                    entryHash = entryHash * 397 ^ (def.FilePath?.GetHashCode() ?? 0);
+                    entryHash = entryHash * 397 ^ def.Range.GetHashCode();
+                    entryHash = entryHash * 397 ^ (def.Parameters?.Length ?? 0);
+                    hash ^= entryHash; // XOR for order-independence
                 }
             }
             return hash;
@@ -360,25 +369,11 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
             return false;
         }
 
-        // Handle potentially null Range.Start/End from default Range()
-        var aStart = a.Range?.Start;
-        var bStart = b.Range?.Start;
-        var aEnd = a.Range?.End;
-        var bEnd = b.Range?.End;
-
-        if ((aStart is null) != (bStart is null) || (aEnd is null) != (bEnd is null))
-            return false;
-
-        bool rangeEqual = (aStart is null && bStart is null) ||
-                          (aStart?.Line == bStart?.Line && aStart?.Character == bStart?.Character);
-        rangeEqual &= (aEnd is null && bEnd is null) ||
-                      (aEnd?.Line == bEnd?.Line && aEnd?.Character == bEnd?.Character);
-
         return a.Namespace == b.Namespace &&
                a.Name == b.Name &&
                a.Type == b.Type &&
                string.Equals(a.FilePath, b.FilePath, StringComparison.OrdinalIgnoreCase) &&
-               rangeEqual &&
+               a.Range.Equals(b.Range) &&
                SequenceEqual(a.Parameters, b.Parameters) &&
                SequenceEqual(a.Flags, b.Flags) &&
                a.Documentation == b.Documentation;
@@ -509,7 +504,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     #region ISymbolLocationProvider Implementation
 
     /// <inheritdoc/>
-    (string FilePath, Range Range)? ISymbolLocationProvider.FindFunctionLocation(string? ns, string name)
+    (string FilePath, TokenRange Range)? ISymbolLocationProvider.FindFunctionLocation(string? ns, string name)
     {
         var symbol = ns is not null ? FindSymbol(ns, name) : FindSymbolByNameOnly(name);
         if (symbol is not null && symbol.Type == ExportedSymbolType.Function)
@@ -518,7 +513,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     }
 
     /// <inheritdoc/>
-    (string FilePath, Range Range)? ISymbolLocationProvider.FindClassLocation(string? ns, string name)
+    (string FilePath, TokenRange Range)? ISymbolLocationProvider.FindClassLocation(string? ns, string name)
     {
         var symbol = ns is not null ? FindSymbol(ns, name) : FindSymbolByNameOnly(name);
         if (symbol is not null && symbol.Type == ExportedSymbolType.Class)
@@ -527,7 +522,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     }
 
     /// <inheritdoc/>
-    (string FilePath, Range Range)? ISymbolLocationProvider.FindFunctionLocationAnyNamespace(string name)
+    (string FilePath, TokenRange Range)? ISymbolLocationProvider.FindFunctionLocationAnyNamespace(string name)
     {
         var symbol = FindSymbolByNameOnly(name);
         if (symbol is not null && symbol.Type == ExportedSymbolType.Function)
@@ -536,7 +531,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     }
 
     /// <inheritdoc/>
-    (string FilePath, Range Range)? ISymbolLocationProvider.FindClassLocationAnyNamespace(string name)
+    (string FilePath, TokenRange Range)? ISymbolLocationProvider.FindClassLocationAnyNamespace(string name)
     {
         var symbol = FindSymbolByNameOnly(name);
         if (symbol is not null && symbol.Type == ExportedSymbolType.Class)

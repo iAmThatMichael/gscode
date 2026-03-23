@@ -10,7 +10,13 @@ GSCode's language server requires the .NET 10 Runtime, available at [Download .N
 
 ## Release Notes
 
-### 1.2 (latest)
+### 1.3.0 (latest)
+
+- Add capability for more detailed diagnostics by 'emulating' select functions, such as `LuiNotifyEvent`.
+- Significant memory-focused optimisations.
+- Various bug fixes and API updates.
+
+### 1.2
 
 - Re-added indexing support.
 - Various optimisations and bug fixes.

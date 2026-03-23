@@ -1,5 +1,6 @@
 using GSCode.NET.LSP;
 using GSCode.Parser;
+using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using GSCode.Parser.Util;
 using Microsoft.Extensions.Logging;

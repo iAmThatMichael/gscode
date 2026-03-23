@@ -33,25 +33,19 @@ public static class StringPool
         if (value.IsEmpty)
             return string.Empty;
 
-        // Use the new .NET 9 GetAlternateLookup or fallback to string allocation
-        // For now, we'll do a simple approach that works on .NET 8
 #if NET9_0_OR_GREATER
         var lookup = _pool.GetAlternateLookup<ReadOnlySpan<char>>();
         if (lookup.TryGetValue(value, out string? existing))
             return existing;
-#else
-        // Check existing entries - for hot paths this linear scan is acceptable
-        // because the dictionary is bounded by unique identifiers in the codebase
-        foreach (var kvp in _pool)
-        {
-            if (value.SequenceEqual(kvp.Key.AsSpan()))
-                return kvp.Value;
-        }
-#endif
-        
-        // Not found, allocate and add
         string newString = new(value);
         return _pool.GetOrAdd(newString, static v => v);
+#else
+        // Allocate once, then pool — avoids the O(n) linear scan of the old approach.
+        // For already-pooled strings, GetOrAdd returns the existing instance and the
+        // allocation is short-lived (gen0). For new strings, same cost as Intern(string).
+        string newString = new(value);
+        return _pool.GetOrAdd(newString, static v => v);
+#endif
     }
 
     /// <summary>

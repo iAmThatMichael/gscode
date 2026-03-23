@@ -1,6 +1,8 @@
 using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
+using GSCode.Parser.Data;
+using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using Serilog;
 using System.Collections.Concurrent;
@@ -472,7 +474,7 @@ public class ScriptManager
         foreach (var func in defTable.ExportedFunctions)
         {
             var loc = defTable.GetFunctionLocation(func.Namespace, func.Name);
-            var range = loc?.Range ?? new Range();
+            var range = loc?.Range ?? default;
             var actualFilePath = loc?.FilePath ?? filePath;
 
             newSymbols.Add(new SymbolDefinition(
@@ -493,7 +495,7 @@ public class ScriptManager
         foreach (var cls in defTable.ExportedClasses)
         {
             var loc = defTable.GetClassLocation(currentNamespace, cls.Name);
-            var range = loc?.Range ?? new Range();
+            var range = loc?.Range ?? default;
             var actualFilePath = loc?.FilePath ?? filePath;
 
             newSymbols.Add(new SymbolDefinition(
@@ -718,7 +720,7 @@ public class ScriptManager
             return new CachedScript
             {
                 Type = CachedScriptType.Dependency,
-                Script = new Script(key, languageId, _symbolRegistry)
+                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index)
             };
         });
 
@@ -849,11 +851,15 @@ public class ScriptManager
             List<Task> tasks = new();
 
             perfTracker.Checkpoint("Start-Indexing");
+            int fileIndex = 0;
             foreach (string file in filesList)
             {
-                // Yield to editor operations — pauses dispatch while an editor is being processed
-                await _editorPriority.WaitAsync(cancellationToken);
-                _editorPriority.Release();
+                // Yield to editor operations every 10 files to reduce semaphore overhead
+                if (fileIndex++ % 10 == 0)
+                {
+                    await _editorPriority.WaitAsync(cancellationToken);
+                    _editorPriority.Release();
+                }
 
                 await gate.WaitAsync(cancellationToken);
                 tasks.Add(Task.Run(async () =>
@@ -926,7 +932,7 @@ public class ScriptManager
             return new CachedScript
             {
                 Type = CachedScriptType.Dependency,
-                Script = new Script(key, languageId, _symbolRegistry)
+                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index)
             };
         });
 

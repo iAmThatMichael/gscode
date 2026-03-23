@@ -6,7 +6,12 @@ namespace GSCode.Parser.Data;
 
 public sealed class DocumentTokensLibrary
 {
-    private List<Token> TokenList { get; } = new();
+    private List<Token> TokenList { get; set; } = new();
+
+    /// <summary>
+    /// Release the backing token list to allow GC. Used for index-mode scripts after analysis.
+    /// </summary>
+    public void Clear() => TokenList = [];
 
     private class TokenKeyComparer : IComparer<Token>
     {
@@ -21,41 +26,145 @@ public sealed class DocumentTokensLibrary
                 return 1;
             }
 
-            int lineComparison = x.Range.Start.Line.CompareTo(y.Range.Start.Line);
+            int lineComparison = x.TokenRange.StartLine.CompareTo(y.TokenRange.StartLine);
             if (lineComparison != 0)
             {
                 return lineComparison;
             }
-            return x.Range.Start.Character.CompareTo(y.Range.Start.Character);
+            return x.TokenRange.StartChar.CompareTo(y.TokenRange.StartChar);
         }
     }
 
     private static readonly TokenKeyComparer _tokenKeyComparer = new();
 
-    private readonly Token _searchToken = new(TokenType.Unknown, new(0, 0, 0, 0), "");
-    
+    private readonly Token _searchToken = new(TokenType.Unknown, TokenRange.Empty);
+
     /// <summary>
-    /// Gets the nearest token at or before the specified position.
+    /// Returns the index of the token at or before the specified position, or -1 if not found.
     /// </summary>
-    /// <param name="location">The target location</param>
-    /// <returns>The token at the specified position if it exists, or null otherwise</returns>
-    internal Token? Get(Position location)
+    internal int GetIndex(Position location)
     {
-        // Not ideal, but it'll do the job.
-        Token searchToken = _searchToken with { Range = new(location.Line, location.Character, location.Line, location.Character) };
+        Token searchToken = _searchToken with { TokenRange = new(location.Line, location.Character, location.Line, location.Character) };
 
         int index = TokenList.BinarySearch(searchToken, _tokenKeyComparer);
 
-        // It's the complement when not found - negate it and subtract one to get the preceding token in this case.
-        if(index < 0)
+        if (index < 0)
         {
             index = Math.Max(0, ~index - 1);
         }
 
-        // If the token is not found, return null.
-        if(index >= TokenList.Count)
+        if (index >= TokenList.Count)
         {
-            return null;
+            return -1;
+        }
+
+        return index;
+    }
+
+    /// <summary>
+    /// Gets the nearest token at or before the specified position.
+    /// </summary>
+    internal Token? Get(Position location)
+    {
+        int index = GetIndex(location);
+        return index >= 0 ? TokenList[index] : null;
+    }
+
+    /// <summary>
+    /// Gets a token by its index in the list, or null if out of bounds.
+    /// </summary>
+    internal Token? GetAt(int index)
+    {
+        return (uint)index < (uint)TokenList.Count ? TokenList[index] : null;
+    }
+
+    /// <summary>
+    /// Returns the index of the next non-whitespace/trivia token after fromIndex, or -1 if none.
+    /// </summary>
+    internal int NextNonTriviaIndex(int fromIndex)
+    {
+        for (int i = fromIndex + 1; i < TokenList.Count; i++)
+        {
+            Token t = TokenList[i];
+            if (!t.IsWhitespacey() && !t.IsComment())
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Returns the index of the previous non-whitespace/trivia token before fromIndex, or -1 if none.
+    /// </summary>
+    internal int PrevNonTriviaIndex(int fromIndex)
+    {
+        for (int i = fromIndex - 1; i >= 0; i--)
+        {
+            Token t = TokenList[i];
+            if (!t.IsWhitespacey() && !t.IsComment())
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Returns the index of the next non-whitespace token after fromIndex, or -1 if none.
+    /// Comments are NOT skipped (only whitespace-like tokens).
+    /// </summary>
+    internal int NextNonWhitespaceIndex(int fromIndex)
+    {
+        for (int i = fromIndex + 1; i < TokenList.Count; i++)
+        {
+            if (!TokenList[i].IsWhitespacey())
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Returns the index of the previous non-whitespace token before fromIndex, or -1 if none.
+    /// Comments are NOT skipped (only whitespace-like tokens).
+    /// </summary>
+    internal int PrevNonWhitespaceIndex(int fromIndex)
+    {
+        for (int i = fromIndex - 1; i >= 0; i--)
+        {
+            if (!TokenList[i].IsWhitespacey())
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Finds the index of a specific token by reference equality, using binary search on position
+    /// then scanning nearby for the exact reference.
+    /// </summary>
+    internal int IndexOf(Token token)
+    {
+        // Binary search to get close to the right position
+        int index = TokenList.BinarySearch(token, _tokenKeyComparer);
+
+        if (index < 0)
+        {
+            index = Math.Max(0, ~index - 1);
+        }
+
+        // Scan nearby for exact reference match (tokens at the same position or adjacent)
+        int start = Math.Max(0, index - 2);
+        int end = Math.Min(TokenList.Count, index + 3);
+        for (int i = start; i < end; i++)
+        {
+            if (ReferenceEquals(TokenList[i], token))
+            {
+                return i;
+            }
         }
 
         Token token = TokenList[index];
@@ -70,19 +179,26 @@ public sealed class DocumentTokensLibrary
     }
 
     /// <summary>
-    /// Once the token list has finished its final transformations, create an efficient lookup structure.
+    /// The number of tokens in the library.
     /// </summary>
-    /// <param name="startToken">The first token in the list</param>
-    internal void AddRange(Token startToken)
+    internal int Count => TokenList.Count;
+
+    /// <summary>
+    /// Once the token list has finished its final transformations, extract tokens into a flat list.
+    /// The LinkedToken chain can then be discarded by the caller.
+    /// </summary>
+    /// <param name="startNode">The first linked token (SOF) in the chain</param>
+    internal void AddRange(LinkedToken startNode)
     {
         // Skip SOF and EOF
-        Token currentToken = startToken.Next!;
+        LinkedToken? currentNode = startNode.Next;
 
-        while(currentToken.Type != TokenType.Eof)
+        while(currentNode is not null && currentNode.Type != TokenType.Eof)
         {
-            TokenList.Add(currentToken);
-            currentToken = currentToken.Next!;
+            TokenList.Add(currentNode.Token);
+            currentNode = currentNode.Next;
         }
+        TokenList.TrimExcess();
     }
 
     internal IEnumerable<Token> GetAll()

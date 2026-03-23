@@ -1,4 +1,4 @@
-﻿using GSCode.Data;
+using GSCode.Data;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.Util;
@@ -12,21 +12,57 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 namespace GSCode.Parser.Pre;
 
 /// <summary>
-/// Records script defines for semantics & usage
+/// Records script defines for semantics & usage.
+/// TokenList fields are mutable so they can be released after preprocessing to allow GC
+/// of LinkedToken chains. Snippet strings are cached eagerly at construction time.
 /// </summary>
-/// <param name="Source">The source name token</param>
-/// <param name="DefineSnippet">Pre-computed string representation of the define</param>
-/// <param name="ExpansionTokens">When used, the key expands to these tokens (only for actual expansion)</param>
-/// <param name="Parameters">List of parameters</param>
-/// <param name="Documentation">Documentation for the define if it ends in a comment</param>
-internal record MacroDefinition(Token Source, string DefineSnippet, TokenList ExpansionTokens,
-   LinkedList<Token>? Parameters, string? Documentation = null) : ISenseDefinition
+internal class MacroDefinition : ISenseDefinition
 {
-    public bool IsFromPreprocessor { get; } = Source.IsFromPreprocessor;
-    public Range Range { get; } = Source.Range;
+    public Token Source { get; }
+    public string? Documentation { get; }
+    public bool IsBuiltIn { get; }
+    public Range Range { get; }
+
+    /// <summary>
+    /// Cached snippet of the full #define line. Computed eagerly; survives token release.
+    /// </summary>
+    public string DefineSnippet { get; }
+
+    /// <summary>
+    /// The expansion tokens for this macro — used during preprocessing for CloneList.
+    /// Released after preprocessing completes.
+    /// </summary>
+    internal TokenList ExpansionTokens { get; private set; }
+
+    /// <summary>
+    /// Parameter list for parameterised macros.
+    /// </summary>
+    internal LinkedList<Token>? Parameters { get; private set; }
 
     public string SemanticTokenType { get; } = "macro";
     public string[] SemanticTokenModifiers { get; } = [];
+
+    public MacroDefinition(Token source, TokenList defineTokens, TokenList expansionTokens,
+        LinkedList<Token>? parameters, string? documentation = null, bool isBuiltIn = false)
+    {
+        Source = source;
+        Documentation = documentation;
+        IsBuiltIn = isBuiltIn;
+        Range = source.Range;
+        DefineSnippet = defineTokens.ToSnippetString();
+        ExpansionTokens = expansionTokens;
+        Parameters = parameters;
+    }
+
+    /// <summary>
+    /// Release LinkedToken chains to allow GC after preprocessing.
+    /// The cached snippet strings remain available.
+    /// </summary>
+    public void ReleaseTokenLists()
+    {
+        ExpansionTokens = TokenList.Empty;
+        Parameters = null;
+    }
 
     public Hover GetHover()
     {
@@ -53,28 +89,21 @@ internal record MacroDefinition(Token Source, string DefineSnippet, TokenList Ex
 
     public static MacroDefinition BuiltInMacroDefinition(string source, params Token[] expansion)
     {
-        Token sourceToken = new(TokenType.Identifier, RangeHelper.Empty, source)
-        {
-            IsFromPreprocessor = true
-        };
+        LexemeToken sourceToken = new(TokenType.Identifier, TokenRange.Empty, source);
 
-        // Pre-compute the define snippet string
-        StringBuilder sb = new();
-        sb.Append("#define ");
-        sb.Append(source);
-        if (expansion.Length > 0)
-        {
-            sb.Append(' ');
-            for (int i = 0; i < expansion.Length; i++)
-            {
-                sb.Append(expansion[i].Lexeme);
-            }
-        }
-        string defineSnippet = sb.ToString();
+        // Create a combined array of all tokens for the define source
+        Token[] defineTokens = [
+            new Token(TokenType.Define, TokenRange.Empty),
+            new LexemeToken(TokenType.Whitespace, TokenRange.Empty, " "),
+            sourceToken,
+            new LexemeToken(TokenType.Whitespace, TokenRange.Empty, " "),
+            .. expansion,
+        ];
 
+        TokenList defineSource = TokenList.From(defineTokens);
         TokenList expansionSource = TokenList.From(expansion);
 
-        MacroDefinition uncached = new(sourceToken, defineSnippet, expansionSource, null);
+        MacroDefinition uncached = new(sourceToken, defineSnippet, expansionSource, null, isBuiltIn: true);
 
         // Use cache for built-in macros to avoid duplication across files
         return MacroDefinitionCache.Instance.GetOrAdd(null, source, uncached);
@@ -82,31 +111,41 @@ internal record MacroDefinition(Token Source, string DefineSnippet, TokenList Ex
 }
 
 /// <summary>
-/// Records usages of a macro for semantics & hovers
+/// Records usages of a macro for semantics & hovers.
+/// TokenList field is mutable so it can be released after preprocessing.
 /// </summary>
-/// <param name="Source">The macro token source</param>
-/// <param name="DefineSource">The define this macro is from</param>
-/// <param name="ExpansionSnippet">Pre-computed string representation of the expansion</param>
-internal record ScriptMacro(Token Source, MacroDefinition DefineSource, string ExpansionSnippet) : ISenseDefinition
+internal class ScriptMacro : ISenseDefinition
 {
-    public bool IsFromPreprocessor { get; } = Source.IsFromPreprocessor;
-    public Range Range { get; } = Source.Range;
+    public Token Source { get; }
+    public MacroDefinition DefineSource { get; }
+    public Range Range { get; }
+
+    /// <summary>
+    /// Cached snippet of the expansion. Computed eagerly; survives token release.
+    /// </summary>
+    public string ExpansionSnippet { get; }
 
     public string SemanticTokenType { get; } = OmniSharp.Extensions.LanguageServer.Protocol.Models.SemanticTokenType.Macro;
-
     public string[] SemanticTokenModifiers { get; } = Array.Empty<string>();
+
+    public ScriptMacro(Token source, MacroDefinition defineSource, TokenList expansionTokens)
+    {
+        Source = source;
+        DefineSource = defineSource;
+        Range = source.Range;
+        ExpansionSnippet = expansionTokens.ToSnippetString();
+        // Don't store expansionTokens — snippet is cached, no further use needed
+    }
 
     public Hover GetHover()
     {
-        string defineSnippet = DefineSource.DefineSnippet;
-
         Hover hover = new()
         {
             Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
             {
                 Kind = MarkupKind.Markdown,
                 Value = string.Format("```gsc\n{0}\n```\n{1}\n\n---\n{2}\n```gsc\n{3}\n```",
-                    defineSnippet, GetFormattedDocumentation(), "Expands to:", ExpansionSnippet)
+                    DefineSource.DefineSnippet, GetFormattedDocumentation(), "Expands to:", ExpansionSnippet)
             }),
             Range = Source.Range,
         };

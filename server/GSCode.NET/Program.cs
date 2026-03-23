@@ -293,16 +293,18 @@ Log.Information("Language server connected successfully!");
 var memoryMonitorCts = new CancellationTokenSource();
 _ = Task.Run(async () =>
 {
+	// Cache the process handle once — Process.GetCurrentProcess() re-enumerates all system processes on each call
+	var process = Process.GetCurrentProcess();
+	var scriptManager = server.Services.GetService<ScriptManager>();
+
 	while (!memoryMonitorCts.Token.IsCancellationRequested)
 	{
 		try
 		{
-			var process = Process.GetCurrentProcess();
+			process.Refresh();
 			var memoryMB = process.WorkingSet64 / 1024.0 / 1024.0;
 			var privateMemoryMB = process.PrivateMemorySize64 / 1024.0 / 1024.0;
 
-			// Get ScriptManager instance to access loaded data counts
-			var scriptManager = server.Services.GetService<ScriptManager>();
 			int functionCount = 0;
 			int classCount = 0;
 			int gscCount = 0;
@@ -327,7 +329,7 @@ _ = Task.Run(async () =>
 			Log.Information("Memory Usage - Working Set: {WorkingSet:F2} MB, Private: {Private:F2} MB | Functions: {Functions}, Classes: {Classes}, Files: GSC={Gsc} CSC={Csc} GSH={Gsh}, Macros: {Macros}", 
 				memoryMB, privateMemoryMB, functionCount, classCount, gscCount, cscCount, gshFilesCount, macroCount);
 
-			await Task.Delay(250, memoryMonitorCts.Token);
+			await Task.Delay(1000, memoryMonitorCts.Token);
 		}
 		catch (OperationCanceledException)
 		{

@@ -554,7 +554,7 @@ public class ScriptManager
 
         foreach (var kvp in Scripts)
         {
-            string filePath = kvp.Key.ToUri().LocalPath;
+            string filePath = kvp.Key.GetFileSystemPath() ?? kvp.Key.Path ?? string.Empty;
             if (filePath.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase))
             {
                 gscCount++;
@@ -985,21 +985,10 @@ public class ScriptManager
         {
             if (cached.Script.DefinitionsTable is not null)
             {
-                Log.Debug("[WORKSPACE_INDEX] Merging {FuncCount} functions and {ClassCount} classes into DefinitionsTable for {File}",
-                    mergeFuncLocs.Count, mergeClassLocs.Count, Path.GetFileName(filePath));
-
                 foreach (var kv in mergeFuncLocs)
                 {
                     var (ns, name) = kv.Key;
                     var (filePath, range) = kv.Value;
-
-                    // Log first few for debugging
-                    if (mergeFuncLocs.IndexOf(kv) < 5)
-                    {
-                        Log.Debug("[WORKSPACE_INDEX]   Adding function {Ns}::{Name} -> {Path}",
-                            ns, name, filePath);
-                    }
-
                     cached.Script.DefinitionsTable.AddFunctionLocation(ns, name, filePath, TokenRange.FromRange(range));
                 }
                 foreach (var kv in mergeClassLocs)
@@ -1018,9 +1007,7 @@ public class ScriptManager
             // Symbol registry already populated, definition tables merged
             // Skip expensive semantic analysis and exported symbols
             perfTracker.Checkpoint("Partial-Complete");
-#if DEBUG
-            _logger.LogDebug("Partial indexing complete for {File}", Path.GetFileName(filePath));
-#endif
+
         }
         else if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Full)
         {

@@ -156,7 +156,6 @@ public class TextDocumentSyncHandler : ITextDocumentSyncHandler
                 string normalizedCustomPath = Path.GetFullPath(customRawPath).Replace('/', '\\').ToLowerInvariant();
                 if (normalizedPath.StartsWith(normalizedCustomPath))
                 {
-                    _logger.LogDebug("File is in custom raw folder: {Path}", filePath);
                     return true;
                 }
             }
@@ -171,7 +170,6 @@ public class TextDocumentSyncHandler : ITextDocumentSyncHandler
                     string normalizedShareRawPath = Path.GetFullPath(shareRawPath).Replace('/', '\\').ToLowerInvariant();
                     if (normalizedPath.StartsWith(normalizedShareRawPath))
                     {
-                        _logger.LogDebug("File is in default raw folder (TA_GAME_PATH\\share\\raw): {Path}", filePath);
                         return true;
                     }
                 }

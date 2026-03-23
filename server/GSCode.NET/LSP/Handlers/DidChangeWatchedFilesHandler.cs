@@ -21,14 +21,10 @@ public class DidChangeWatchedFilesHandler : DidChangeWatchedFilesHandlerBase
 
     public override Task<Unit> Handle(DidChangeWatchedFilesParams request, CancellationToken cancellationToken)
     {
-        _logger.LogDebug("Received workspace file change notification with {Count} changes", request.Changes.Count());
-
         foreach (var change in request.Changes)
         {
             var fileUri = change.Uri;
             var changeType = change.Type;
-
-            _logger.LogDebug("File change: {Uri} ({ChangeType})", fileUri, changeType);
 
             // Filter for GSC/CSC/GSH files only
             var path = fileUri.GetFileSystemPath();

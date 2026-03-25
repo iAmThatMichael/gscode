@@ -1,10 +1,28 @@
 using GSCode.Data;
 using GSCode.Parser.Lexical;
+using System.Collections.Frozen;
 
 namespace GSCode.Parser.AST;
 
 internal ref partial struct Parser
 {
+    // Tokens that can start a statement. Break/Continue are included but require a
+    // context check — see the explicit guards inside StmtList.
+    private static readonly FrozenSet<TokenType> s_stmtFirstSet = new HashSet<TokenType>
+    {
+        // Control flow
+        TokenType.If, TokenType.Do, TokenType.While, TokenType.For, TokenType.Foreach,
+        TokenType.Switch, TokenType.Return,
+        // Special functions
+        TokenType.WaittillFrameEnd, TokenType.Wait, TokenType.WaitRealTime,
+        // Misc
+        TokenType.Const, TokenType.OpenDevBlock, TokenType.OpenBrace, TokenType.Semicolon,
+        // Contextual
+        TokenType.Break, TokenType.Continue,
+        // Expression starts
+        TokenType.Identifier, TokenType.OpenBracket, TokenType.Thread
+    }.ToFrozenSet();
+
     /// <summary>
     /// Parses a (possibly empty) list of statements in a function brace block.
     /// </summary>
@@ -20,47 +38,23 @@ internal ref partial struct Parser
             isNewContext = EnterContextIfNewly(newContext);
         }
 
-        switch (CurrentTokenType)
+        StmtListNode result = new();
+
+        while (s_stmtFirstSet.Contains(CurrentTokenType))
         {
-            // Control flow
-            case TokenType.If:
-            case TokenType.Do:
-            case TokenType.While:
-            case TokenType.For:
-            case TokenType.Foreach:
-            case TokenType.Switch:
-            case TokenType.Return:
-            // Special functions
-            case TokenType.WaittillFrameEnd:
-            case TokenType.Wait:
-            case TokenType.WaitRealTime:
-            // Misc
-            case TokenType.Const:
-            case TokenType.OpenDevBlock:
-            case TokenType.OpenBrace:
-            case TokenType.Semicolon:
-            // Contextual
-            case TokenType.Break when InLoopOrSwitch():
-            case TokenType.Continue when InLoop():
-            // Expressions
-            case TokenType.Identifier:
-            case TokenType.OpenBracket:
-            case TokenType.Thread:
-                AstNode? statement = Stmt();
+            // Break and Continue are only valid in specific contexts
+            if (CurrentTokenType == TokenType.Break && !InLoopOrSwitch()) break;
+            if (CurrentTokenType == TokenType.Continue && !InLoop()) break;
 
-                StmtListNode rest = StmtList();
-                if (statement is not null)
-                {
-                    rest.Statements.AddFirst(statement);
-                }
-
-                ExitContextIfWasNewly(newContext, isNewContext);
-                return rest;
-            // Everything else - empty case
-            default:
-                ExitContextIfWasNewly(newContext, isNewContext);
-                return new();
+            AstNode? statement = Stmt();
+            if (statement is not null)
+            {
+                result.Statements.AddLast(statement);
+            }
         }
+
+        ExitContextIfWasNewly(newContext, isNewContext);
+        return result;
     }
 
     /// <summary>

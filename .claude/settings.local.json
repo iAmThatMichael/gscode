@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx svelte-check:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(python -c \":*)"
     ]
   }
 }

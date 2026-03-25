@@ -1231,6 +1231,12 @@ internal ref partial struct TypeFlowAnalyser
 
     private ScrData AnalyseIdentifierExpr(IdentifierExprNode expr, SymbolTable symbolTable, bool createSenseTokenForRhs = true)
     {
+        // Animation references (%identifier) are anim type
+        if (expr.IsAnim)
+        {
+            return new ScrData(ScrDataTypes.Anim);
+        }
+
         // Check if this identifier is a class member (before checking local variables)
         if (symbolTable.CurrentClass is not null)
         {

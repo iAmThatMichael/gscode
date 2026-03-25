@@ -7976,10 +7976,36 @@
                     "parameters": [
                         {
                             "name": "position",
-                            "description": "Either an entity to link the camera to or a vector defining the world position.",
+                            "description": "A vector defining the world position for the camera.",
                             "mandatory": true,
                             "type": {
                                 "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "angles",
+                            "description": "The angles to set for the camera.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        }
+                    ]
+                },
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": null
+                    },
+                    "parameters": [
+                        {
+                            "name": "entity",
+                            "description": "An entity to link the camera to.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "entity",
                                 "isArray": false
                             }
                         },
@@ -9162,7 +9188,7 @@
                             "description": "The animation or animtree node to clear.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         },
@@ -9199,7 +9225,7 @@
                             "description": "The animation or animtree node to clear.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         },
@@ -17826,7 +17852,7 @@
                             "description": "animation to manipulate.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         }
@@ -32459,7 +32485,7 @@
                     "parameters": [
                         {
                             "name": "start",
-                            "description": "The bullet start point.",
+                            "description": "The trace start point.",
                             "mandatory": true,
                             "type": {
                                 "dataType": "vector",
@@ -32468,7 +32494,7 @@
                         },
                         {
                             "name": "end",
-                            "description": "The bullet end point.",
+                            "description": "The trace end point.",
                             "mandatory": true,
                             "type": {
                                 "dataType": "vector",
@@ -32480,31 +32506,31 @@
                             "description": "When set to true, this will trace for character hits.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "int",
+                                "dataType": "bool",
                                 "isArray": false
                             }
                         },
                         {
                             "name": "ignoreEntity",
-                            "description": "An entity to ignore.",
-                            "mandatory": true,
+                            "description": "An entity to ignore during the trace. Pass false or undefined to ignore nothing.",
+                            "mandatory": false,
                             "type": {
-                                "dataType": "entity",
+                                "dataType": "any",
                                 "isArray": false
                             }
                         },
                         {
                             "name": "ignoreWater",
-                            "description": "Optionally ignore water. (bool).",
+                            "description": "Optionally ignore water.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "int",
+                                "dataType": "bool",
                                 "isArray": false
                             }
                         },
                         {
                             "name": "ignoreGlass",
-                            "description": "Optionally ignore glass. (bool).",
+                            "description": "Optionally ignore glass.",
                             "mandatory": false,
                             "type": {
                                 "dataType": "bool",
@@ -32514,10 +32540,10 @@
                     ],
                     "returns": {
                         "name": null,
-                        "description": null,
+                        "description": "A struct containing fraction, position, entity, normal, and surfacetype.",
                         "type": {
-                            "dataType": "any",
-                            "isArray": true
+                            "dataType": "struct",
+                            "isArray": false
                         },
                         "void": false
                     }
@@ -49650,7 +49676,7 @@
         },
         {
             "name": "RandomIntRange",
-            "description": "Returns a random integer `result`, where `min ≤ result < max`.",
+            "description": "Returns a random integer `result`, where `min ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°Ãƒâ€šÃ‚Â¤ result < max`.",
             "overloads": [
                 {
                     "calledOn": null,
@@ -49674,7 +49700,7 @@
                     ],
                     "returns": {
                         "name": "result",
-                        "description": "A random integer `result`, where `min ≤ result < max`.",
+                        "description": "A random integer `result`, where `min ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°Ãƒâ€šÃ‚Â¤ result < max`.",
                         "type": {
                             "dataType": "int"
                         }
@@ -54229,7 +54255,7 @@
                             "description": "The animation or animtree node to change.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         },
@@ -54282,7 +54308,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "weight",
@@ -54326,7 +54356,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "weight",
@@ -54365,7 +54399,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "root",
@@ -54409,7 +54447,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "root",
@@ -54453,7 +54495,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "root",
@@ -54497,7 +54543,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "root",
@@ -54541,7 +54591,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "weight",
@@ -54580,7 +54634,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "weight",
@@ -54619,7 +54677,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "weight",
@@ -58021,7 +58083,7 @@
                             "description": "The animation to play.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         },
@@ -58135,7 +58197,7 @@
                             "description": "The animation to play.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         },
@@ -58215,7 +58277,7 @@
                             "description": "The animation to play.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         },
@@ -58295,7 +58357,7 @@
                             "description": "The animation to play.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         },

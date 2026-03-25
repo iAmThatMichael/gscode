@@ -2281,7 +2281,7 @@
                             "description": "The animation or animtree node to clear.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         },
@@ -5187,7 +5187,7 @@
                             "description": "The animation.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         }
@@ -19930,7 +19930,7 @@
                             "description": "The animation or animtree node to change.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         },
@@ -19982,7 +19982,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "weight",
@@ -20021,7 +20025,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "weight",
@@ -20060,7 +20068,11 @@
                         {
                             "name": "animation",
                             "description": "The animation or animtree node to change.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "anim",
+                                "isArray": false
+                            }
                         },
                         {
                             "name": "weight",
@@ -20101,7 +20113,7 @@
                             "description": "The animation to manipulate.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "string",
+                                "dataType": "anim",
                                 "isArray": false
                             }
                         },

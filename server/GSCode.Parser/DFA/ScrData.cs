@@ -824,6 +824,12 @@ internal record struct ScrData
             expected |= ScrDataTypes.Number | ScrDataTypes.Bool | ScrDataTypes.Hash;
         }
 
+        // Anim and String are interchangeable (anim refs are strings under the hood)
+        if ((expected & (ScrDataTypes.Anim | ScrDataTypes.String)) != ScrDataTypes.Void)
+        {
+            expected |= ScrDataTypes.Anim | ScrDataTypes.String;
+        }
+
         if (Indeterminate)
         {
             return (Type & expected) != ScrDataTypes.Void;
@@ -854,6 +860,12 @@ internal record struct ScrData
         if ((expectedType & ScrDataTypes.String) != ScrDataTypes.Void)
         {
             expectedType |= ScrDataTypes.Number | ScrDataTypes.Bool | ScrDataTypes.Hash;
+        }
+
+        // Anim and String are interchangeable (anim refs are strings under the hood)
+        if ((expectedType & (ScrDataTypes.Anim | ScrDataTypes.String)) != ScrDataTypes.Void)
+        {
+            expectedType |= ScrDataTypes.Anim | ScrDataTypes.String;
         }
 
         if (Indeterminate || expected.Indeterminate)

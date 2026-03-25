@@ -23,6 +23,12 @@ public partial class Script
 
         Log.Debug("GetDefinitionAsync: Starting at position {Position}", position);
 
+        // When Go-to-Definition is triggered with a text selection active the LSP position
+        // is the selection end, which may land exactly on the first character of the next
+        // token (e.g. '(' after a function name, or a space after a macro). Normalise the
+        // position back to the preceding identifier so all subsequent lookups succeed.
+        position = AdjustPositionForSelectionEnd(position);
+
         // First, allow preprocessor macro definitions/usages to resolve even if the original macro token was removed
         IHoverable? hoverable = Sense.HoverLibrary!.Get(position);
         if (hoverable is Pre.MacroDefinition macroDef && !macroDef.IsBuiltIn)
@@ -222,6 +228,8 @@ public partial class Script
         if (!Sense.IsEditorMode) return null;
         await WaitUntilParsedAsync(cancellationToken);
 
+        position = AdjustPositionForSelectionEnd(position);
+
         int idx = Sense.Tokens.GetIndex(position);
         Token? token = Sense.Tokens.GetAt(idx);
         if (token is null)
@@ -230,6 +238,43 @@ public partial class Script
         }
 
         return ParseNamespaceQualifiedIdentifierByIndex(idx);
+    }
+
+    /// <summary>
+    /// When Go-to-Definition (or a similar navigation request) is triggered while the
+    /// editor has a text selection active, the LSP position is the selection end rather
+    /// than a point inside the symbol. The selection end often falls exactly on the first
+    /// character of the next token — e.g. '(' after a function name, or a space/comma
+    /// after a macro name — causing all token and hover lookups to miss.
+    ///
+    /// This method detects that boundary condition: if the token returned by GetIndex
+    /// starts *exactly* at the given position and is not itself an identifier, the cursor
+    /// is almost certainly sitting just past an identifier. In that case we step back to
+    /// the preceding non-trivia identifier token and return its start position, which
+    /// will resolve correctly in both the hover library (exclusive-end ranges) and the
+    /// token index lookup.
+    /// </summary>
+    private Position AdjustPositionForSelectionEnd(Position position)
+    {
+        int idx = Sense.Tokens.GetIndex(position);
+        Token? token = Sense.Tokens.GetAt(idx);
+
+        if (token is not null
+            && token.Type != TokenType.Identifier
+            && token.TokenRange.StartLine == position.Line
+            && token.TokenRange.StartChar == position.Character)
+        {
+            int prevIdx = Sense.Tokens.PrevNonTriviaIndex(idx);
+            Token? prev = Sense.Tokens.GetAt(prevIdx);
+            if (prev?.Type == TokenType.Identifier)
+            {
+                Log.Debug("AdjustPositionForSelectionEnd: cursor at start of '{Tok}' ({Type}), stepping back to identifier '{Id}'",
+                    token.Lexeme, token.Type, prev.Lexeme);
+                return new Position(prev.TokenRange.StartLine, prev.TokenRange.StartChar);
+            }
+        }
+
+        return position;
     }
 
     public async Task<SignatureHelp?> GetSignatureHelpAsync(Position position, CancellationToken cancellationToken)

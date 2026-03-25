@@ -673,8 +673,8 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
         // Build set of known namespaces from function and class definitions
         HashSet<string> knownNamespaces = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var kv in DefinitionsTable.GetAllFunctionLocations()) knownNamespaces.Add(kv.Key.Namespace);
-        foreach (var kv in DefinitionsTable.GetAllClassLocations()) knownNamespaces.Add(kv.Key.Namespace);
+        foreach (var kv in DefinitionsTable.GetAllFunctionLocations()) knownNamespaces.Add(kv.Key.Qualifier);
+        foreach (var kv in DefinitionsTable.GetAllClassLocations()) knownNamespaces.Add(kv.Key.Qualifier);
         knownNamespaces.Add(DefinitionsTable.CurrentNamespace);
 
 #if FLAG_PERFORMANCE_TRACKING
@@ -944,13 +944,13 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 
             // Try to get from local definitions first
             var localFunc = DefinitionsTable?.LocalScopedFunctions
-                .FirstOrDefault(f => string.Equals(f.Item1.Name, funcName, StringComparison.OrdinalIgnoreCase) &&
-                                   string.Equals(f.Item1.Namespace, ns, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(f => string.Equals(f.Function.Name, funcName, StringComparison.OrdinalIgnoreCase) &&
+                                   string.Equals(f.Function.Namespace, ns, StringComparison.OrdinalIgnoreCase));
 
             if (localFunc != default)
             {
                 Log.Debug("[HOVER] Found function in LocalScopedFunctions: ns={Ns}, name={Name}", ns, funcName);
-                function = localFunc.Item1;
+                function = localFunc.Value.Function;
             }
             else
             {

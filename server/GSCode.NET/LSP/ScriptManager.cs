@@ -392,7 +392,7 @@ public class ScriptManager
                         string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(funcFilePath);
                         if (relativePath != null)
                         {
-                            allFuncLocs.Add((funcLoc.Key.Namespace, funcLoc.Key.Name, relativePath, funcLoc.Value.Range.ToRange()));
+                            allFuncLocs.Add((funcLoc.Key.Qualifier, funcLoc.Key.SymbolName, relativePath, funcLoc.Value.Range.ToRange()));
                         }
                     }
                 }
@@ -408,7 +408,7 @@ public class ScriptManager
                         string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(classFilePath);
                         if (relativePath != null)
                         {
-                            allClassLocs.Add((classLoc.Key.Namespace, classLoc.Key.Name, relativePath, classLoc.Value.Range.ToRange()));
+                            allClassLocs.Add((classLoc.Key.Qualifier, classLoc.Key.SymbolName, relativePath, classLoc.Value.Range.ToRange()));
                         }
                     }
                 }

@@ -103,8 +103,8 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
 
             classNodes.Add(new DocumentSymbol
             {
-                Name = key.Name,
-                Detail = key.Namespace,
+                Name = key.SymbolName,
+                Detail = key.Qualifier,
                 Kind = LspSymbolKind.Class,
                 Range = val.Range.ToRange(),
                 SelectionRange = val.Range.ToRange(),
@@ -122,12 +122,12 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             if (!string.Equals(filePath, currentPath, System.StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            string[]? parameters = script.DefinitionsTable.GetFunctionParameters(key.Namespace, key.Name);
-            string[]? flags = script.DefinitionsTable.GetFunctionFlags(key.Namespace, key.Name);
+            string[]? parameters = script.DefinitionsTable.GetFunctionParameters(key.Qualifier, key.SymbolName);
+            string[]? flags = script.DefinitionsTable.GetFunctionFlags(key.Qualifier, key.SymbolName);
             functionNodes.Add(new DocumentSymbol
             {
-                Name = BuildFunctionLabel(key.Name, key.Namespace, parameters, flags),
-                Detail = key.Namespace,
+                Name = BuildFunctionLabel(key.SymbolName, key.Qualifier, parameters, flags),
+                Detail = key.Qualifier,
                 Kind = LspSymbolKind.Function,
                 Range = val.Range.ToRange(),
                 SelectionRange = val.Range.ToRange()

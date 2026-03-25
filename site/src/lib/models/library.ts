@@ -65,7 +65,8 @@ export const ScrFunctionSchema = z.object({
 	flags: z.array(z.string()),
 	example: z.string().nullish(),
 	verifiedInRevision: z.number().nullish(),
-	remarks: z.array(z.string()).nullish()
+	remarks: z.array(z.string()).nullish(),
+	confidence: z.enum(['low', 'medium', 'high']).nullish()
 });
 export type ScrFunction = z.infer<typeof ScrFunctionSchema>;
 

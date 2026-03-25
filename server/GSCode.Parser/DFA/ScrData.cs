@@ -358,6 +358,12 @@ internal record struct ScrData
             return new ScrData(ScrDataTypes.Array);
         }
 
+        // Handle unionOf types (e.g. unionOf: [{ dataType: "string" }, { dataType: "number" }])
+        if (apiType.UnionOf is { Count: > 0 })
+        {
+            return FromApiTypes(apiType.UnionOf);
+        }
+
         // Handle union types (pipe-separated, e.g. "hash | int | string")
         if (apiType.DataType.Contains('|'))
         {
@@ -459,6 +465,8 @@ internal record struct ScrData
             "number" => (ScrDataTypes.Number, null), // int | float
             "vector" or "vec3" => (ScrDataTypes.Vector, null),
             "hash" => (ScrDataTypes.Hash, null),
+            "animtree" => (ScrDataTypes.AnimTree, null),
+            "anim" => (ScrDataTypes.Anim, null),
             "undefined" => (ScrDataTypes.Undefined, null),
             "void" => (ScrDataTypes.Void, null),
 
@@ -810,6 +818,12 @@ internal record struct ScrData
             expected |= ScrDataTypes.IString;
         }
 
+        // String accepts any type that can be implicitly converted to string at runtime
+        if ((expected & ScrDataTypes.String) != ScrDataTypes.Void)
+        {
+            expected |= ScrDataTypes.Number | ScrDataTypes.Bool | ScrDataTypes.Hash;
+        }
+
         if (Indeterminate)
         {
             return (Type & expected) != ScrDataTypes.Void;
@@ -834,6 +848,12 @@ internal record struct ScrData
         if ((expectedType & ScrDataTypes.String) != ScrDataTypes.Void)
         {
             expectedType |= ScrDataTypes.IString;
+        }
+
+        // String accepts any type that can be implicitly converted to string at runtime
+        if ((expectedType & ScrDataTypes.String) != ScrDataTypes.Void)
+        {
+            expectedType |= ScrDataTypes.Number | ScrDataTypes.Bool | ScrDataTypes.Hash;
         }
 
         if (Indeterminate || expected.Indeterminate)

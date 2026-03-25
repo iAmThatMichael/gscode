@@ -22,7 +22,7 @@
 	import { onMount } from 'svelte';
 	import { overloadToSyntacticString } from '$lib/util/scriptApi';
 
-	let { name, description, example, remarks, overloads, flags }: ScrFunction = $derived(
+	let { name, description, example, remarks, overloads, flags, confidence }: ScrFunction = $derived(
 		$page.data.func as ScrFunction
 	);
 	let languageName = $derived.by(() => {
@@ -172,7 +172,7 @@
 
 	<div class="flex flex-col shrink-0 justify-between px-4 border-l lg:w-80">
 		<div class="flex flex-col gap-4">
-			<FlagsAlert {flags} />
+			<FlagsAlert {flags} {confidence} />
 
 			<div class="font-medium text-sm hidden lg:block">Actions</div>
 			<div class="flex flex-row lg:flex-col gap-2">

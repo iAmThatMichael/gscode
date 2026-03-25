@@ -155,6 +155,40 @@ export function activate(context: ExtensionContext) {
     // client can be deactivated on extension deactivation
     client.start();
 
+    // Warn when a file's extension doesn't match its language ID (e.g. .csc opened as GSC).
+    const warnedDocuments = new Set<string>();
+    context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(doc => {
+        const config = workspace.getConfiguration("gscode");
+        if (!config.get<boolean>("warnLanguageMismatch", true)) {
+            return;
+        }
+
+        const ext = path.extname(doc.fileName).toLowerCase();
+        const lang = doc.languageId;
+        let expectedLang: string | undefined;
+
+        if (ext === ".csc" && lang === "gsc") {
+            expectedLang = "CSC";
+        } else if (ext === ".gsc" && lang === "csc") {
+            expectedLang = "GSC";
+        }
+
+        if (expectedLang && !warnedDocuments.has(doc.uri.toString())) {
+            warnedDocuments.add(doc.uri.toString());
+            vscode.window.showWarningMessage(
+                `This ${ext} file is being parsed as ${lang.toUpperCase()}. Did you mean to use ${expectedLang}?`,
+                "Change Language",
+                "Don't Ask Again"
+            ).then(sel => {
+                if (sel === "Change Language") {
+                    vscode.commands.executeCommand("workbench.action.editor.changeLanguageMode");
+                } else if (sel === "Don't Ask Again") {
+                    config.update("warnLanguageMismatch", false, vscode.ConfigurationTarget.Global);
+                }
+            });
+        }
+    }));
+
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('gscode.enableWorkspaceIndexing')) {
             vscode.window.showInformationMessage(

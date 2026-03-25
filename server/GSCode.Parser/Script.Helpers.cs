@@ -90,12 +90,14 @@ public partial class Script
         Token token = tokens.GetAt(tokenIndex)!;
         int line = token.Range.Start.Line;
 
-        // Walk to start of line
+        // Walk to start of line.
+        // Use Start.Line (not End.Line): LineBreak tokens are created with End.Line = currentLine + 1,
+        // so checking End.Line causes the walk to overshoot past #using.
         int cursorIdx = tokenIndex;
         while (cursorIdx > 0)
         {
             Token prev = tokens.GetAt(cursorIdx - 1)!;
-            if (prev.Range.End.Line != line) break;
+            if (prev.Range.Start.Line != line) break;
             cursorIdx--;
         }
 
@@ -129,7 +131,9 @@ public partial class Script
             Token t = tokens.GetAt(i)!;
             if (t.Range.Start.Line != line) break;
             if (t.Type == TokenType.Semicolon || t.Type == TokenType.LineBreak) break;
-            if (!t.IsWhitespacey()) sb.Append(t.Lexeme);
+            // Include backslash tokens explicitly: IsWhitespacey() returns true for Backslash
+            // (used in other contexts), but here they are path separators and must be appended.
+            if (!t.IsWhitespacey() || t.Type == TokenType.Backslash) sb.Append(t.Lexeme);
             if (ReferenceEquals(t, endToken)) break;
         }
 

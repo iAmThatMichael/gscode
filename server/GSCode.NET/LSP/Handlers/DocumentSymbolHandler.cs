@@ -54,22 +54,6 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
         return name + paramText + " [" + string.Join(", ", flags) + "]";
     }
 
-    private static Range ComputeContainerRange(List<DocumentSymbol> children)
-    {
-        // children is never empty when called
-        var start = children[0].Range.Start;
-        var end = children[0].Range.End;
-
-        for (int i = 1; i < children.Count; i++)
-        {
-            var s = children[i].Range.Start;
-            var d = children[i].Range.End;
-            if (s.Line < start.Line || (s.Line == start.Line && s.Character < start.Character)) start = s;
-            if (d.Line > end.Line || (d.Line == end.Line && d.Character > end.Character)) end = d;
-        }
-        return new Range(start, end);
-    }
-
     public override async Task<SymbolInformationOrDocumentSymbolContainer?> Handle(DocumentSymbolParams request, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
@@ -153,7 +137,11 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             }
         }
 
-        // Build grouped root nodes (separates by type)
+        // Build grouped root nodes (separates by type).
+        // Groups are added in the desired display order: Classes → Functions → Macros.
+        // Each group uses a fixed synthetic range anchored to a stable line index (0, 1, 2)
+        // so that clients which re-sort root symbols by Range.Start respect the intended order
+        // rather than hoisting Macros above Functions because #defines appear earlier in the file.
         List<DocumentSymbol> root = new(capacity: 3);
 
         if (classNodes.Count > 0)
@@ -162,13 +150,13 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             {
                 classNodes.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase));
             }
-            var range = ComputeContainerRange(classNodes);
+            var anchor = new Range(new Position(0, 0), new Position(0, 0));
             root.Add(new DocumentSymbol
             {
                 Name = "Classes",
                 Kind = LspSymbolKind.Namespace,
-                Range = range,
-                SelectionRange = range,
+                Range = anchor,
+                SelectionRange = anchor,
                 Children = classNodes
             });
         }
@@ -179,13 +167,13 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             {
                 functionNodes.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase));
             }
-            var range = ComputeContainerRange(functionNodes);
+            var anchor = new Range(new Position(1, 0), new Position(1, 0));
             root.Add(new DocumentSymbol
             {
                 Name = "Functions",
                 Kind = LspSymbolKind.Namespace,
-                Range = range,
-                SelectionRange = range,
+                Range = anchor,
+                SelectionRange = anchor,
                 Children = functionNodes
             });
         }
@@ -196,13 +184,13 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             {
                 macroNodes.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase));
             }
-            var range = ComputeContainerRange(macroNodes);
+            var anchor = new Range(new Position(2, 0), new Position(2, 0));
             root.Add(new DocumentSymbol
             {
                 Name = "Macros",
                 Kind = LspSymbolKind.Namespace,
-                Range = range,
-                SelectionRange = range,
+                Range = anchor,
+                SelectionRange = anchor,
                 Children = macroNodes
             });
         }

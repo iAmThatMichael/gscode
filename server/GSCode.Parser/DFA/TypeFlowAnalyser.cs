@@ -102,6 +102,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
     {
         Silent = true;
         Sense.SilentSenseTokens = true;
+        Flags.InDevBlock = function?.InDevBlock ?? false;
 
         // Clear state at the start of each function analysis
         SwitchContexts.Clear();
@@ -689,6 +690,16 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
                 break;
             case AstNodeType.WaitRealTimeStmt:
                 AnalyseWaitStmt((ReservedFuncStmtNode)statement, symbolTable);
+                break;
+            case AstNodeType.DevBlock:
+                bool wasInDevBlock = Flags.InDevBlock;
+                Flags.InDevBlock = true;
+                FunDevBlockNode devBlock = (FunDevBlockNode)statement;
+                for (LinkedListNode<AstNode>? n = devBlock.Body.Statements.First; n != null; n = n.Next)
+                {
+                    AnalyseStatement(n.Value, n.Previous?.Value, n.Next?.Value, symbolTable);
+                }
+                Flags.InDevBlock = wasInDevBlock;
                 break;
             default:
                 break;

@@ -1560,6 +1560,14 @@ internal ref partial struct TypeFlowAnalyser
         ValidateArgumentCount(function, argCount, call.Arguments.Range, functionName, functionFlags);
         ValidateArgumentTypes(function, argTypes, call, functionName, functionFlags);
 
+        // Check if a devblock-only function is being used outside a devblock
+        if (!Flags.InDevBlock
+            && function is not null
+            && function.Flags.Contains("devblock", StringComparer.OrdinalIgnoreCase))
+        {
+            AddDiagnostic(call.Function!.Range, GSCErrorCodes.DevBlockFunctionOutsideDevBlock, functionName);
+        }
+
         // Return the function's return type if known
         return GetFunctionReturnType(function);
     }

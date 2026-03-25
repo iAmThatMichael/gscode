@@ -204,6 +204,7 @@ public record class ScrFunction : IExportedSymbol
             "broken" => "**Do not use this function as it is broken.**",
             "deprecated" => "**This function is deprecated and should not be used.**",
             "useless" => "_This function serves no purpose for modders._",
+            "devblock" => "_This function is only available inside developer blocks._",
             _ => string.Empty
         };
     }
@@ -245,6 +246,12 @@ public record class ScrFunction : IExportedSymbol
     /// Whether this function is private and cannot be accessed from other scripts.
     /// </summary>
     public bool Private { get; set; } = false;
+
+    /// <summary>
+    /// Whether this function was defined inside a developer block.
+    /// </summary>
+    [JsonIgnore]
+    public bool InDevBlock { get; set; } = false;
 }
 
 

@@ -9,6 +9,8 @@
 	import MessageCircleQuestion from "lucide-svelte/icons/message-circle-question";
 	// @ts-ignore
 	import BotMessageSquare from "lucide-svelte/icons/bot-message-square";
+	// @ts-ignore
+	import SquareCode from "lucide-svelte/icons/square-code";
 	import FlagAlert from './FlagAlert.svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 
@@ -68,5 +70,11 @@
 {#if flags.includes('unlisted')}
 	<FlagAlert Icon={EyeOff} title={"Unlisted"} description={`
 		This function has been unlisted. It is unlikely to be functional and/or useful.
+	`}/>
+{/if}
+
+{#if flags.includes('devblock')}
+	<FlagAlert Icon={SquareCode} title={"Dev Block"} description={`
+		This function is only available inside developer blocks.
 	`}/>
 {/if}

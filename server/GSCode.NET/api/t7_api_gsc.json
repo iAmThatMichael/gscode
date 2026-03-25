@@ -40284,17 +40284,74 @@
         },
         {
             "name": "Line",
-            "description": "Debug instrument.",
+            "description": "Draws a debug line between two points.",
             "overloads": [
                 {
                     "calledOn": null,
                     "parameters": [
                         {
-                            "name": "args",
-                            "description": "The arguments.",
+                            "name": "start",
+                            "description": "The start position of the line.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "end",
+                            "description": "The end position of the line.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "color",
+                            "description": "The line color as an RGB vector.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "vararg",
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "alpha",
+                            "description": "The line opacity.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "number",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "depthTest",
+                            "description": "Whether the line should be occluded by world geometry.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": null,
+                                "isArray": false,
+                                "unionOf": [
+                                    {
+                                        "dataType": "bool",
+                                        "isArray": false,
+                                        "unionOf": null
+                                    },
+                                    {
+                                        "dataType": "int",
+                                        "isArray": false,
+                                        "unionOf": null
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "duration",
+                            "description": "The display duration in frames.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "int",
                                 "isArray": false
                             }
                         }
@@ -40305,12 +40362,10 @@
                 }
             ],
             "flags": [
-                "processed"
+                "verified",
+                "devblock"
             ],
-            "remarks": [
-                "`Line` must be called from the context of a devblock. *"
-            ],
-            "confidence": "high"
+            "example": "/#\n    Line( self.origin, self.origin + (0, 0, 100), (1, 0, 0), 1.0, false, 1 );\n#/"
         },
         {
             "name": "LineList",
@@ -49086,7 +49141,7 @@
                             "description": "The text opacity.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "float",
+                                "dataType": "number",
                                 "isArray": false
                             }
                         },
@@ -49095,7 +49150,7 @@
                             "description": "The text scale.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "float",
+                                "dataType": "number",
                                 "isArray": false
                             }
                         },
@@ -49115,10 +49170,10 @@
                 }
             ],
             "flags": [
-                "processed"
+                "verified",
+                "devblock"
             ],
-            "example": "Print3d( self.origin + (0, 0, 60), \"Hello\", (1, 1, 1), 1.0, 1.0, 1 );",
-            "confidence": "medium"
+            "example": "/#\n    Print3d( self.origin + (0, 0, 60), \"Hello\", (1, 1, 1), 1.0, 1.0, 1 );\n#/"
         },
         {
             "name": "PrintLn",
@@ -49161,12 +49216,10 @@
                 }
             ],
             "flags": [
-                "verified"
+                "verified",
+                "devblock"
             ],
-            "example": "/#\n    PrintLn( \"I could be doing better!\" );\n#/",
-            "remarks": [
-                "`PrintLn` must be called from the context of a devblock. *"
-            ]
+            "example": "/#\n    PrintLn( \"I could be doing better!\" );\n#/"
         },
         {
             "name": "PrintTopRightln",
@@ -49676,7 +49729,7 @@
         },
         {
             "name": "RandomIntRange",
-            "description": "Returns a random integer `result`, where `min ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°Ãƒâ€šÃ‚Â¤ result < max`.",
+            "description": "Returns a random integer `result`, where `min \u00c3\u0192\u00c6\u2019\u00c3\u2020\u00e2\u20ac\u2122\u00c3\u0192\u00e2\u20ac\u0161\u00c3\u201a\u00c2\u00a2\u00c3\u0192\u00c6\u2019\u00c3\u201a\u00c2\u00a2\u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u201a\u00ac\u00c5\u00a1\u00c3\u201a\u00c2\u00ac\u00c3\u0192\u00e2\u20ac\u0161\u00c3\u201a\u00c2\u00b0\u00c3\u0192\u00c6\u2019\u00c3\u00a2\u00e2\u201a\u00ac\u00c5\u00a1\u00c3\u0192\u00e2\u20ac\u0161\u00c3\u201a\u00c2\u00a4 result < max`.",
             "overloads": [
                 {
                     "calledOn": null,
@@ -49700,7 +49753,7 @@
                     ],
                     "returns": {
                         "name": "result",
-                        "description": "A random integer `result`, where `min ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°Ãƒâ€šÃ‚Â¤ result < max`.",
+                        "description": "A random integer `result`, where `min \u00c3\u0192\u00c6\u2019\u00c3\u2020\u00e2\u20ac\u2122\u00c3\u0192\u00e2\u20ac\u0161\u00c3\u201a\u00c2\u00a2\u00c3\u0192\u00c6\u2019\u00c3\u201a\u00c2\u00a2\u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u201a\u00ac\u00c5\u00a1\u00c3\u201a\u00c2\u00ac\u00c3\u0192\u00e2\u20ac\u0161\u00c3\u201a\u00c2\u00b0\u00c3\u0192\u00c6\u2019\u00c3\u00a2\u00e2\u201a\u00ac\u00c5\u00a1\u00c3\u0192\u00e2\u20ac\u0161\u00c3\u201a\u00c2\u00a4 result < max`.",
                         "type": {
                             "dataType": "int"
                         }
@@ -50185,7 +50238,7 @@
                             "description": "The circle radius.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "float",
+                                "dataType": "number",
                                 "isArray": false
                             }
                         },
@@ -50199,20 +50252,20 @@
                             }
                         },
                         {
-                            "name": "depthTest",
-                            "description": "Whether to depth test.",
+                            "name": "recordType",
+                            "description": "The recorder category string.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "bool",
+                                "dataType": "string",
                                 "isArray": false
                             }
                         },
                         {
-                            "name": "duration",
-                            "description": "The display duration.",
+                            "name": "entity",
+                            "description": "An entity to associate with the recording.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "float",
+                                "dataType": "entity",
                                 "isArray": false
                             }
                         }
@@ -50223,10 +50276,10 @@
                 }
             ],
             "flags": [
-                "processed"
+                "verified",
+                "devblock"
             ],
-            "example": "RecordCircle( origin, 32.0 );",
-            "confidence": "low"
+            "example": "/#\n    RecordCircle( seedPosition, 2, ORANGE, \"Animscript\", self );\n#/"
         },
         {
             "name": "RecordComScoreEvent",
@@ -50374,20 +50427,20 @@
                     "calledOn": null,
                     "parameters": [
                         {
-                            "name": "entity",
-                            "description": "The entity to attach text to.",
-                            "mandatory": true,
-                            "type": {
-                                "dataType": "entity",
-                                "isArray": false
-                            }
-                        },
-                        {
                             "name": "text",
                             "description": "The text to record.",
                             "mandatory": true,
                             "type": {
                                 "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "entity",
+                            "description": "The entity to attach text to.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "entity",
                                 "isArray": false
                             }
                         },
@@ -50401,11 +50454,11 @@
                             }
                         },
                         {
-                            "name": "duration",
-                            "description": "The display duration.",
+                            "name": "recordType",
+                            "description": "The recorder category string.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "float",
+                                "dataType": "string",
                                 "isArray": false
                             }
                         }
@@ -50416,10 +50469,10 @@
                 }
             ],
             "flags": [
-                "processed"
+                "verified",
+                "devblock"
             ],
-            "example": "RecordEntText( ent, \"label\" );",
-            "confidence": "low"
+            "example": "/#\n    RecordEntText( \"label\", entity, GREEN, \"Animscript\" );\n#/"
         },
         {
             "name": "RecorderPlayback",
@@ -50843,20 +50896,20 @@
                             }
                         },
                         {
-                            "name": "depthTest",
-                            "description": "Whether to depth test.",
+                            "name": "recordType",
+                            "description": "The recorder category string.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "bool",
+                                "dataType": "string",
                                 "isArray": false
                             }
                         },
                         {
-                            "name": "duration",
-                            "description": "The display duration.",
+                            "name": "entity",
+                            "description": "An entity to associate with the recording.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "float",
+                                "dataType": "entity",
                                 "isArray": false
                             }
                         }
@@ -50867,10 +50920,10 @@
                 }
             ],
             "flags": [
-                "processed"
+                "verified",
+                "devblock"
             ],
-            "example": "RecordLine( start, end, (1,0,0) );",
-            "confidence": "low"
+            "example": "/#\n    RecordLine( start, end, RED, \"Script\", entity );\n#/"
         },
         {
             "name": "RecordLoadoutIndex",
@@ -51420,7 +51473,7 @@
                             "description": "The sphere radius.",
                             "mandatory": true,
                             "type": {
-                                "dataType": "float",
+                                "dataType": "number",
                                 "isArray": false
                             }
                         },
@@ -51434,20 +51487,20 @@
                             }
                         },
                         {
-                            "name": "depthTest",
-                            "description": "Whether to depth test.",
+                            "name": "recordType",
+                            "description": "The recorder category string.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "bool",
+                                "dataType": "string",
                                 "isArray": false
                             }
                         },
                         {
-                            "name": "duration",
-                            "description": "The display duration.",
+                            "name": "entity",
+                            "description": "An entity to associate with the recording.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "float",
+                                "dataType": "entity",
                                 "isArray": false
                             }
                         }
@@ -51458,10 +51511,10 @@
                 }
             ],
             "flags": [
-                "processed"
+                "verified",
+                "devblock"
             ],
-            "example": "RecordSphere( origin, 16.0 );",
-            "confidence": "low"
+            "example": "/#\n    RecordSphere( stopPos, 3, BLUE, \"Script\", entity );\n#/"
         },
         {
             "name": "RecordStar",

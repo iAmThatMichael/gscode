@@ -128,6 +128,7 @@ public enum GSCErrorCodes
         CannotAssignToImmutableEntity = 3061,
         PredefinedFieldTypeMismatch = 3062,
         ArgumentTypeMismatchUnverified = 3063,
+        DevBlockFunctionOutsideDevBlock = 3064,
 
         // 8xxx errors are issued by the IDE for conventions
         UnterminatedRegion = 8000,
@@ -261,6 +262,7 @@ public static class DiagnosticCodes
         { GSCErrorCodes.CannotAssignToImmutableEntity, new("The entity type '{0}' is immutable and cannot be assigned to.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.PredefinedFieldTypeMismatch, new("Cannot assign value of type '{0}' to entity field of type '{1}'.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.ArgumentTypeMismatchUnverified, new("Argument {0} to '{1}' expects '{2}', got '{3}'.\nNote: Argument types are derived from Treyarch's API, which may contain errors.", DiagnosticSeverity.Warning) },
+        { GSCErrorCodes.DevBlockFunctionOutsideDevBlock, new("Function '{0}' can only be used inside developer blocks.", DiagnosticSeverity.Error) },
 
         // 8xxx
         { GSCErrorCodes.UnterminatedRegion, new("No corresponding '/* endregion */' found to terminate '{0}' region.", DiagnosticSeverity.Warning) },

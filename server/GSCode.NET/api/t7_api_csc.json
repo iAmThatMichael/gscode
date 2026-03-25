@@ -15275,17 +15275,74 @@
         },
         {
             "name": "Line",
-            "description": "Debug instrument.",
+            "description": "Draws a debug line between two points.",
             "overloads": [
                 {
                     "calledOn": null,
                     "parameters": [
                         {
-                            "name": "args",
-                            "description": "The arguments.",
+                            "name": "start",
+                            "description": "The start position of the line.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "end",
+                            "description": "The end position of the line.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "color",
+                            "description": "The line color as an RGB vector.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "vararg",
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "alpha",
+                            "description": "The line opacity.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "number",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "depthTest",
+                            "description": "Whether the line should be occluded by world geometry.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": null,
+                                "isArray": false,
+                                "unionOf": [
+                                    {
+                                        "dataType": "bool",
+                                        "isArray": false,
+                                        "unionOf": null
+                                    },
+                                    {
+                                        "dataType": "int",
+                                        "isArray": false,
+                                        "unionOf": null
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "duration",
+                            "description": "The display duration in frames.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "int",
                                 "isArray": false
                             }
                         }
@@ -15296,8 +15353,10 @@
                 }
             ],
             "flags": [
-                "verified"
-            ]
+                "verified",
+                "devblock"
+            ],
+            "example": "/#\n    Line( self.origin, self.origin + (0, 0, 100), (1, 0, 0), 1.0, false, 1 );\n#/"
         },
         {
             "name": "LinkTo",
@@ -18260,6 +18319,116 @@
                 "verified"
             ],
             "example": "c = pow( 2, 4 )"
+        },
+        {
+            "name": "Print3d",
+            "description": "Draws debug text at a 3D world position.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "origin",
+                            "description": "The world position to draw text at.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "text",
+                            "description": "The text to display.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "color",
+                            "description": "The text color as an RGB vector.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vector",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "alpha",
+                            "description": "The text opacity.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "number",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "scale",
+                            "description": "The text scale.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "number",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "duration",
+                            "description": "The display duration in frames.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "int",
+                                "isArray": false
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified",
+                "devblock"
+            ],
+            "example": "/#\n    Print3d( self.origin + (0, 0, 60), \"Hello\", (1, 1, 1), 1.0, 1.0, 1 );\n#/"
+        },
+        {
+            "name": "PrintLn",
+            "description": "Writes a line to the console.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "text",
+                            "description": "The text to write.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "isArray": false
+                            }
+                        },
+                        {
+                            "name": "extraParameters",
+                            "description": "Zero or more additional strings to append to the log message.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "isArray": false
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified",
+                "devblock"
+            ],
+            "example": "/#\n    PrintLn( \"I could be doing better!\" );\n#/"
         },
         {
             "name": "ProcessClientFieldsAsIfNew",

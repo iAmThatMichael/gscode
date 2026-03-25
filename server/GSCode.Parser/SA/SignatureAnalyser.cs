@@ -18,6 +18,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
     private ScriptNode RootNode { get; } = rootNode;
     private DefinitionsTable DefinitionsTable { get; } = definitionsTable;
     private ParserIntelliSense Sense { get; } = sense;
+    private bool _inDevBlock = false;
 
     public void Analyse()
     {
@@ -211,6 +212,9 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
     public void AnalyseDevBlock(DefnDevBlockNode devBlockNode)
     {
+        bool wasInDevBlock = _inDevBlock;
+        _inDevBlock = true;
+
         // Recursively analyze all definitions within the devblock
         foreach (AstNode scriptDefn in devBlockNode.Definitions)
         {
@@ -230,6 +234,8 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
                     break;
             }
         }
+
+        _inDevBlock = wasInDevBlock;
     }
 
     public void AnalyseFunction(FunDefnNode functionDefn)
@@ -261,7 +267,8 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
             ],
             Flags = [],
             Private = functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Private),
-            DocComment = ExtractDocCommentBefore(nameToken)
+            DocComment = ExtractDocCommentBefore(nameToken),
+            InDevBlock = _inDevBlock
         };
 
         // Produce a definition for our function

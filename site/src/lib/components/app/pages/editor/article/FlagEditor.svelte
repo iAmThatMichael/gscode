@@ -37,6 +37,11 @@
 			id: 'unlisted',
 			label: 'Unlisted',
 			tooltip: 'This function has been unlisted. It is unlikely to be functional and/or useful.'
+		},
+		{
+			id: 'devblock',
+			label: 'Dev Block',
+			tooltip: 'This function is only available inside developer blocks (devblocks activated via dvar).'
 		}
 	];
 

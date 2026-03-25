@@ -7,13 +7,13 @@ internal ref struct SemanticSenseGenerator(
     List<Tuple<ScrFunction, ControlFlowGraph>> functionGraphs, 
     ParserIntelliSense sense, 
     Dictionary<string, IExportedSymbol> exportedSymbolTable,
-    ReachingDefinitionsAnalyser reachingDefinitionsAnalyser)
+    TypeFlowAnalyser typeFlowAnalyser)
 {
     public List<Tuple<ScrFunction, ControlFlowGraph>> FunctionGraphs { get; } = functionGraphs;
     public ParserIntelliSense Sense { get; } = sense;
     public Dictionary<string, IExportedSymbol> ExportedSymbolTable { get; } = exportedSymbolTable;
 
-    private readonly ReachingDefinitionsAnalyser _reachingDefinitionsAnalyser = reachingDefinitionsAnalyser;
+    private readonly TypeFlowAnalyser _typeFlowAnalyser = typeFlowAnalyser;
 
     public void Run()
     {

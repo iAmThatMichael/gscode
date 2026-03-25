@@ -9,7 +9,7 @@ using GSCode.Parser.SPA.Logic.Components;
 
 namespace GSCode.Parser.DFA;
 
-internal ref partial struct ReachingDefinitionsAnalyser
+internal ref partial struct TypeFlowAnalyser
 {
     private static bool IsLogicalBinaryOperator(TokenType op) => op is TokenType.And or TokenType.Or;
 
@@ -84,7 +84,7 @@ internal ref partial struct ReachingDefinitionsAnalyser
         SymbolTable rhsTable = CreateRefinedSymbolTable(symbolTable, left.WhenTrue);
         ConditionResult right = AnalyseCondition(andExpr.Right!, rhsTable);
 
-        ScrData value = AnalyseAndOp(andExpr, left.Value, right.Value);
+        ScrData value = Operators.AnalyseAndOp(andExpr, left.Value, right.Value);
 
         // Definite facts:
         // - if (A && B) is true => A is true and B is true
@@ -105,7 +105,7 @@ internal ref partial struct ReachingDefinitionsAnalyser
         SymbolTable rhsTable = CreateRefinedSymbolTable(symbolTable, left.WhenFalse);
         ConditionResult right = AnalyseCondition(orExpr.Right!, rhsTable);
 
-        ScrData value = AnalyseOrOp(orExpr, left.Value, right.Value);
+        ScrData value = Operators.AnalyseOrOp(orExpr, left.Value, right.Value);
 
         // Definite facts:
         // - if (A || B) is false => A is false and B is false

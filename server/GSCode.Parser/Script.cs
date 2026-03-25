@@ -815,8 +815,8 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
 #if FLAG_PERFORMANCE_TRACKING
                 Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedParameter: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
-                // EmitCallArityDiagnostics(); // Now handled in ReachingDefinitionsAnalyser
-                // EmitUnknownNamespaceDiagnostics(); // Now handled in ReachingDefinitionsAnalyser
+                // EmitCallArityDiagnostics(); // Now handled in TypeFlowAnalyser
+                // EmitUnknownNamespaceDiagnostics(); // Now handled in TypeFlowAnalyser
                 EmitUnusedUsingDiagnostics();
 #if FLAG_PERFORMANCE_TRACKING
                 Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedUsing: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);

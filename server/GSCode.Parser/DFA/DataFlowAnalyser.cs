@@ -24,10 +24,10 @@ internal ref struct DataFlowAnalyser(List<Tuple<ScrFunction, ControlFlowGraph>> 
 
     public void Run()
     {
-        ReachingDefinitionsAnalyser reachingDefinitionsAnalyser = new(FunctionGraphs, ClassGraphs, Sense, ExportedSymbolTable, ApiData, CurrentNamespace, KnownNamespaces, FileName, DefinitionsTable);
-        reachingDefinitionsAnalyser.Run();
+        TypeFlowAnalyser typeFlowAnalyser = new(FunctionGraphs, ClassGraphs, Sense, ExportedSymbolTable, ApiData, CurrentNamespace, KnownNamespaces, FileName, DefinitionsTable);
+        typeFlowAnalyser.Run();
 
-        SemanticSenseGenerator semanticSenseGenerator = new(FunctionGraphs, Sense, ExportedSymbolTable, reachingDefinitionsAnalyser);
+        SemanticSenseGenerator semanticSenseGenerator = new(FunctionGraphs, Sense, ExportedSymbolTable, typeFlowAnalyser);
         semanticSenseGenerator.Run();
     }
 }

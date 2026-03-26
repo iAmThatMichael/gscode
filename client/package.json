@@ -150,6 +150,12 @@
 					],
 					"description": "Controls workspace indexing. 'off' disables indexing, 'partial' performs fast signature analysis (recommended), 'full' runs complete semantic analysis with diagnostics.",
 					"scope": "window"
+				},
+				"gscode.warnLanguageMismatch": {
+					"type": "boolean",
+					"default": true,
+					"description": "Warn when a .csc file is opened as GSC or a .gsc file is opened as CSC.",
+					"scope": "window"
 				}
 			}
 		}

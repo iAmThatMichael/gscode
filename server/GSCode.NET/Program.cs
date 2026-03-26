@@ -42,14 +42,16 @@ string apiDirectory = assemblyDirectory is null ? "api" : Path.Combine(assemblyD
 string gscApiPath = Path.Combine(apiDirectory, "t7_api_gsc.json");
 string cscApiPath = Path.Combine(apiDirectory, "t7_api_csc.json");
 
-// Load GSC & CSC API into the SPA
-await ScriptAnalyserData.LoadLanguageApiAsync(
-	"https://www.gscode.net/api/getLibrary?gameId=t7&languageId=gsc",
-	gscApiPath
-);
-await ScriptAnalyserData.LoadLanguageApiAsync(
-	"https://www.gscode.net/api/getLibrary?gameId=t7&languageId=csc",
-	cscApiPath
+// Load GSC & CSC API into the SPA concurrently
+await Task.WhenAll(
+	ScriptAnalyserData.LoadLanguageApiAsync(
+		"https://www.gscode.net/api/getLibrary?gameId=t7&languageId=gsc",
+		gscApiPath
+	),
+	ScriptAnalyserData.LoadLanguageApiAsync(
+		"https://www.gscode.net/api/getLibrary?gameId=t7&languageId=csc",
+		cscApiPath
+	)
 );
 
 ServerOptions serverOptions = new();

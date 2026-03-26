@@ -12,18 +12,12 @@ import { LanguageClient } from 'vscode-languageclient/node';
 let pendingReload = false;
 import { execFile } from "child_process";
 
-import { workspace, Disposable, ExtensionContext, window } from "vscode";
+import { workspace, ExtensionContext, window } from "vscode";
 import {
-      LanguageClientOptions,
-    SettingMonitor,
+    LanguageClientOptions,
     ServerOptions,
     TransportKind,
-    InitializeParams,
-    StreamInfo,
-    createServerPipeTransport,
 } from "vscode-languageclient/node";
-import { Trace, createClientPipeTransport } from "vscode-jsonrpc/node";
-import { createConnection } from "net";
 import dotenv = require("dotenv");
 
 const REQUIRED_DOTNET_MAJOR = 10;

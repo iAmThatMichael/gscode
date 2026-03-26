@@ -1,6 +1,7 @@
+using GSCode.Parser.Util;
+using Serilog;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
-using Serilog;
 
 namespace GSCode.Parser.Pre;
 
@@ -47,7 +48,7 @@ public sealed class MacroDefinitionCache
         string cacheFilePath;
         if (sourceFilePath != null)
         {
-            cacheFilePath = NormalizePath(sourceFilePath);
+            cacheFilePath = ScriptFileResolver.NormalizeFilePathForUri(sourceFilePath);
         }
         else
         {
@@ -89,17 +90,6 @@ public sealed class MacroDefinitionCache
         }
 
         return cached;
-    }
-
-    /// <summary>
-    /// Normalizes a file path to ensure consistent caching regardless of casing or separators.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static string NormalizePath(string path)
-    {
-        // Convert to lowercase and use forward slashes for consistency
-        // This ensures G:/path/file.gsh and g:\path\file.gsh are treated as the same
-        return path.ToLowerInvariant().Replace('\\', '/');
     }
 
     /// <summary>

@@ -42,6 +42,27 @@ function isDotnetRuntimeAvailable(): boolean {
 
 let client: LanguageClient;
 
+function checkLanguageMismatch(document: vscode.TextDocument): void {
+    const ext = path.extname(document.fileName).toLowerCase();
+    if (ext !== ".gsc" && ext !== ".csc") return;
+
+    const expectedLang = ext === ".gsc" ? "gsc" : "csc";
+    if (document.languageId === expectedLang) return;
+
+    const config = workspace.getConfiguration("gscode");
+    if (!config.get<boolean>("warnLanguageMismatch", true)) return;
+
+    window.showWarningMessage(
+        `'${path.basename(document.fileName)}' has a ${ext} extension but is set to ${document.languageId.toUpperCase()} language mode. GSCode features may not work correctly.`,
+        "Fix Language Mode",
+        "Dismiss"
+    ).then(action => {
+        if (action === "Fix Language Mode") {
+            vscode.languages.setTextDocumentLanguage(document, expectedLang);
+        }
+    });
+}
+
 export function activate(context: ExtensionContext) {
     // Ensure the user has .NET 10 installed, otherwise there isn't a whole lot we can do.
     if (!isDotnetRuntimeAvailable()) {
@@ -138,6 +159,7 @@ export function activate(context: ExtensionContext) {
     progressOnInitialization: true,
     synchronize: {
       fileEvents: [gscWatcher, cscWatcher],
+      configurationSection: 'gscode',
     },
     // Pass configuration via initializationOptions to avoid workspace/configuration request
     initializationOptions: {
@@ -149,6 +171,17 @@ export function activate(context: ExtensionContext) {
       },
     },
     outputChannel: window.createOutputChannel('GSCode Language Server'),
+    middleware: {
+      // Suppress diagnostics for files outside the workspace (e.g. raw folder files)
+      handleDiagnostics(uri, diagnostics, next) {
+        next(uri, diagnostics);
+      },
+
+      // Add extra context to completion resolve before handing back to VS Code
+      resolveCompletionItem(item, token, next) {
+        return next(item, token);
+      },
+    },
   };
 
     // Create the language client and start the client.
@@ -162,6 +195,12 @@ export function activate(context: ExtensionContext) {
   // Push the disposable to the context's subscriptions so that the
   // client can be deactivated on extension deactivation
   client.start();
+
+  // Check already-open documents for language mismatch
+  vscode.workspace.textDocuments.forEach(checkLanguageMismatch);
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument(checkLanguageMismatch)
+  );
 
   // Watch for configuration changes and send to server
   context.subscriptions.push(

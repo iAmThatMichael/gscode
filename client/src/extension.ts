@@ -10,7 +10,7 @@ import * as vscode from 'vscode';
 import { LanguageClient } from 'vscode-languageclient/node';
 
 let pendingReload = false;
-import { execSync } from "child_process";
+import { execFile } from "child_process";
 
 import { workspace, Disposable, ExtensionContext, window } from "vscode";
 import {
@@ -29,15 +29,17 @@ import dotenv = require("dotenv");
 const REQUIRED_DOTNET_MAJOR = 10;
 const DOTNET_DOWNLOAD_URL = "https://dotnet.microsoft.com/download/dotnet/10.0";
 
-function isDotnetRuntimeAvailable(): boolean {
-    try {
-        const output = execSync("dotnet --list-runtimes", { encoding: "utf-8" });
-        // Look for Microsoft.NETCore.App with the required major version
-        const pattern = new RegExp(`Microsoft\\.NETCore\\.App ${REQUIRED_DOTNET_MAJOR}\\.`);
-        return pattern.test(output);
-    } catch {
-        return false;
-    }
+function isDotnetRuntimeAvailable(): Promise<boolean> {
+    return new Promise((resolve) => {
+        execFile("dotnet", ["--list-runtimes"], { encoding: "utf-8" }, (error, stdout) => {
+            if (error) {
+                resolve(false);
+                return;
+            }
+            const pattern = new RegExp(`Microsoft\\.NETCore\\.App ${REQUIRED_DOTNET_MAJOR}\\.`);
+            resolve(pattern.test(stdout));
+        });
+    });
 }
 
 let client: LanguageClient;
@@ -63,9 +65,9 @@ function checkLanguageMismatch(document: vscode.TextDocument): void {
     });
 }
 
-export function activate(context: ExtensionContext) {
+export async function activate(context: ExtensionContext) {
     // Ensure the user has .NET 10 installed, otherwise there isn't a whole lot we can do.
-    if (!isDotnetRuntimeAvailable()) {
+    if (!await isDotnetRuntimeAvailable()) {
         window
             .showErrorMessage(
                 `GSCode requires the .NET ${REQUIRED_DOTNET_MAJOR} runtime to run. Please install it and reload the window.`,

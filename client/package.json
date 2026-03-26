@@ -16,7 +16,6 @@
 		"Other"
 	],
 	"activationEvents": [
-		"onStartupFinished",
 		"workspaceContains:**/*.gsc",
 		"workspaceContains:**/*.csc",
 		"workspaceContains:**/*.gsh"

@@ -30,14 +30,14 @@ internal ref struct DataFlowAnalyser(List<Tuple<ScrFunction, ControlFlowGraph>> 
         long checkpoint1, checkpoint2;
 #endif
 
-        ReachingDefinitionsAnalyser reachingDefinitionsAnalyser = new(FunctionGraphs, ClassGraphs, Sense, ExportedSymbolTable, ApiData, CurrentNamespace, KnownNamespaces, FileName, DefinitionsTable);
-        reachingDefinitionsAnalyser.Run();
+        TypeFlowAnalyser typeFlowAnalyser = new(FunctionGraphs, ClassGraphs, Sense, ExportedSymbolTable, ApiData, CurrentNamespace, KnownNamespaces, FileName, DefinitionsTable );
+        typeFlowAnalyser.Run();
 
 #if FLAG_PERFORMANCE_TRACKING
         checkpoint1 = sw.ElapsedMilliseconds;
 #endif
 
-        SemanticSenseGenerator semanticSenseGenerator = new(FunctionGraphs, Sense, ExportedSymbolTable, reachingDefinitionsAnalyser);
+        SemanticSenseGenerator semanticSenseGenerator = new(FunctionGraphs, Sense, ExportedSymbolTable, typeFlowAnalyser);
         semanticSenseGenerator.Run();
 
 #if FLAG_PERFORMANCE_TRACKING
@@ -45,12 +45,12 @@ internal ref struct DataFlowAnalyser(List<Tuple<ScrFunction, ControlFlowGraph>> 
         sw.Stop();
         if (!string.IsNullOrEmpty(FileName))
         {
-            Log.Debug("[PERF DETAIL] DataFlow - ReachingDefinitions: {RDA}ms, SemanticSense: {SSG}ms, Total: {Total}ms - File={File}", 
+            Log.Debug("[PERF DETAIL] DataFlow - TypeFlow: {RDA}ms, SemanticSense: {SSG}ms, Total: {Total}ms - File={File}", 
                 checkpoint1, checkpoint2 - checkpoint1, checkpoint2, FileName);
         }
         else
         {
-            Log.Debug("[PERF DETAIL] DataFlow - ReachingDefinitions: {RDA}ms, SemanticSense: {SSG}ms, Total: {Total}ms", 
+            Log.Debug("[PERF DETAIL] DataFlow - TypeFlow: {RDA}ms, SemanticSense: {SSG}ms, Total: {Total}ms", 
                 checkpoint1, checkpoint2 - checkpoint1, checkpoint2);
         }
 #endif

@@ -337,7 +337,7 @@
 									{:else if fnFlags.includes('processed')}
 										<div
 											class="mr-2 h-2 w-2 shrink-0 rounded-full bg-blue-400"
-											title="This function was batch-processed ({apiFunction.confidence ?? 'unknown'} confidence)"
+											title="This function was batch-processed"
 										></div>
 									{:else}
 										<div

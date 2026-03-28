@@ -221,11 +221,6 @@ public record class ScrFunction : IExportedSymbol
             }
         }
 
-        if (!string.IsNullOrEmpty(Confidence))
-        {
-            flags.Add($"_Confidence: **{Confidence}**_");
-        }
-
         return string.Join('\n', flags);
     }
 

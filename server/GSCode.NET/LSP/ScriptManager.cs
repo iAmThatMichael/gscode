@@ -626,7 +626,8 @@ public class ScriptManager
             var filesList = Directory
                 .EnumerateFiles(rootDirectory, "*.*", SearchOption.AllDirectories)
                 .Where(p => p.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase) ||
-                            p.EndsWith(".csc", StringComparison.OrdinalIgnoreCase))
+                            p.EndsWith(".csc", StringComparison.OrdinalIgnoreCase) ||
+                            p.EndsWith(".gsh", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             perfTracker.AddMetadata("FileCount", filesList.Count);
@@ -730,8 +731,10 @@ public class ScriptManager
             };
         });
 
-        // Skip if already parsed (unless it's a new file)
-        if (!isNewFile && cached.Script.Parsed)
+        // Files first discovered as dependencies are parsed for symbol resolution,
+        // but they have not necessarily gone through full analysis or had diagnostics published.
+        // Only skip work here when the script was already fully analysed.
+        if (!isNewFile && cached.Script.Parsed && cached.Script.Analysed)
         {
             perfTracker.AddMetadata("Skipped", true);
             return;

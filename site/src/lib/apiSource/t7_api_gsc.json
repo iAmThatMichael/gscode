@@ -1449,6 +1449,16 @@
             "description": "Adds a session stat for the player.",
             "overloads": [
                 {
+                    "calledOn": {
+                        "name": "player",
+                        "description": "The player.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "player",
+                            "subType": "player",
+                            "isArray": false
+                        }
+                    },
                     "parameters": [
                         {
                             "name": "statPath1",
@@ -1523,16 +1533,6 @@
                             }
                         }
                     ],
-                    "calledOn": {
-                        "name": "player",
-                        "description": "The player.",
-                        "type": {
-                            "dataType": "entity",
-                            "instanceType": "player",
-                            "subType": "player",
-                            "isArray": false
-                        }
-                    },
                     "returns": {
                         "void": true
                     }
@@ -2308,23 +2308,54 @@
             "overloads": [
                 {
                     "calledOn": {
-                        "name": "actor_or_player",
-                        "description": null
+                        "name": "target",
+                        "description": "The actor or player that the stances apply to.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false
+                        }
                     },
                     "parameters": [
                         {
                             "name": "stance",
-                            "description": "(string) A stance, can be 'prone', 'crouch', 'stand'. Any number of stances may be added.",
-                            "mandatory": true
+                            "description": "A stance, can be: 'prone', 'crouch', 'stand'.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
+                        },
+                        {
+                            "name": "additionalStances",
+                            "description": "Zero or more additional stances to allow.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "vararg",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
                         }
-                    ]
+                    ],
+                    "returns": {
+                        "void": true,
+                        "type": null,
+                        "name": null,
+                        "description": null
+                    }
                 }
             ],
             "flags": [
-                "processed"
+                "verified"
             ],
             "example": "self AllowedStances( \"crouch\", \"prone\" )",
-            "confidence": "medium"
+            "confidence": "high"
         },
         {
             "name": "AllowJump",
@@ -23063,6 +23094,7 @@
             "description": "Gets the array count of a host migration value.",
             "overloads": [
                 {
+                    "calledOn": null,
                     "parameters": [
                         {
                             "name": "statPath1",
@@ -23137,7 +23169,6 @@
                             }
                         }
                     ],
-                    "calledOn": null,
                     "returns": {
                         "name": "count",
                         "description": "The array count.",
@@ -23160,6 +23191,7 @@
             "description": "Gets a host migration value.",
             "overloads": [
                 {
+                    "calledOn": null,
                     "parameters": [
                         {
                             "name": "statPath1",
@@ -23234,7 +23266,6 @@
                             }
                         }
                     ],
-                    "calledOn": null,
                     "returns": {
                         "void": true
                     }
@@ -27113,28 +27144,36 @@
         },
         {
             "name": "GetPersonalThreatBias",
-            "description": "return the personal threat bias for this sentient versus the other sentient.",
+            "description": "Gets the personal threat bias for this sentient versus the other sentient.",
             "overloads": [
                 {
                     "calledOn": {
                         "name": "sentient",
-                        "description": null
+                        "description": "The sentient to get the personal threat bias of.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "sentient",
+                            "subType": "sentient",
+                            "isArray": false
+                        }
                     },
                     "parameters": [
                         {
-                            "name": "sentient",
-                            "description": "Self.",
-                            "mandatory": true
-                        },
-                        {
                             "name": "enemy",
                             "description": "The enemy to get threat bias for.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "entity",
+                                "instanceType": "sentient",
+                                "subType": "sentient",
+                                "isArray": false,
+                                "unionOf": null
+                            }
                         }
                     ],
                     "returns": {
-                        "name": null,
-                        "description": null,
+                        "name": "result",
+                        "description": "The bias.",
                         "type": {
                             "dataType": "int",
                             "isArray": false
@@ -27144,10 +27183,10 @@
                 }
             ],
             "flags": [
-                "processed"
+                "verified"
             ],
             "example": "value = self GetPersonalThreatBias( self.enemy )",
-            "confidence": "medium"
+            "confidence": "high"
         },
         {
             "name": "GetPhysAcceleration",
@@ -28211,6 +28250,16 @@
             "description": "Gets a session stat for the player.",
             "overloads": [
                 {
+                    "calledOn": {
+                        "name": "player",
+                        "description": "The player.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "player",
+                            "subType": "player",
+                            "isArray": false
+                        }
+                    },
                     "parameters": [
                         {
                             "name": "statPath1",
@@ -28285,16 +28334,6 @@
                             }
                         }
                     ],
-                    "calledOn": {
-                        "name": "player",
-                        "description": "The player.",
-                        "type": {
-                            "dataType": "entity",
-                            "instanceType": "player",
-                            "subType": "player",
-                            "isArray": false
-                        }
-                    },
                     "returns": {
                         "name": "value",
                         "description": "The stat value.",
@@ -28317,6 +28356,16 @@
             "description": "Gets the array count of a session stat for the player.",
             "overloads": [
                 {
+                    "calledOn": {
+                        "name": "player",
+                        "description": "The player.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "player",
+                            "subType": "player",
+                            "isArray": false
+                        }
+                    },
                     "parameters": [
                         {
                             "name": "statPath1",
@@ -28391,16 +28440,6 @@
                             }
                         }
                     ],
-                    "calledOn": {
-                        "name": "player",
-                        "description": "The player.",
-                        "type": {
-                            "dataType": "entity",
-                            "instanceType": "player",
-                            "subType": "player",
-                            "isArray": false
-                        }
-                    },
                     "returns": {
                         "name": "count",
                         "description": "The array count.",
@@ -32515,8 +32554,26 @@
                             "description": "An entity to ignore during the trace. Pass false or undefined to ignore nothing.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "any",
-                                "isArray": false
+                                "dataType": "entity",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": [
+                                    {
+                                        "dataType": "entity",
+                                        "instanceType": null,
+                                        "subType": null,
+                                        "isArray": false,
+                                        "unionOf": null
+                                    },
+                                    {
+                                        "dataType": "bool",
+                                        "instanceType": null,
+                                        "subType": null,
+                                        "isArray": false,
+                                        "unionOf": null
+                                    }
+                                ]
                             }
                         },
                         {
@@ -38485,7 +38542,8 @@
                         }
                     ],
                     "returns": {
-                        "void": false,
+                        "name": "result",
+                        "description": "Whether the entity is touching the other.",
                         "type": {
                             "dataType": "bool",
                             "instanceType": null,
@@ -38493,8 +38551,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "description": "Whether the entity is touching the other.",
-                        "name": "result"
+                        "void": false
                     }
                 }
             ],
@@ -57101,8 +57158,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57140,8 +57197,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57151,8 +57208,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57190,8 +57247,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57201,8 +57258,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57212,8 +57269,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57251,8 +57308,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57262,8 +57319,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57273,8 +57330,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57284,8 +57341,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57323,8 +57380,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57334,8 +57391,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57345,8 +57402,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57356,8 +57413,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -57367,8 +57424,8 @@
                             "type": {
                                 "dataType": "string",
                                 "instanceType": null,
-                                "isArray": false,
-                                "subType": null
+                                "subType": null,
+                                "isArray": false
                             }
                         },
                         {
@@ -59815,6 +59872,7 @@
             "description": "Sets a host migration value.",
             "overloads": [
                 {
+                    "calledOn": null,
                     "parameters": [
                         {
                             "name": "statPath1",
@@ -59889,7 +59947,6 @@
                             }
                         }
                     ],
-                    "calledOn": null,
                     "returns": {
                         "void": true
                     }
@@ -67874,8 +67931,7 @@
                             "unionOf": null
                         },
                         "void": false
-                    },
-                    "vararg": true
+                    }
                 },
                 {
                     "calledOn": null,
@@ -74958,6 +75014,6 @@
     ],
     "gameId": "t7",
     "languageId": "gsc",
-    "revisedOn": "2026-03-22T22:48:14.204Z",
-    "revision": 30
+    "revisedOn": "2026-03-29T12:54:56.510Z",
+    "revision": 32
 }

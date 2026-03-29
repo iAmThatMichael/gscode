@@ -12,10 +12,11 @@ import { validateFunction } from './validation';
  */
 export class FunctionEditor {
 	function: ScrFunction = $state() as any;
-	private readonly _originalFunction: string;
+	private _originalFunction: string;
+	private readonly onChange?: () => void;
 
 	/** Whether this function was newly created in this session (not in original library) */
-	readonly isNew: boolean;
+	isNew = $state(false);
 
 	/** Whether this function is marked for deletion (soft-delete) */
 	deleted = $state(false);
@@ -59,24 +60,41 @@ export class FunctionEditor {
 	/** Whether this function is invalid (fails validation) */
 	readonly isInvalid = $derived(!this.isValid);
 
-	constructor(fn: ScrFunction, isNew = false) {
+	constructor(fn: ScrFunction, isNew = false, onChange?: () => void) {
 		this.function = fn;
 		this._originalFunction = JSON.stringify(fn);
 		this.isNew = isNew;
+		this.onChange = onChange;
+	}
+
+	private touch(markDirty = true) {
+		if (markDirty) {
+			this._dirty = true;
+		}
+		this.onChange?.();
 	}
 
 	private markDirty() {
-		this._dirty = true;
+		this.touch(true);
+	}
+
+	commitSaved() {
+		this._originalFunction = JSON.stringify(this.function);
+		this._dirty = false;
+		this.deleted = false;
+		this.isNew = false;
 	}
 
 	/** Mark this function for deletion */
 	markDeleted() {
 		this.deleted = true;
+		this.touch(false);
 	}
 
 	/** Restore this function from deletion */
 	restore() {
 		this.deleted = false;
+		this.touch(false);
 	}
 
 	setName(name: string) {
@@ -298,6 +316,7 @@ export class FunctionEditor {
 		const remarks = [...this.function.remarks];
 		[remarks[index], remarks[newIndex]] = [remarks[newIndex], remarks[index]];
 		this.function.remarks = remarks;
+		this.markDirty();
 	}
 
 	// --- Overload editing methods ---
@@ -309,11 +328,13 @@ export class FunctionEditor {
 			returns: { void: true }
 		};
 		this.function.overloads = [...this.function.overloads, newOverload];
+		this.markDirty();
 	}
 
 	removeOverload(overloadIndex: number) {
 		if (this.function.overloads.length <= 1) return;
 		this.function.overloads = this.function.overloads.filter((_, i) => i !== overloadIndex);
+		this.markDirty();
 	}
 
 	duplicateOverload(overloadIndex: number) {
@@ -322,5 +343,6 @@ export class FunctionEditor {
 		const newOverloads = [...this.function.overloads];
 		newOverloads.splice(overloadIndex + 1, 0, duplicate);
 		this.function.overloads = newOverloads;
+		this.markDirty();
 	}
 }

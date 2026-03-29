@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { Separator } from '$components/ui/separator/index.js';
-	import { ScrollArea } from '$components/ui/scroll-area/index.js';
 	import { Button } from '$components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import * as Sidebar from '$components/ui/sidebar/index.js';
 	import * as Popover from '$lib/components/ui/popover/index.js';
+	import VirtualList from '$lib/components/ui/virtual-list/VirtualList.svelte';
 
 	// @ts-ignore
 	import Command from 'lucide-svelte/icons/command';
@@ -32,6 +32,7 @@
 
 	const truncateString = (string = '', maxLength = 20) =>
 		string.length > maxLength ? `${string.substring(0, maxLength)}…` : string;
+	const SIDEBAR_ROW_HEIGHT = 32;
 
 	let editor = getEditorContext();
 	let library = $derived(editor.library);
@@ -52,7 +53,7 @@
 	let showBadVerifications = $state(true);
 	let showDeleted = $state(true);
 
-	let filteredData = $derived.by(() => {
+	let filteredEntries = $derived.by(() => {
 		// Capture dependencies synchronously at the top
 		const search = searchTerm;
 		const filterVerified = showVerified;
@@ -64,7 +65,7 @@
 		const fnMap = editor.functions;
 
 		if (!fnMap) {
-			return { entries: [] };
+			return [];
 		}
 
 		let w = search.replace(/[.+^${}()|[\]\\]/g, '\\$&'); // regexp escape
@@ -75,7 +76,7 @@
 		// validation when those filters are actually hiding things.
 		const needsValidation = !filterProblems || !filterBadVerifications;
 
-		const entries = Array.from(fnMap.values()).filter((functionEditor) => {
+		return Array.from(fnMap.values()).filter((functionEditor) => {
 			const apiFunction = functionEditor.function;
 
 			// Text search filter
@@ -106,8 +107,6 @@
 
 			return true;
 		});
-
-		return { entries };
 	});
 
 	let inputElement: HTMLInputElement | null = $state(null);
@@ -176,7 +175,7 @@
 
 		// Reset original state of all function editors to the newly saved state
 		// This clears the "edited" flag for all functions
-		editor.updateLibrary(exportedLibrary);
+		editor.commitSavedLibrary(exportedLibrary);
 	}
 
 	async function loadFromApiSource(languageId: 'gsc' | 'csc') {
@@ -302,18 +301,18 @@
 						<Plus class="h-4 w-4" />
 					</Button>
 				</div>
-				<ScrollArea class="w-full max-w-full min-h-0 grow">
-					<div class="grid grid-flow-row auto-rows-max w-full">
-						{#each filteredData.entries as fnEditor}
+				<div class="w-full max-w-full min-h-0 grow">
+					<VirtualList items={filteredEntries} itemHeight={SIDEBAR_ROW_HEIGHT} height="100%">
+						{#snippet children({ item: fnEditor })}
 							{@const apiFunction = fnEditor.function}
 							{@const isSelected = selectedFunction === apiFunction.name.toLowerCase()}
 							{@const isDeleted = fnEditor.deleted}
 							{@const fnFlags = apiFunction.flags}
-							<div class="flex items-center">
+							<div class="flex items-center h-8 pr-1">
 								<Button
 									variant={isSelected ? 'secondary' : 'ghost'}
 									size={'sm'}
-									class="flex-1 justify-start font-normal {isSelected
+									class="flex-1 justify-start font-normal h-7 min-w-0 {isSelected
 										? 'text-foreground'
 										: 'text-muted-foreground'} {isDeleted ? 'opacity-50' : ''}"
 									onclick={() => !isDeleted && handleSelectFunction(apiFunction.name)}
@@ -345,7 +344,7 @@
 											title="This function is unverified"
 										></div>
 									{/if}
-									<span class={isDeleted ? 'line-through' : ''}>
+									<span class="truncate {isDeleted ? 'line-through' : ''}">
 										{truncateString(apiFunction.name, 25)}
 									</span>
 								</Button>
@@ -361,9 +360,9 @@
 									</Button>
 								{/if}
 							</div>
-						{/each}
-					</div>
-				</ScrollArea>
+						{/snippet}
+					</VirtualList>
+				</div>
 			</div>
 
 			<div class="flex gap-2 shrink-0">

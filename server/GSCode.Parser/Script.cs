@@ -806,35 +806,37 @@ public class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationPro
         Log.Debug("[PERF CHECKPOINT] SPA-Analysis - Pre-BasicDiagnostics: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
         // TODO: fit this within the analysers above, or a later step.
-        // Basic SPA diagnostics (editor-only: rely on _references and Sense.Tokens)
-        if (Sense.IsEditorMode)
+        // Some diagnostics only need the AST and can be produced during workspace indexing too.
+        // Others still rely on editor-only structures such as _references / sense definitions.
+        try
         {
-            try
-            {
-                EmitUnusedParameterDiagnostics();
+            EmitUnusedParameterDiagnostics();
 #if FLAG_PERFORMANCE_TRACKING
-                Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedParameter: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedParameter: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
-                // EmitCallArityDiagnostics(); // Now handled in TypeFlowAnalyser
-                // EmitUnknownNamespaceDiagnostics(); // Now handled in TypeFlowAnalyser
+            // EmitCallArityDiagnostics(); // Now handled in TypeFlowAnalyser
+            // EmitUnknownNamespaceDiagnostics(); // Now handled in TypeFlowAnalyser
+            EmitUnusedVariableDiagnostics();
+#if FLAG_PERFORMANCE_TRACKING
+            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedVariable: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+#endif
+            EmitAssignOnThreadDiagnostics();
+#if FLAG_PERFORMANCE_TRACKING
+            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-AssignOnThread: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+#endif
+
+            if (Sense.IsEditorMode)
+            {
                 EmitUnusedUsingDiagnostics();
 #if FLAG_PERFORMANCE_TRACKING
-                Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedUsing: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
-#endif
-                EmitUnusedVariableDiagnostics();
-#if FLAG_PERFORMANCE_TRACKING
-                Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedVariable: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
-#endif
-                EmitAssignOnThreadDiagnostics();
-#if FLAG_PERFORMANCE_TRACKING
-                Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-AssignOnThread: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
+            Log.Debug("[PERF CHECKPOINT] SPA-Analysis - After-UnusedUsing: {ElapsedMs} ms - File={File}", sw.ElapsedMilliseconds, fileName);
 #endif
             }
-            catch (Exception ex)
-            {
-                // Do not fail analysis entirely; surface as SPA failure
-                Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
-            }
+        }
+        catch (Exception ex)
+        {
+            // Do not fail analysis entirely; surface as SPA failure
+            Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
         }
 
 #if FLAG_PERFORMANCE_TRACKING

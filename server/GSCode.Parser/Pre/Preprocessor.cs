@@ -156,9 +156,9 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
             // Handle backslash here, which must immediately precede a line break if encountered
             if (current.Type == TokenType.Backslash)
             {
-                if (current.Next!.Type != TokenType.LineBreak)
+                if (current.Next!.Type != TokenType.LineBreak && current.Next!.Type != TokenType.Eof)
                 {
-                    AddError(GSCErrorCodes.InvalidLineContinuation, "\\");
+                    AddErrorAtLinkedToken(GSCErrorCodes.InvalidLineContinuation, current, "\\");
                 }
                 else
                 {

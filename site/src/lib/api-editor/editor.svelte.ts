@@ -11,6 +11,7 @@ const STORAGE_KEY = 'gscode-editor-session';
 export class Editor {
 	library = $state<ScrLibrary | null>(null);
 	functions = $state<Map<string, FunctionEditor>>(new Map());
+	persistenceVersion = $state(0);
 
 	/** The currently selected function for editing */
 	selectedFunction = $state<string | null>(null);
@@ -94,6 +95,10 @@ export class Editor {
 		}
 	}
 
+	private markChanged() {
+		this.persistenceVersion++;
+	}
+
 	/**
 	 * Updates the editor with a new library definition.
 	 */
@@ -102,12 +107,13 @@ export class Editor {
 		this.functions = new Map();
 
 		for (const fn of library.api) {
-			this.functions.set(fn.name.toLowerCase(), new FunctionEditor(fn));
+			this.functions.set(fn.name.toLowerCase(), new FunctionEditor(fn, false, () => this.markChanged()));
 		}
 
 		// Select the first function by default
 		const firstFn = library.api[0];
 		this.selectedFunction = firstFn?.name.toLowerCase() ?? null;
+		this.markChanged();
 	}
 
 	/**
@@ -171,7 +177,7 @@ export class Editor {
 			remarks: null
 		};
 
-		const fnEditor = new FunctionEditor(newFn, true);
+		const fnEditor = new FunctionEditor(newFn, true, () => this.markChanged());
 		this.functions.set(name.toLowerCase(), fnEditor);
 
 		// Trigger reactivity by reassigning the map
@@ -179,8 +185,37 @@ export class Editor {
 
 		// Select the new function
 		this.selectedFunction = name.toLowerCase();
+		this.markChanged();
 
 		return fnEditor;
+	}
+
+	/**
+	 * Commits the current editor state as saved without rebuilding every editor instance.
+	 * Deleted functions are removed, dirty flags are cleared, and revision metadata is updated.
+	 */
+	commitSavedLibrary(savedLibrary: ScrLibrary) {
+		const selectedEditor = this.getSelectedFunction();
+		const committedFunctions = new Map<string, FunctionEditor>();
+
+		for (const fnEditor of this.functions.values()) {
+			if (fnEditor.deleted) {
+				continue;
+			}
+
+			fnEditor.commitSaved();
+			committedFunctions.set(fnEditor.function.name.toLowerCase(), fnEditor);
+		}
+
+		this.library = savedLibrary;
+		this.functions = committedFunctions;
+
+		this.selectedFunction =
+			selectedEditor && !selectedEditor.deleted
+				? selectedEditor.function.name.toLowerCase()
+				: (committedFunctions.keys().next().value ?? null);
+
+		this.markChanged();
 	}
 
 	/**
@@ -261,6 +296,7 @@ export class Editor {
 		this.library = null;
 		this.functions = new Map();
 		this.selectedFunction = null;
+		this.markChanged();
 		this.clearStorage();
 	}
 
@@ -327,7 +363,11 @@ export class Editor {
 
 			// Restore function editors with their state
 			for (const fnState of state.functions) {
-				const fnEditor = new FunctionEditor(fnState.function, fnState.isNew);
+				const fnEditor = new FunctionEditor(
+					fnState.function,
+					fnState.isNew,
+					() => this.markChanged()
+				);
 				if (fnState.deleted) {
 					fnEditor.markDeleted();
 				}
@@ -335,6 +375,7 @@ export class Editor {
 			}
 
 			this.selectedFunction = state.selectedFunction;
+			this.markChanged();
 			return true;
 		} catch (err) {
 			console.error('Failed to restore editor state from localStorage:', err);

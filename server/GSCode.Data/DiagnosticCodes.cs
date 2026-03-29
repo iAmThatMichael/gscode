@@ -129,6 +129,8 @@ public enum GSCErrorCodes
         PredefinedFieldTypeMismatch = 3062,
         ArgumentTypeMismatchUnverified = 3063,
         DevBlockFunctionOutsideDevBlock = 3064,
+        ConsumedThreadedCallResult = 3065,
+        BrokenFunctionUsage = 3066,
 
         // 8xxx errors are issued by the IDE for conventions
         UnterminatedRegion = 8000,
@@ -263,6 +265,8 @@ public static class DiagnosticCodes
         { GSCErrorCodes.PredefinedFieldTypeMismatch, new("Cannot assign value of type '{0}' to entity field of type '{1}'.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.ArgumentTypeMismatchUnverified, new("Argument {0} to '{1}' expects '{2}', got '{3}'.\nNote: Argument types are derived from Treyarch's API, which may contain errors.", DiagnosticSeverity.Warning) },
         { GSCErrorCodes.DevBlockFunctionOutsideDevBlock, new("Function '{0}' can only be used inside developer blocks.", DiagnosticSeverity.Error) },
+        { GSCErrorCodes.ConsumedThreadedCallResult, new("Consuming the result of a threaded call is unreliable; if the threaded function blocks, the expression will evaluate to 'undefined'.", DiagnosticSeverity.Warning) },
+        { GSCErrorCodes.BrokenFunctionUsage, new("Function '{0}' is marked as broken and should not be used.", DiagnosticSeverity.Warning, new[] { DiagnosticTag.Deprecated }) },
 
         // 8xxx
         { GSCErrorCodes.UnterminatedRegion, new("No corresponding '/* endregion */' found to terminate '{0}' region.", DiagnosticSeverity.Warning) },

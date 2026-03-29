@@ -124,6 +124,7 @@ internal static class ScrDataTypeNames
     public const string Void = "void";
     public const string Bool = "bool";
     public const string Int = "int";
+    public const string UInt64 = "uint64";
     public const string Float = "float";
     public const string Number = "number";
     public const string String = "string";
@@ -195,6 +196,7 @@ internal static class ScrDataTypeNames
                 result.Append(value switch
                 {
                     ScrDataTypes.Int => ScrDataTypeNames.Int,
+                    ScrDataTypes.UInt64 => ScrDataTypeNames.UInt64,
                     ScrDataTypes.Float => ScrDataTypeNames.Float,
                     ScrDataTypes.Number => ScrDataTypeNames.Number,
                     ScrDataTypes.Bool => ScrDataTypeNames.Bool,
@@ -458,6 +460,7 @@ internal record struct ScrData
         {
             // Primitives
             "int" or "integer" => (ScrDataTypes.Int, null),
+            "uint64" or "ulong" or "unsigned long" or "unsigned long long" => (ScrDataTypes.UInt64, null),
             "float" => (ScrDataTypes.Float, null),
             "bool" or "boolean" => (ScrDataTypes.Bool, null),
             "string" => (ScrDataTypes.String, null),

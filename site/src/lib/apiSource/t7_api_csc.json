@@ -4853,29 +4853,57 @@
         },
         {
             "name": "GadgetPulseGetOwner",
-            "description": "Returns the owner of the vision pulse you an entity is pulsed by if it exists.",
+            "description": "Gets the owner of the reveal pulse affecting this entity, if any.",
             "overloads": [
                 {
                     "calledOn": {
                         "name": "entity",
-                        "description": null
-                    },
-                    "parameters": [],
-                    "returns": {
-                        "name": null,
-                        "description": null,
+                        "description": "The pulsed entity to inspect.",
                         "type": {
                             "dataType": "entity",
-                            "isArray": false
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        }
+                    },
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number to resolve the reveal pulse against.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "owner",
+                        "description": "The entity that owns the active reveal pulse.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
                         },
                         "void": false
                     }
                 }
             ],
             "flags": [
-                "processed"
+                "verified"
             ],
-            "example": "entity GadgetPulseGetOwner(<localclientnum>)",
+            "example": "owner = entity GadgetPulseGetOwner( localClientNum );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "When the local client is in killcam, the reveal pulse lookup uses the killcam client context."
+            ],
             "confidence": "high"
         },
         {
@@ -8104,42 +8132,84 @@
         },
         {
             "name": "GetHelmetAccentColorCountForHero",
-            "description": "Returns the number of accents for the specified helmet model of a specific hero.",
+            "description": "Gets the number of helmet accent colors available for a hero item.",
             "overloads": [
                 {
                     "calledOn": null,
                     "parameters": [
                         {
                             "name": "localClientNum",
-                            "description": "The localClientNum of the player in question.",
-                            "mandatory": true
+                            "description": "The local client number to resolve unlock and customization data for.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
                         },
                         {
-                            "name": "heroIndex",
-                            "description": "The index of the hero in the current game-mode's character table.",
-                            "mandatory": true
+                            "name": "mode",
+                            "description": "The session mode value.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
                         },
                         {
-                            "name": "helmetIndex",
-                            "description": "The index of the helmet for the specific hero.",
-                            "mandatory": true
+                            "name": "characterType",
+                            "description": "The character type or hero index.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "itemIndex",
+                            "description": "The helmet item index.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
                         }
                     ],
                     "returns": {
-                        "name": null,
-                        "description": null,
+                        "name": "accentColorCount",
+                        "description": "The number of accent colors available for the helmet.",
                         "type": {
                             "dataType": "int",
-                            "isArray": false
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
                         },
                         "void": false
                     }
                 }
             ],
             "flags": [
-                "processed"
+                "verified"
             ],
-            "example": "accentColorCount = GetHelmetAccentColorCountForHero( localClientNum, 0, 0 )",
+            "example": "accentColorCount = GetHelmetAccentColorCountForHero( localClientNum, mode, characterType, itemIndex );",
+            "verifiedInRevision": null,
+            "remarks": null,
             "confidence": "medium"
         },
         {
@@ -12457,6 +12527,51 @@
             "remarks": null
         },
         {
+            "name": "PrintLn",
+            "description": "Writes a line to the console.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "text",
+                            "description": "The text to write.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
+                        },
+                        {
+                            "name": "extraParameters",
+                            "description": "Zero or more additional strings to append to the log message.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "PrintLn( \"I could be doing better!\" );",
+            "verifiedInRevision": null,
+            "remarks": null,
+            "confidence": "high"
+        },
+        {
             "name": "IsADS",
             "description": "Returns true if this local client is in ADS, false otherwise.",
             "overloads": [
@@ -12968,6 +13083,43 @@
             ],
             "example": "if ( player IsEntityLinkedToTag( grenade, \"j_head\" ) )",
             "confidence": "medium"
+        },
+        {
+            "name": "IsEmpJammed",
+            "description": "Gets whether the local player is EMP jammed.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "localPlayer",
+                        "description": "The local player to check.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "player",
+                            "subType": "player",
+                            "isArray": false
+                        }
+                    },
+                    "parameters": [],
+                    "returns": {
+                        "name": "isEmpJammed",
+                        "description": "Whether the local player is EMP jammed.",
+                        "type": {
+                            "dataType": "bool",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "if ( player IsEmpJammed() ) { }",
+            "verifiedInRevision": null,
+            "remarks": null
         },
         {
             "name": "IsFloat",
@@ -14302,7 +14454,7 @@
                     "calledOn": null,
                     "parameters": [],
                     "returns": {
-                        "void": false,
+                        "name": "isActive",
                         "description": "Whether split-screen is active.",
                         "type": {
                             "dataType": "bool",
@@ -14311,7 +14463,7 @@
                             "isArray": false,
                             "unionOf": null
                         },
-                        "name": "isActive"
+                        "void": false
                     }
                 }
             ],
@@ -17309,14 +17461,14 @@
         },
         {
             "name": "PlayFx",
-            "description": "Plays the given effect at the given position.",
+            "description": "Plays a precached client effect for the given local client at the specified position.",
             "overloads": [
                 {
                     "calledOn": null,
                     "parameters": [
                         {
                             "name": "localClientNum",
-                            "description": "The local client number.",
+                            "description": "The local client index to play the effect for.",
                             "mandatory": true,
                             "type": {
                                 "dataType": "int",
@@ -17324,11 +17476,12 @@
                                 "subType": null,
                                 "isArray": false,
                                 "unionOf": null
-                            }
+                            },
+                            "variadic": null
                         },
                         {
                             "name": "fxName",
-                            "description": "The FX to play (e.g. a `level._effect` entry).",
+                            "description": "The precached client effect name to play.",
                             "mandatory": true,
                             "type": {
                                 "dataType": "string",
@@ -17336,11 +17489,12 @@
                                 "subType": null,
                                 "isArray": false,
                                 "unionOf": null
-                            }
+                            },
+                            "variadic": null
                         },
                         {
                             "name": "position",
-                            "description": "The position to the play the FX at.",
+                            "description": "The world position to play the effect at.",
                             "mandatory": true,
                             "type": {
                                 "dataType": "vector",
@@ -17348,23 +17502,12 @@
                                 "subType": null,
                                 "isArray": false,
                                 "unionOf": null
-                            }
-                        },
-                        {
-                            "name": "normal",
-                            "description": "The normal vector for the FX.",
-                            "mandatory": false,
-                            "type": {
-                                "dataType": "vector",
-                                "instanceType": null,
-                                "subType": null,
-                                "isArray": false,
-                                "unionOf": null
-                            }
+                            },
+                            "variadic": null
                         },
                         {
                             "name": "forward",
-                            "description": "The forward vector for the FX.",
+                            "description": "An optional forward direction vector for orienting the effect.",
                             "mandatory": false,
                             "type": {
                                 "dataType": "vector",
@@ -17372,24 +17515,65 @@
                                 "subType": null,
                                 "isArray": false,
                                 "unionOf": null
-                            }
+                            },
+                            "variadic": null
                         },
                         {
-                            "name": "unknown",
-                            "description": "?",
+                            "name": "up",
+                            "description": "An optional up direction vector for orienting the effect.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "any",
+                                "dataType": "vector",
                                 "instanceType": null,
                                 "subType": null,
                                 "isArray": false,
                                 "unionOf": null
-                            }
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "time",
+                            "description": "An optional playback time override in seconds.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "number",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "primLightFrac",
+                            "description": "An optional primary light fraction override.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "number",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "lightOriginOffset",
+                            "description": "An optional light origin offset vector.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vector",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
                         }
                     ],
                     "returns": {
                         "name": "fxId",
-                        "description": "A handle to the playing FX, which can be used to stop it later.",
+                        "description": "A handle to the playing effect.",
                         "type": {
                             "dataType": "int",
                             "instanceType": null,
@@ -17404,9 +17588,14 @@
             "flags": [
                 "verified"
             ],
-            "example": "PlayFX(0, level._effect[\"flak_cloudflash_night\"], fxpos);",
+            "example": "PlayFx( 0, level._effect[\"flak_cloudflash_night\"], fxPos, forward, up, 0.0, primLightFrac, lightOriginOffset );",
             "verifiedInRevision": null,
-            "remarks": null
+            "remarks": [
+                "If only position is provided, the effect uses a default orientation of (-90, 0, 0).",
+                "When forward is provided without up, the effect orientation is derived from the forward vector.",
+                "Some callsites pass trailing lighting-related arguments for primary light fraction and light origin offset."
+            ],
+            "confidence": null
         },
         {
             "name": "PlayFxOnCamera",
@@ -17980,7 +18169,7 @@
                             "description": "The percentage volume (0-1) to play the sound at, relative to its normal alias volume.",
                             "mandatory": false,
                             "type": {
-                                "dataType": "float",
+                                "dataType": "number",
                                 "instanceType": null,
                                 "subType": null,
                                 "isArray": false,
@@ -22673,14 +22862,41 @@
                     "calledOn": null,
                     "parameters": [
                         {
+                            "name": "localClientNum",
+                            "description": "The local client number whose overlay state should be changed.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
                             "name": "overlayIndex",
                             "description": "Must be between 0 - 3.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
                         },
                         {
                             "name": "enable",
                             "description": "true/false.",
-                            "mandatory": true
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "bool",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            }
                         }
                     ]
                 }
@@ -22688,7 +22904,7 @@
             "flags": [
                 "processed"
             ],
-            "example": "SetOverlayEnabled( self.localClientNum, 2, false )",
+            "example": "entity SetOverlayEnabled( localClientNum, 0, true );",
             "confidence": "medium"
         },
         {
@@ -23228,17 +23444,51 @@
         },
         {
             "name": "SetShowcaseWeaponPaintshopXUID",
-            "description": "Set the showcase weapon paintshop XUID for the given local client num.",
+            "description": "Sets the showcase weapon paintshop XUID for the given local client.",
             "overloads": [
                 {
                     "calledOn": null,
-                    "parameters": []
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number to update.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "xuid",
+                            "description": "An optional XUID string. An empty string clears the value.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
                 }
             ],
             "flags": [
-                "processed"
+                "verified"
             ],
-            "example": "SetShowcaseWeaponPaintshopXUID( localClientNum, xuid )",
+            "example": "SetShowcaseWeaponPaintshopXUID( localClientNum, xuid );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "When xuid is omitted or empty, the stored showcase paintshop XUID is cleared."
+            ],
             "confidence": "high"
         },
         {
@@ -26711,29 +26961,74 @@
         },
         {
             "name": "UseWeaponModel",
-            "description": "Sets the weapon model on an entity.",
+            "description": "Sets the weapon model on this entity.",
             "overloads": [
                 {
                     "calledOn": {
                         "name": "entity",
-                        "description": null
+                        "description": "The script mover entity to update.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        }
                     },
                     "parameters": [
                         {
                             "name": "weapon",
-                            "description": "The weapon.",
-                            "mandatory": true
+                            "description": "The weapon whose model and hide tags should be applied.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "weapon",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
                         },
                         {
                             "name": "model",
-                            "description": "The model to use.",
-                            "mandatory": false
+                            "description": "An optional model name override. When omitted, the weapon world model is used.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "options",
+                            "description": "An optional packed uint64 options value.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "uint64",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
                         }
-                    ]
+                    ],
+                    "returns": {
+                        "void": true
+                    }
                 }
             ],
             "flags": [
-                "processed"
+                "verified"
+            ],
+            "example": "mover UseWeaponModel( weapon, modelName, options );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "This can only be called on a script mover entity.",
+                "When model is omitted, the weapon world model is used."
             ],
             "confidence": "medium"
         },
@@ -27296,37 +27591,47 @@
         },
         {
             "name": "WeaponFriendlyHacking",
-            "description": "Returns the value of the friendlyHacking bit on the specified weapon of the specified player.",
+            "description": "Gets whether the current player weapon supports friendly hacking.",
             "overloads": [
                 {
                     "calledOn": null,
                     "parameters": [
                         {
                             "name": "localClientNum",
-                            "description": "Local client number of the player.",
-                            "mandatory": true
-                        },
-                        {
-                            "name": "localClientNum",
-                            "description": "Weapon to check.",
-                            "mandatory": true
+                            "description": "The local client number to query.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
                         }
                     ],
                     "returns": {
-                        "name": null,
-                        "description": null,
+                        "name": "friendlyHacking",
+                        "description": "Whether the relevant player weapon supports friendly hacking.",
                         "type": {
-                            "dataType": "float",
-                            "isArray": false
+                            "dataType": "bool",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
                         },
                         "void": false
                     }
                 }
             ],
             "flags": [
-                "processed"
+                "verified"
             ],
-            "example": "currentWeapon = GetCurrentWeapon( localClientNum )",
+            "example": "if ( WeaponFriendlyHacking( localClientNum ) ) { }",
+            "verifiedInRevision": null,
+            "remarks": [
+                "The function checks the offhand weapon when the player is using offhand equipment; otherwise it checks the current weapon."
+            ],
             "confidence": "medium"
         },
         {
@@ -27399,6 +27704,1361 @@
             ],
             "example": "ZombieShooterSpotted(1, 1)",
             "confidence": "high"
+        },
+        {
+            "name": "GetEye",
+            "description": "Gets the eye position for this local player.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "localPlayer",
+                        "description": "The local player to query.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "player",
+                            "subType": "player",
+                            "isArray": false,
+                            "unionOf": null
+                        }
+                    },
+                    "parameters": [],
+                    "returns": {
+                        "name": "eyePosition",
+                        "description": "The eye position of the local player.",
+                        "type": {
+                            "dataType": "vector",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "eyePos = self GetEye();",
+            "verifiedInRevision": null,
+            "remarks": null,
+            "confidence": null
+        },
+        {
+            "name": "IsRagdoll",
+            "description": "Gets whether this entity is currently ragdolled.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": "The entity to check.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        }
+                    },
+                    "parameters": [],
+                    "returns": {
+                        "name": "isRagdoll",
+                        "description": "Whether the entity is currently ragdolled.",
+                        "type": {
+                            "dataType": "bool",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "if ( entity IsRagdoll() ) { }",
+            "verifiedInRevision": null,
+            "remarks": null,
+            "confidence": null
+        },
+        {
+            "name": "UseBuildKitWeaponModel",
+            "description": "Applies the build kit weapon world model to this script mover entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": "The script mover entity to update.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        }
+                    },
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number whose build kit data should be used.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "weapon",
+                            "description": "The weapon whose build kit model should be applied.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "weapon",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "camoOverride",
+                            "description": "An optional camo override index.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "insta",
+                            "description": "Whether to apply the model change instantly.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "bool",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "mover UseBuildKitWeaponModel( localClientNum, weapon, camoOverride, true );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "This can only be called on a script mover entity."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "IsInVehicle",
+            "description": "Gets whether the local client is currently viewlocked to the specified vehicle.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number to check.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "vehicle",
+                            "description": "The vehicle entity to test against.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "entity",
+                                "instanceType": "vehicle",
+                                "subType": "vehicle",
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "isInVehicle",
+                        "description": "Whether the local client is in the specified vehicle.",
+                        "type": {
+                            "dataType": "bool",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "if ( IsInVehicle( localClientNum, vehicle ) ) { }",
+            "verifiedInRevision": null,
+            "remarks": [
+                "This returns false while any free-move camera mode is active."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "CodeGetPlayerStateClientField",
+            "description": "Gets a predicted playerstate client field value for the given local client.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "player",
+                            "description": "The local player entity reference.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "entity",
+                                "instanceType": "player",
+                                "subType": "player",
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "fieldName",
+                            "description": "The playerstate client field name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "value",
+                        "description": "The client field value, returned as a numeric value based on the field definition.",
+                        "type": {
+                            "dataType": "number",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "value = CodeGetPlayerStateClientField( player, \"some_field\" );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "The native returns either an int or a float depending on the clientfield definition, so this is documented as number.",
+                "Counter-type clientfields are rejected by the native function."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "CodeGetClientField",
+            "description": "Gets a client field value from the specified entity state.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "entity",
+                            "description": "The entity whose client field should be read.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "entity",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "fieldName",
+                            "description": "The client field name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "value",
+                        "description": "The client field value, returned as a numeric value based on the field definition.",
+                        "type": {
+                            "dataType": "number",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "value = CodeGetClientField( entity, \"some_field\" );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "The native returns either an int or a float depending on the clientfield definition, so this is documented as number.",
+                "Counter-type clientfields are rejected by the native function.",
+                "The entity must belong to a supported clientfield system for its eType."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "CodeGetWorldClientField",
+            "description": "Gets a world client field value from the current client snapshot.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "fieldName",
+                            "description": "The world client field name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "value",
+                        "description": "The client field value, returned as a numeric value based on the field definition.",
+                        "type": {
+                            "dataType": "number",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "value = CodeGetWorldClientField( \"some_field\" );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "The native returns either an int or a float depending on the clientfield definition, so this is documented as number.",
+                "Counter-type clientfields are rejected by the native function."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "GetAngleFromBits",
+            "description": "Converts a packed bit-angle value into a normalized angle in degrees.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "valueBits",
+                            "description": "The packed angle value.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "numBits",
+                            "description": "The number of bits used to encode the angle.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "angle",
+                        "description": "The normalized angle in degrees.",
+                        "type": {
+                            "dataType": "number",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "angle = GetAngleFromBits( packedValue, 8 );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "Returns an angle value in degrees."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "SetElectrified",
+            "description": "Applies or clears the electrified effect for the given local client.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number to affect.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "durationSeconds",
+                            "description": "The electrified duration in seconds. Use 0 to clear the effect.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "number",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "SetElectrified( localClientNum, 1.5 );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "The duration must not be negative."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "SetBurn",
+            "description": "Applies or clears the burn effect for the given local client.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number to affect.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "durationSeconds",
+                            "description": "The burn duration in seconds. Use 0 to clear the effect.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "number",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "SetBurn( localClientNum, 2.0 );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "The duration must not be negative."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "GetWheelSurface",
+            "description": "Gets the surface type currently under the specified wheel.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "vehicle",
+                        "description": "The vehicle entity to query.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "vehicle",
+                            "subType": "vehicle",
+                            "isArray": false,
+                            "unionOf": null
+                        }
+                    },
+                    "parameters": [
+                        {
+                            "name": "wheelName",
+                            "description": "The wheel name to query.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "surfaceName",
+                        "description": "The surface type name under the requested wheel, or none.",
+                        "type": {
+                            "dataType": "string",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "surface = vehicle GetWheelSurface( \"front_left\" );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "Valid wheelName values are front_left, front_right, back_left, back_right, middle_left, and middle_right."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "Detach",
+            "description": "Detaches an attached model from this entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": "The entity to detach the model from.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        }
+                    },
+                    "parameters": [
+                        {
+                            "name": "modelName",
+                            "description": "The attached model name to detach.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "tagName",
+                            "description": "An optional tag name. Defaults to tag_origin.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "entity Detach( \"tag_model\", \"tag_origin\" );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "If tagName is omitted, the native uses tag_origin."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "ShellShock",
+            "description": "Starts a shellshock effect for the given local client.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number to affect.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "shellshockName",
+                            "description": "The precached shellshock name to play.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "durationSeconds",
+                            "description": "The shellshock duration in seconds.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "number",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "ShellShock( localClientNum, \"flashbang_heavy\", 2.0 );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "The shellshock must be precached before calling this function.",
+                "The duration must be between 0 and 60 seconds."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "IsWeaponOverheating",
+            "description": "Gets whether the relevant client weapon is overheating, or returns its heat value when requested.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number to query.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "returnHeatValue",
+                            "description": "Whether to return the numeric heat value instead of a boolean overheating state.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "bool",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "weapon",
+                            "description": "An optional weapon override. When omitted, the current relevant weapon is used.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "weapon",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "result",
+                        "description": "Either the overheating state or the heat value, depending on returnHeatValue.",
+                        "type": {
+                            "dataType": "any",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": [
+                                {
+                                    "dataType": "bool",
+                                    "instanceType": null,
+                                    "subType": null,
+                                    "isArray": false,
+                                    "unionOf": null
+                                },
+                                {
+                                    "dataType": "float",
+                                    "instanceType": null,
+                                    "subType": null,
+                                    "isArray": false,
+                                    "unionOf": null
+                                }
+                            ]
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "heat = IsWeaponOverheating( localClientNum, true );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "When returnHeatValue is false or omitted, this returns a boolean overheating state.",
+                "When returnHeatValue is true, this returns the weapon heat value as a float.",
+                "This is not supported for vehicle weapons on client."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "GetLinkedEnt",
+            "description": "Gets the entity linked or attached to this entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": "The entity to inspect.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        }
+                    },
+                    "parameters": [],
+                    "returns": {
+                        "name": "linkedEnt",
+                        "description": "The linked entity.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "linked = entity GetLinkedEnt();",
+            "verifiedInRevision": null,
+            "remarks": [
+                "If no linked entity exists, the native may yield no script value."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "IsStreamerReady",
+            "description": "Gets whether initial streaming dependencies are ready.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [],
+                    "returns": {
+                        "name": "ready",
+                        "description": "Whether the streamer is ready.",
+                        "type": {
+                            "dataType": "bool",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "if ( IsStreamerReady() ) { }",
+            "verifiedInRevision": null,
+            "remarks": [
+                "This checks initial textures, mesh load status, lighting, and high-priority textures."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "SetAnimTimeByName",
+            "description": "Sets the current time of a named animation on this entity.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": "The entity whose animation time should be changed.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        }
+                    },
+                    "parameters": [
+                        {
+                            "name": "animName",
+                            "description": "The animation name.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "time",
+                            "description": "The normalized animation time from 0 to 1.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "number",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "instant",
+                            "description": "Whether to use the instant update mode.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "bool",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "void": true
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "entity SetAnimTimeByName( \"idle\", 0.5, true );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "The time must be between 0 and 1.",
+                "Looping animations cannot be set to exactly 1."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "GetCharacterHeadModel",
+            "description": "Gets the current character head model name for this player.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "player",
+                        "description": "The player to query.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": "player",
+                            "subType": "player",
+                            "isArray": false,
+                            "unionOf": null
+                        }
+                    },
+                    "parameters": [
+                        {
+                            "name": "headIndex",
+                            "description": "An optional character head index override.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "mode",
+                            "description": "An optional mode name override.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "string",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "modelName",
+                        "description": "The character head model name.",
+                        "type": {
+                            "dataType": "string",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "modelName = self GetCharacterHeadModel( headIndex, mode );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "If no head model is available, the native may return undefined.",
+                "HeadIndex and mode are documented as optional overrides based on observed script usage assumptions."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "IsInsideHeightLock",
+            "description": "Gets whether this entity is inside any enabled heli height-lock patch.",
+            "overloads": [
+                {
+                    "calledOn": {
+                        "name": "entity",
+                        "description": "The entity to test.",
+                        "type": {
+                            "dataType": "entity",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        }
+                    },
+                    "parameters": [],
+                    "returns": {
+                        "name": "inside",
+                        "description": "Whether the entity is inside a height-lock area.",
+                        "type": {
+                            "dataType": "bool",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "if ( entity IsInsideHeightLock() ) { }",
+            "verifiedInRevision": null,
+            "remarks": [
+                "This checks the entity origin against enabled heli height-lock patch bounds."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "GetDStat",
+            "description": "Gets a live stat value from the requested DStat path.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number whose stats should be queried.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "path",
+                            "description": "One or more DStat path segments.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": [
+                                    {
+                                        "dataType": "string",
+                                        "instanceType": null,
+                                        "subType": null,
+                                        "isArray": false,
+                                        "unionOf": null
+                                    }
+                                ]
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "value",
+                        "description": "The stat value, returned as either a string or an int depending on the DDL node type.",
+                        "type": {
+                            "dataType": "any",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": [
+                                {
+                                    "dataType": "string",
+                                    "instanceType": null,
+                                    "subType": null,
+                                    "isArray": false,
+                                    "unionOf": null
+                                },
+                                {
+                                    "dataType": "int",
+                                    "instanceType": null,
+                                    "subType": null,
+                                    "isArray": false,
+                                    "unionOf": null
+                                }
+                            ]
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "value = GetDStat( localClientNum, \"playerstats\", \"kills\" );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "String-like DStat nodes return strings, while other supported nodes return ints.",
+                "The native errors if the requested stat path cannot be found."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "CalcWeaponOptions",
+            "description": "Builds a packed weapon options uint64 value for a local client.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "localClientNum",
+                            "description": "The local client number.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "baseOption",
+                            "description": "The base low-byte weapon option value.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "reserved",
+                            "description": "An optional reserved argument slot retained for script compatibility.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "secondaryOption",
+                            "description": "An optional secondary 7-bit option value.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "flag15",
+                            "description": "An optional boolean option flag.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "bool",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "flag16",
+                            "description": "An optional boolean option flag.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "bool",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "flag17",
+                            "description": "An optional boolean option flag.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "bool",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "displayMode",
+                            "description": "An optional display mode selector.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "int",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "options",
+                        "description": "The packed weapon options value.",
+                        "type": {
+                            "dataType": "uint64",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "options = CalcWeaponOptions( localClientNum, baseOption, 0, secondaryOption, false, false, false, 0 );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "The native reads argument slots 0, 1, 3, 4, 5, 6, and 7 when present.",
+                "Argument slot 2 appears reserved or unused in the observed implementation."
+            ],
+            "confidence": null
+        },
+        {
+            "name": "GetAttachmentCosmeticVariantIndexes",
+            "description": "Calculates packed attachment cosmetic variant indexes for a weapon.",
+            "overloads": [
+                {
+                    "calledOn": null,
+                    "parameters": [
+                        {
+                            "name": "weapon",
+                            "description": "The weapon whose attachments are being configured.",
+                            "mandatory": true,
+                            "type": {
+                                "dataType": "weapon",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": null
+                            },
+                            "variadic": null
+                        },
+                        {
+                            "name": "attachmentPairs",
+                            "description": "Zero or more alternating attachment names and cosmetic variant indexes.",
+                            "mandatory": false,
+                            "type": {
+                                "dataType": "vararg",
+                                "instanceType": null,
+                                "subType": null,
+                                "isArray": false,
+                                "unionOf": [
+                                    {
+                                        "dataType": "string",
+                                        "instanceType": null,
+                                        "subType": null,
+                                        "isArray": false,
+                                        "unionOf": null
+                                    },
+                                    {
+                                        "dataType": "int",
+                                        "instanceType": null,
+                                        "subType": null,
+                                        "isArray": false,
+                                        "unionOf": null
+                                    }
+                                ]
+                            },
+                            "variadic": null
+                        }
+                    ],
+                    "returns": {
+                        "name": "variantIndexes",
+                        "description": "The packed attachment cosmetic variant indexes value.",
+                        "type": {
+                            "dataType": "int",
+                            "instanceType": null,
+                            "subType": null,
+                            "isArray": false,
+                            "unionOf": null
+                        },
+                        "void": false
+                    }
+                }
+            ],
+            "flags": [
+                "verified"
+            ],
+            "example": "indexes = GetAttachmentCosmeticVariantIndexes( weapon, \"acog\", 1, \"stock\", 2 );",
+            "verifiedInRevision": null,
+            "remarks": [
+                "After the weapon argument, parameters are supplied as alternating attachment name and cosmetic variant index pairs.",
+                "The native requires an odd total argument count: one weapon followed by zero or more pairs."
+            ],
+            "confidence": null
         }
     ],
     "gameId": "t7",

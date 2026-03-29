@@ -188,28 +188,41 @@ internal ref partial struct TypeFlowAnalyser
                 continue;  // can't validate unknown types
             }
 
-            if (!actualType.IsCompatibleWith(expectedType))
+            // Boolean-coercible arguments are allowed for bool parameters via script-style truthy/falsy coercion.
+            ExprNode? argNode = GetCallArgument(call, i);
+            if (expectedType.HasType(ScrDataTypes.Bool)
+                && actualType.IsCompatibleWith(ScrDataTypes.Int)
+                && argNode is not null
+                && IsIntLiteral01(argNode, out string? replacement))
             {
-                // Get the argument node for precise range
-                ExprNode? argNode = GetCallArgument(call, i);
+                AddIdeDiagnostic(argNode.Range, GSCErrorCodes.PreferBooleanLiteral,
+                    replacement, argNode is DataExprNode d ? d.Value?.ToString() ?? "0" : "0");
+            }
+
+            if (!IsArgumentTypeCompatible(actualType, expectedType))
+            {
                 if (argNode is not null)
                 {
-                    // Int literal 0 or 1 passed to a bool param: hint to use true/false instead
-                    if (expectedType.HasType(ScrDataTypes.Bool) && IsIntLiteral01(argNode, out string? replacement))
-                    {
-                        AddIdeDiagnostic(argNode.Range, GSCErrorCodes.PreferBooleanLiteral,
-                            replacement, argNode is DataExprNode d ? d.Value?.ToString() ?? "0" : "0");
-                    }
-                    else
-                    {
-                        GSCErrorCodes code = isUnverified
-                            ? GSCErrorCodes.ArgumentTypeMismatchUnverified
-                            : GSCErrorCodes.ArgumentTypeMismatch;
-                        AddDiagnostic(argNode.Range, code,
-                            i + 1, functionName, expectedType.TypeToString(), actualType.TypeToString());
-                    }
+                    GSCErrorCodes code = isUnverified
+                        ? GSCErrorCodes.ArgumentTypeMismatchUnverified
+                        : GSCErrorCodes.ArgumentTypeMismatch;
+                    AddDiagnostic(argNode.Range, code,
+                        i + 1, functionName, expectedType.TypeToString(), actualType.TypeToString());
                 }
             }
+        }
+    }
+
+    private void WarnIfBrokenFunctionUsed(Range range, ScrFunction? function, string functionName)
+    {
+        if (function is null)
+        {
+            return;
+        }
+
+        if (function.Flags.Contains("broken", StringComparer.OrdinalIgnoreCase))
+        {
+            AddDiagnostic(range, GSCErrorCodes.BrokenFunctionUsage, functionName);
         }
     }
 
@@ -239,6 +252,22 @@ internal ref partial struct TypeFlowAnalyser
             i++;
         }
         return null;
+    }
+
+    private static bool IsArgumentTypeCompatible(ScrData actualType, ScrData expectedType)
+    {
+        if (actualType.IsCompatibleWith(expectedType))
+        {
+            return true;
+        }
+
+        // GSC accepts boolean-coercible values in boolean positions via truthy/falsy coercion.
+        if (expectedType.HasType(ScrDataTypes.Bool) && actualType.CanEvaluateToBoolean())
+        {
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -301,7 +330,7 @@ internal ref partial struct TypeFlowAnalyser
                 }
 
                 ScrData actualType = argTypes[i];
-                if (actualType.TypeUnknown() || actualType.IsCompatibleWith(expectedType))
+                if (actualType.TypeUnknown() || IsArgumentTypeCompatible(actualType, expectedType))
                 {
                     score++;
                 }
@@ -382,21 +411,21 @@ internal ref partial struct TypeFlowAnalyser
                 continue;
             }
 
-            if (!actualType.IsCompatibleWith(expectedType))
+            if (expectedType.HasType(ScrDataTypes.Bool)
+                && actualType.IsCompatibleWith(ScrDataTypes.Int)
+                && IsIntLiteral01(argNode, out string? replacement))
             {
-                if (expectedType.HasType(ScrDataTypes.Bool) && IsIntLiteral01(argNode, out string? replacement))
-                {
-                    AddDiagnostic(argNode.Range, GSCErrorCodes.PreferBooleanLiteral,
-                        replacement, argNode is DataExprNode d ? d.Value?.ToString() ?? "0" : "0");
-                }
-                else
-                {
-                    GSCErrorCodes code = isUnverified
-                        ? GSCErrorCodes.ArgumentTypeMismatchUnverified
-                        : GSCErrorCodes.ArgumentTypeMismatch;
-                    AddDiagnostic(argNode.Range, code,
-                        idx + 1, functionName, expectedType.TypeToString(), actualType.TypeToString());
-                }
+                AddDiagnostic(argNode.Range, GSCErrorCodes.PreferBooleanLiteral,
+                    replacement, argNode is DataExprNode d ? d.Value?.ToString() ?? "0" : "0");
+            }
+
+            if (!IsArgumentTypeCompatible(actualType, expectedType))
+            {
+                GSCErrorCodes code = isUnverified
+                    ? GSCErrorCodes.ArgumentTypeMismatchUnverified
+                    : GSCErrorCodes.ArgumentTypeMismatch;
+                AddDiagnostic(argNode.Range, code,
+                    idx + 1, functionName, expectedType.TypeToString(), actualType.TypeToString());
             }
             idx++;
         }
@@ -417,19 +446,19 @@ internal ref partial struct TypeFlowAnalyser
         return types;
     }
 
-    private ScrData AnalyseExpr(ExprNode expr, SymbolTable symbolTable, ParserIntelliSense sense, bool createSenseTokenForRhs = true)
+    private ScrData AnalyseExpr(ExprNode expr, SymbolTable symbolTable, ParserIntelliSense sense, bool createSenseTokenForRhs = true, bool resultConsumed = true)
     {
         return expr.OperatorType switch
         {
             ExprOperatorType.Binary when expr is NamespacedMemberNode namespaceMember => AnalyseScopeResolution(namespaceMember, symbolTable, sense),
             ExprOperatorType.Binary => AnalyseBinaryExpr((BinaryExprNode)expr, symbolTable, createSenseTokenForRhs),
-            ExprOperatorType.Prefix => AnalysePrefixExpr((PrefixExprNode)expr, symbolTable, sense),
+            ExprOperatorType.Prefix => AnalysePrefixExpr((PrefixExprNode)expr, symbolTable, sense, resultConsumed),
             ExprOperatorType.Postfix => AnalysePostfixExpr((PostfixExprNode)expr, symbolTable, sense),
             ExprOperatorType.DataOperand => AnalyseDataExpr((DataExprNode)expr),
             ExprOperatorType.IdentifierOperand => AnalyseIdentifierExpr((IdentifierExprNode)expr, symbolTable, createSenseTokenForRhs),
             ExprOperatorType.Vector => AnalyseVectorExpr((VectorExprNode)expr, symbolTable),
             ExprOperatorType.Indexer => AnalyseIndexerExpr((ArrayIndexNode)expr, symbolTable),
-            ExprOperatorType.CallOn => AnalyseCallOnExpr((CalledOnNode)expr, symbolTable),
+            ExprOperatorType.CallOn => AnalyseCallOnExpr((CalledOnNode)expr, symbolTable, resultConsumed),
             ExprOperatorType.FunctionCall => AnalyseFunctionCall((FunCallNode)expr, symbolTable, sense),
             ExprOperatorType.Constructor => AnalyseConstructorExpr((ConstructorExprNode)expr, symbolTable),
             ExprOperatorType.Waittill => AnalyseWaittillExpr((WaittillNode)expr, symbolTable, sense),
@@ -691,11 +720,11 @@ internal ref partial struct TypeFlowAnalyser
         }
     }
 
-    private ScrData AnalysePrefixExpr(PrefixExprNode prefix, SymbolTable symbolTable, ParserIntelliSense sense)
+    private ScrData AnalysePrefixExpr(PrefixExprNode prefix, SymbolTable symbolTable, ParserIntelliSense sense, bool resultConsumed = true)
     {
         return prefix.Operation switch
         {
-            TokenType.Thread => AnalyseThreadedFunctionCall(prefix, symbolTable, sense),
+            TokenType.Thread => AnalyseThreadedFunctionCall(prefix, symbolTable, sense, resultConsumed: resultConsumed),
             TokenType.BitAnd => AnalyseFunctionPointer(prefix, symbolTable, sense),
             TokenType.Not => AnalyseNotOp(prefix, symbolTable, sense),
             TokenType.Minus => AnalyseNegationOp(prefix, symbolTable, sense),
@@ -1356,14 +1385,14 @@ internal ref partial struct TypeFlowAnalyser
         return ScrData.Default;
     }
 
-    private ScrData AnalyseCallOnExpr(CalledOnNode expr, SymbolTable symbolTable)
+    private ScrData AnalyseCallOnExpr(CalledOnNode expr, SymbolTable symbolTable, bool resultConsumed = true)
     {
         ScrData target = AnalyseExpr(expr.On, symbolTable, Sense);
 
-        return AnalyseCall(expr.Call, symbolTable, Sense, target);
+        return AnalyseCall(expr.Call, symbolTable, Sense, target, resultConsumed);
     }
 
-    private ScrData AnalyseCall(ExprNode call, SymbolTable symbolTable, ParserIntelliSense sense, ScrData? target = null)
+    private ScrData AnalyseCall(ExprNode call, SymbolTable symbolTable, ParserIntelliSense sense, ScrData? target = null, bool resultConsumed = true)
     {
         // If target is null, we don't know, just use any.
         ScrData targetValue = target ?? ScrData.Default;
@@ -1372,7 +1401,7 @@ internal ref partial struct TypeFlowAnalyser
         return call.OperatorType switch
         {
             ExprOperatorType.FunctionCall => AnalyseFunctionCall((FunCallNode)call, symbolTable, sense, targetValue),
-            ExprOperatorType.Prefix when call is PrefixExprNode prefix && prefix.Operation == TokenType.Thread => AnalyseThreadedFunctionCall(prefix, symbolTable, sense, targetValue),
+            ExprOperatorType.Prefix when call is PrefixExprNode prefix && prefix.Operation == TokenType.Thread => AnalyseThreadedFunctionCall(prefix, symbolTable, sense, targetValue, resultConsumed),
             ExprOperatorType.Binary when call is NamespacedMemberNode namespaced => AnalyseScopeResolution(namespaced, symbolTable, sense, targetValue),
             // for now... might be an error later.
             _ => ScrData.Default
@@ -1568,6 +1597,8 @@ internal ref partial struct TypeFlowAnalyser
             AddDiagnostic(call.Function!.Range, GSCErrorCodes.DevBlockFunctionOutsideDevBlock, functionName);
         }
 
+        WarnIfBrokenFunctionUsed(call.Function!.Range, function, functionName);
+
         // Return the function's return type if known
         return GetFunctionReturnType(function);
     }
@@ -1600,7 +1631,7 @@ internal ref partial struct TypeFlowAnalyser
         return ScrData.FromApiType(returnSpec?.Type);
     }
 
-    private ScrData AnalyseThreadedFunctionCall(PrefixExprNode call, SymbolTable symbolTable, ParserIntelliSense sense, ScrData? target = null)
+    private ScrData AnalyseThreadedFunctionCall(PrefixExprNode call, SymbolTable symbolTable, ParserIntelliSense sense, ScrData? target = null, bool resultConsumed = true)
     {
         ScrData targetValue = target ?? ScrData.Default;
 
@@ -1661,7 +1692,17 @@ internal ref partial struct TypeFlowAnalyser
 
         // TODO: Validate argument count for threaded calls (if not already handled by recursive call)
 
-        // Threaded calls won't return anything.
-        return ScrData.Undefined();
+        functionTarget.TryGetFunction(out ScrFunction? function);
+        string functionName = function?.Name ?? "<unknown>";
+        WarnIfBrokenFunctionUsed(call.Operand.Range, function, functionName);
+
+        if (resultConsumed)
+        {
+            AddDiagnostic(call.Range, GSCErrorCodes.ConsumedThreadedCallResult);
+        }
+
+        // Treat the result as dynamic so downstream analysis can continue,
+        // but warn when callers rely on it because a blocking thread can yield undefined.
+        return ScrData.Default;
     }
 }

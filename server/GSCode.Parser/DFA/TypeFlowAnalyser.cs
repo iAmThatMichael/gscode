@@ -485,7 +485,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
         // Analyse the initialisation.
         if (node.Initialisation is not null)
         {
-            AnalyseExpr(node.Initialisation, symbolTable, Sense);
+            AnalyseExpr(node.Initialisation, symbolTable, Sense, resultConsumed: false);
 
             // For loop initialization should follow the same rules as expression statements
             // Only assignments, calls, increments, decrements should be allowed
@@ -509,7 +509,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
         // Analyse the increment if present
         if (node.Increment is not null)
         {
-            AnalyseExpr(node.Increment, symbolTable, Sense);
+            AnalyseExpr(node.Increment, symbolTable, Sense, resultConsumed: false);
 
             // For loop increment should also follow expression statement rules
             ValidateExpressionHasSideEffects(node.Increment);
@@ -713,7 +713,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
             return;
         }
 
-        ScrData result = AnalyseExpr(statement.Expr, symbolTable, Sense);
+        ScrData result = AnalyseExpr(statement.Expr, symbolTable, Sense, resultConsumed: false);
 
         // If this is an assert() call, apply type narrowings from the condition being true.
         if (statement.Expr is FunCallNode { Function: IdentifierExprNode assertId } assertCall

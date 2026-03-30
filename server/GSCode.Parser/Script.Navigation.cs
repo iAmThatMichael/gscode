@@ -240,7 +240,7 @@ public partial class Script
                     Label = p,
                     Documentation = string.IsNullOrWhiteSpace(pDoc) ? null : new MarkupContent { Kind = MarkupKind.Markdown, Value = pDoc }
                 };
-            });
+            }).ToList();
             signatures.Add(new SignatureInformation { Label = label, Parameters = new Container<ParameterInformation>(paramList) });
         }
 

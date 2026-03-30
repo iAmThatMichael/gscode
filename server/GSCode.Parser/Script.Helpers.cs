@@ -117,16 +117,8 @@ public partial class Script
 
         Token startToken = tokens.GetAt(startIdx)!;
         Token endToken = startToken;
-        for (int i = startIdx; i < tokens.Count; i++)
-        {
-            Token t = tokens.GetAt(i)!;
-            if (t.Range.Start.Line != line) break;
-            if (t.Type == TokenType.Semicolon || t.Type == TokenType.LineBreak) break;
-            endToken = t;
-        }
-
         var sb = new StringBuilder();
-        for (int i = startIdx; ; i++)
+        for (int i = startIdx; i < tokens.Count; i++)
         {
             Token t = tokens.GetAt(i)!;
             if (t.Range.Start.Line != line) break;
@@ -134,29 +126,11 @@ public partial class Script
             // Include backslash tokens explicitly: IsWhitespacey() returns true for Backslash
             // (used in other contexts), but here they are path separators and must be appended.
             if (!t.IsWhitespacey() || t.Type == TokenType.Backslash) sb.Append(t.Lexeme);
-            if (ReferenceEquals(t, endToken)) break;
+            endToken = t;
         }
 
         usingPath = sb.ToString();
         usingRange = RangeHelper.From(startToken.Range.Start, endToken.Range.End);
-        return true;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsFunctionPointerCallIdentifier(Token identifier)
-    {
-        // Pattern: [[ identifier ]]( ... )
-        // Check immediate surrounding tokens ignoring trivia
-        Token? prev1 = identifier.PreviousNonTrivia();
-        if (prev1?.Type != TokenType.OpenBracket) return false;
-        Token? prev2 = prev1.PreviousNonTrivia();
-        if (prev2?.Type != TokenType.OpenBracket) return false;
-        Token? next1 = identifier.NextNonTrivia();
-        if (next1?.Type != TokenType.CloseBracket) return false;
-        Token? next2 = next1.NextNonTrivia();
-        if (next2?.Type != TokenType.CloseBracket) return false;
-        Token? next3 = next2.NextNonTrivia();
-        if (next3?.Type != TokenType.OpenParen) return false;
         return true;
     }
 
@@ -207,9 +181,7 @@ public partial class Script
             return false; // not in a call
 
         // Find the identifier before this '('
-        Token? id = cursor.Previous;
-        while (id is not null && (id.IsWhitespacey() || id.IsComment())) 
-            id = id.Previous;
+        Token? id = cursor.PreviousNonTrivia();
 
         if (id is null || id.Type != TokenType.Identifier)
             return false;

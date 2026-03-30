@@ -16,7 +16,6 @@ public partial class Script
     private void BuildReferenceIndex()
     {
         _references.Clear();
-        var api = TryGetApi();
         var tokens = Sense.Tokens;
         for (int i = 0; i < tokens.Count; i++)
         {
@@ -25,16 +24,10 @@ public partial class Script
 
             // Recognize definition identifiers
             var senseDef = Sense.GetSenseDefinition(token);
-            if (senseDef is ScrFunctionSymbol)
+            if (senseDef is ScrFunctionSymbol or ScrClassSymbol)
             {
-                var defNamespace = GetEffectiveNamespace();
-                AddRef(new SymbolKey(SymbolKindSA.Function, defNamespace, token.Lexeme), token.Range);
-                continue;
-            }
-            if (senseDef is ScrClassSymbol)
-            {
-                var defNamespace = GetEffectiveNamespace();
-                AddRef(new SymbolKey(SymbolKindSA.Class, defNamespace, token.Lexeme), token.Range);
+                var kind = senseDef is ScrFunctionSymbol ? SymbolKindSA.Function : SymbolKindSA.Class;
+                AddRef(new SymbolKey(kind, GetEffectiveNamespace(), token.Lexeme), token.Range);
                 continue;
             }
 
@@ -51,10 +44,7 @@ public partial class Script
             var (qual, name) = ParseNamespaceQualifiedIdentifierByIndex(i);
 
             // Skip builtin
-            if (api is not null)
-            {
-                try { if (api.GetApiFunction(name) is not null) continue; } catch { }
-            }
+            if (IsBuiltinFunction(name)) continue;
 
             // Resolve to a namespace
             string resolvedNamespace = qual ?? GetEffectiveNamespace();
@@ -79,91 +69,45 @@ public partial class Script
     private void PrecomputeFunctionScopes()
     {
         if (RootNode is null) return;
-        _functionScopes = new List<FunctionScopeInfo>();
-        foreach (var fn in EnumerateFunctions(RootNode))
-        {
-            string? name = fn.Name?.Lexeme;
-            Range bodyRange = GetStmtListRange(fn.Body);
-            var parameters = new List<(string Name, Range Range)>();
-            foreach (var p in fn.Parameters.Parameters)
-            {
-                if (p.Name is not null)
-                {
-                    parameters.Add((p.Name.Lexeme, p.Name.Range));
-                }
-            }
-            _functionScopes.Add(new FunctionScopeInfo(name, bodyRange, parameters));
-        }
-    }
-
-    public async Task<string?> GetEnclosingFunctionScopeIdAsync(Position position, CancellationToken cancellationToken = default)
-    {
-        await WaitUntilParsedAsync(cancellationToken);
-
-        // Use precomputed scopes if available (post-analysis, AST disposed)
-        if (_functionScopes is not null)
-        {
-            foreach (var scope in _functionScopes)
-            {
-                if (scope.FunctionName is null) continue;
-                if (IsPositionInsideRange(position, scope.BodyRange))
-                {
-                    return $"{GetEffectiveNamespace()}::{scope.FunctionName}";
-                }
-            }
-            return null;
-        }
-
-        // Fallback: use AST directly (pre-analysis)
-        if (RootNode is null) return null;
-        foreach (var fn in EnumerateFunctions(RootNode))
-        {
-            if (fn.Name is not Token nameTok) continue;
-            var bodyRange = GetStmtListRange(fn.Body);
-            if (IsPositionInsideRange(position, bodyRange))
-            {
-                return $"{GetEffectiveNamespace()}::{nameTok.Lexeme}";
-            }
-        }
-        return null;
+        _functionScopes = EnumerateFunctions(RootNode)
+            .Select(fn => new FunctionScopeInfo(
+                fn.Name?.Lexeme,
+                GetStmtListRange(fn.Body),
+                fn.Parameters.Parameters
+                    .Where(p => p.Name is not null)
+                    .Select(p => (p.Name!.Lexeme, p.Name.Range))
+                    .ToList()))
+            .ToList();
     }
 
     public async Task<IReadOnlyList<Range>> GetLocalVariableReferencesAsync(Position position, bool includeDeclaration, CancellationToken cancellationToken = default)
     {
-        if (!Sense.IsEditorMode) return Array.Empty<Range>();
+        if (!Sense.IsEditorMode) return [];
         await WaitUntilParsedAsync(cancellationToken);
 
         // Acquire the token under the cursor
         Token? token = Sense.Tokens.Get(position);
         if (token is null || token.Type != TokenType.Identifier)
-        {
-            return Array.Empty<Range>();
-        }
+            return [];
         string target = token.Lexeme;
 
         // Find the enclosing function scope
         FunctionScopeInfo? enclosingScope = null;
 
+        static List<(string Name, Range Range)> GetParamRanges(FunDefnNode fn) =>
+            fn.Parameters.Parameters
+                .Where(p => p.Name is not null)
+                .Select(p => (p.Name!.Lexeme, p.Name.Range))
+                .ToList();
+
         if (_functionScopes is not null)
         {
             // Post-analysis: use precomputed scopes
-            foreach (var scope in _functionScopes)
-            {
-                if (IsPositionInsideRange(position, scope.BodyRange))
-                {
-                    enclosingScope = scope;
-                    break;
-                }
-                foreach (var (pName, pRange) in scope.Parameters)
-                {
-                    if (ComparePosition(position, pRange.Start) >= 0 && ComparePosition(pRange.End, position) >= 0)
-                    {
-                        enclosingScope = scope;
-                        break;
-                    }
-                }
-                if (enclosingScope is not null) break;
-            }
+            enclosingScope = _functionScopes.FirstOrDefault(scope =>
+                IsPositionInsideRange(position, scope.BodyRange) ||
+                scope.Parameters.Any(p =>
+                    ComparePosition(position, p.Range.Start) >= 0 &&
+                    ComparePosition(p.Range.End, position) >= 0));
         }
         else if (RootNode is not null)
         {
@@ -173,12 +117,7 @@ public partial class Script
                 var bodyRange = GetStmtListRange(fn.Body);
                 if (IsPositionInsideRange(position, bodyRange))
                 {
-                    var parms = new List<(string Name, Range Range)>();
-                    foreach (var p in fn.Parameters.Parameters)
-                    {
-                        if (p.Name is not null) parms.Add((p.Name.Lexeme, p.Name.Range));
-                    }
-                    enclosingScope = new FunctionScopeInfo(fn.Name?.Lexeme, bodyRange, parms);
+                    enclosingScope = new FunctionScopeInfo(fn.Name?.Lexeme, bodyRange, GetParamRanges(fn));
                     break;
                 }
                 foreach (var p in fn.Parameters.Parameters)
@@ -186,12 +125,7 @@ public partial class Script
                     if (p.Name is null) continue;
                     if (ComparePosition(position, p.Name.Range.Start) >= 0 && ComparePosition(p.Name.Range.End, position) >= 0)
                     {
-                        var parms = new List<(string Name, Range Range)>();
-                        foreach (var pp in fn.Parameters.Parameters)
-                        {
-                            if (pp.Name is not null) parms.Add((pp.Name.Lexeme, pp.Name.Range));
-                        }
-                        enclosingScope = new FunctionScopeInfo(fn.Name?.Lexeme, GetStmtListRange(fn.Body), parms);
+                        enclosingScope = new FunctionScopeInfo(fn.Name?.Lexeme, bodyRange, GetParamRanges(fn));
                         break;
                     }
                 }
@@ -199,10 +133,7 @@ public partial class Script
             }
         }
 
-        if (enclosingScope is null)
-        {
-            return Array.Empty<Range>();
-        }
+        if (enclosingScope is null) return [];
 
         // Collect identifier tokens within function body matching the name
         Range body = enclosingScope.BodyRange;
@@ -229,13 +160,9 @@ public partial class Script
         // Optionally include declaration site (parameter declaration)
         if (includeDeclaration)
         {
-            foreach (var (pName, pRange) in enclosingScope.Parameters)
-            {
-                if (string.Equals(pName, target, StringComparison.OrdinalIgnoreCase))
-                {
-                    results.Add(pRange);
-                }
-            }
+            results.AddRange(enclosingScope.Parameters
+                .Where(p => string.Equals(p.Name, target, StringComparison.OrdinalIgnoreCase))
+                .Select(p => p.Range));
         }
 
         return results;

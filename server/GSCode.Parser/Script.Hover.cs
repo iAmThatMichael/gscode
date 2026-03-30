@@ -97,34 +97,16 @@ public partial class Script
     /// Checks if token is a namespace qualifier (e.g., "utility" in "utility::function")
     /// and returns the actual function token after the ::
     /// </summary>
-    private bool TryGetQualifiedFunctionToken(Token token, out Token? functionToken)
+    private static bool TryGetQualifiedFunctionToken(Token token, out Token? functionToken)
     {
-        functionToken = null;
-
-        Token? next = token.Next;
-        while (next is not null && next.IsWhitespacey())
+        Token? next = token.NextNonTrivia();
+        if (next?.Type != TokenType.ScopeResolution)
         {
-            next = next.Next;
-        }
-
-        if (next is null || next.Type != TokenType.ScopeResolution)
-        {
+            functionToken = null;
             return false;
         }
-
-        Token? afterScope = next.Next;
-        while (afterScope is not null && afterScope.IsWhitespacey())
-        {
-            afterScope = afterScope.Next;
-        }
-
-        if (afterScope is not null && afterScope.Type == TokenType.Identifier)
-        {
-            functionToken = afterScope;
-            return true;
-        }
-
-        return false;
+        functionToken = next.NextNonTrivia();
+        return functionToken?.Type == TokenType.Identifier;
     }
 
     /// <summary>
@@ -269,7 +251,7 @@ public partial class Script
         }
 
         // Build hover from available metadata
-        string[] cleanParams = parameters?.Select(StripDefault).ToArray() ?? Array.Empty<string>();
+        string[] cleanParams = parameters?.Select(StripDefault).ToArray() ?? [];
         string signature = cleanParams.Length == 0
             ? $"function {name}()"
             : $"function {name}({string.Join(", ", cleanParams)})";

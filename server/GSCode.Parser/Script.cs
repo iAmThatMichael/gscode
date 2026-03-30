@@ -53,7 +53,7 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
     public IEnumerable<Uri> Dependencies => DefinitionsTable?.Dependencies ?? [];
 
     // Expose macro outlines for outliner without exposing Sense outside assembly
-    public IReadOnlyList<MacroOutlineItem> MacroOutlines => Sense == null ? Array.Empty<MacroOutlineItem>() : (IReadOnlyList<MacroOutlineItem>)Sense.MacroOutlines;
+    public IReadOnlyList<MacroOutlineItem> MacroOutlines => Sense?.MacroOutlines ?? [];
 
     // Precomputed function scope data (populated after analysis, before AST disposal)
     private sealed record FunctionScopeInfo(string? FunctionName, Range BodyRange, List<(string Name, Range Range)> Parameters);
@@ -84,7 +84,9 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
     private bool IsBuiltinFunction(string name)
     {
         var api = TryGetApi();
-        return api is not null && api.GetApiFunction(name) is not null;
+        if (api is null) return false;
+        try { return api.GetApiFunction(name) is not null; }
+        catch { return false; }
     }
 
     public async Task ParseAsync(string documentText)
@@ -272,38 +274,37 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
         }
 
         // Build set of known namespaces from function and class definitions
-        HashSet<string> knownNamespaces = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var kv in DefinitionsTable.GetAllFunctionLocations()) knownNamespaces.Add(kv.Key.Qualifier);
-        foreach (var kv in DefinitionsTable.GetAllClassLocations()) knownNamespaces.Add(kv.Key.Qualifier);
-        knownNamespaces.Add(DefinitionsTable.CurrentNamespace);
+        var knownNamespaces = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { DefinitionsTable.CurrentNamespace };
+        knownNamespaces.UnionWith(DefinitionsTable.GetAllFunctionLocations().Select(kv => kv.Key.Qualifier));
+        knownNamespaces.UnionWith(DefinitionsTable.GetAllClassLocations().Select(kv => kv.Key.Qualifier));
 
 ControlFlowAnalyser controlFlowAnalyser = new(Sense, DefinitionsTable!);
-        try
-        {
-            controlFlowAnalyser.Run();
-        }
-        catch (Exception ex)
-        {
-            Failed = true;
-            Log.Error(ex, "Failed to run control flow analyser.");
+try
+{
+    controlFlowAnalyser.Run();
+}
+catch (Exception ex)
+{
+    Failed = true;
+    Log.Error(ex, "Failed to run control flow analyser.");
 
-            Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
-            return Task.CompletedTask;
-        }
+    Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
+    return Task.CompletedTask;
+}
 
 DataFlowAnalyser dataFlowAnalyser = new(controlFlowAnalyser.FunctionGraphs, controlFlowAnalyser.ClassGraphs, Sense, allSymbols, TryGetApi(), DefinitionsTable.CurrentNamespace, knownNamespaces, fileName, DefinitionsTable);
-        try
-        {
-            dataFlowAnalyser.Run();
-        }
-        catch (Exception ex)
-        {
-            Failed = true;
-            Log.Error(ex, "Failed to run data flow analyser.");
+try
+{
+    dataFlowAnalyser.Run();
+}
+catch (Exception ex)
+{
+    Failed = true;
+    Log.Error(ex, "Failed to run data flow analyser.");
 
-            Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
-            return Task.CompletedTask;
-        }
+    Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
+    return Task.CompletedTask;
+}
 
 // Basic SPA diagnostics (editor-only: rely on _references and Sense.Tokens)
 if (Sense.IsEditorMode && RootNode is not null)
@@ -321,7 +322,7 @@ if (Sense.IsEditorMode && RootNode is not null)
 }
 
 // === Memory compaction ===
-        if (Sense.IsEditorMode)
+if (Sense.IsEditorMode)
         {
             Sense.FinalizeSemanticTokens();
             PrecomputeFunctionScopes();

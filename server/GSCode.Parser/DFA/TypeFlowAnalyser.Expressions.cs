@@ -633,7 +633,7 @@ internal ref partial struct TypeFlowAnalyser
             ValidateMethodArgumentTypes(function, argTypes, methodCall, methodName, functionFlags);
 
             // 6. Return the function's return type
-            return GetFunctionReturnType(function);
+            return GetFunctionReturnType(function, functionFlags);
         }
 
         return ScrData.Default;
@@ -1600,13 +1600,13 @@ internal ref partial struct TypeFlowAnalyser
         WarnIfBrokenFunctionUsed(call.Function!.Range, function, functionName);
 
         // Return the function's return type if known
-        return GetFunctionReturnType(function);
+        return GetFunctionReturnType(function, functionFlags);
     }
 
     /// <summary>
     /// Gets the return type of a function from its API specification.
     /// </summary>
-    private static ScrData GetFunctionReturnType(ScrFunction? function)
+    internal static ScrData GetFunctionReturnType(ScrFunction? function, SymbolFlags flags = SymbolFlags.None)
     {
         if (function is null)
         {
@@ -1628,7 +1628,14 @@ internal ref partial struct TypeFlowAnalyser
         }
 
         // Convert the API return type to ScrData
-        return ScrData.FromApiType(returnSpec?.Type);
+        ScrData returnType = ScrData.FromApiType(returnSpec?.Type);
+
+        if (flags.HasFlag(SymbolFlags.BuiltIn))
+        {
+            returnType = returnType.Copy() with { Indeterminate = true };
+        }
+
+        return returnType;
     }
 
     private ScrData AnalyseThreadedFunctionCall(PrefixExprNode call, SymbolTable symbolTable, ParserIntelliSense sense, ScrData? target = null, bool resultConsumed = true)

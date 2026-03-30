@@ -21,206 +21,22 @@ public partial class Script
         if (!Sense.IsEditorMode) return null;
         await WaitUntilParsedAsync(cancellationToken);
 
-        Log.Debug("GetDefinitionAsync: Starting at position {Position}", position);
-
         // When Go-to-Definition is triggered with a text selection active the LSP position
         // is the selection end, which may land exactly on the first character of the next
         // token (e.g. '(' after a function name, or a space after a macro). Normalise the
         // position back to the preceding identifier so all subsequent lookups succeed.
         position = AdjustPositionForSelectionEnd(position);
 
-        // First, allow preprocessor macro definitions/usages to resolve even if the original macro token was removed
-        IHoverable? hoverable = Sense.HoverLibrary!.Get(position);
-        if (hoverable is Pre.MacroDefinition macroDef && !macroDef.IsBuiltIn)
-        {
-            Log.Debug("GetDefinitionAsync: Found MacroDefinition at position");
-            string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
-            return new Location() { Uri = new Uri(normalized), Range = macroDef.Range };
-        }
-        if (hoverable is Pre.ScriptMacro scriptMacro)
-        {
-            Log.Debug("GetDefinitionAsync: Found ScriptMacro at position, navigating to definition");
-            string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
-            return new Location() { Uri = new Uri(normalized), Range = scriptMacro.DefineSource.Range };
-        }
+        if (TryGetMacroDefinitionLocation(position) is { } macroLoc)
+            return macroLoc;
 
         int tokenIdx = Sense.Tokens.GetIndex(position);
         Token? token = Sense.Tokens.GetAt(tokenIdx);
-        if (token is null)
-        {
-            Log.Debug("GetDefinitionAsync: No token found at position {Position}", position);
-            return null;
-        }
+        if (token is null) return null;
 
-        Log.Debug("GetDefinitionAsync: Found token '{Lexeme}' type={Type} at position {Position}, IsFromPreprocessor={IsPrep}", 
-            token.Lexeme, token.Type, position, token.IsFromPreprocessor);
-
-        // Log token range for debugging
-        Log.Debug("GetDefinitionAsync: Token range: Start=({Line}:{Char}), End=({EndLine}:{EndChar})", 
-            token.Range.Start.Line, token.Range.Start.Character, 
-            token.Range.End.Line, token.Range.End.Character);
-
-        // Log previous tokens for context
-        Token? prevToken = token.Previous;
-        int count = 0;
-        while (prevToken != null && count < 5)
-        {
-            Log.Debug("  Previous token [{Index}]: '{Lexeme}' type={Type}", count, prevToken.Lexeme, prevToken.Type);
-            prevToken = prevToken.Previous;
-            count++;
-        }
-
-        // Check if this is a variable reference - go to its definition
-        if (Sense.GetSenseDefinition(token) is ScrVariableSymbol varSymbol && varSymbol.DefinitionSource is not null)
-        {
-            Log.Debug("GetDefinitionAsync: Token is a variable reference, navigating to definition");
-            // Navigate to the definition (the identifier token where it was first declared)
-            string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
-            // Use the Range from the definition source's identifier token (stored in the variable symbol)
-            // We need to find the declaration token - for now, use the identifier token from definition source
-            Range targetRange = varSymbol.DefinitionSource switch
-            {
-                ExprNode expr => expr.Range,
-                ConstStmtNode constStmt => constStmt.IdentifierToken.Range,
-                ForeachStmtNode foreachStmt => varSymbol.IdentifierToken.Range, // Use the identifier token range
-                MemberDeclNode memberDecl => memberDecl.NameToken?.Range ?? varSymbol.IdentifierToken.Range,
-                ParamNode paramNode => paramNode.Name?.Range ?? varSymbol.IdentifierToken.Range, // Function parameter
-                _ => varSymbol.IdentifierToken.Range // Fallback to the identifier token
-            };
-            return new Location() { Uri = new Uri(normalized), Range = targetRange };
-        }
-
-        // Check if this is a parameter reference - go to its definition
-        if (Sense.GetSenseDefinition(token) is ScrParameterSymbol paramSymbol && paramSymbol.DefinitionSource is not null)
-        {
-            Log.Debug("GetDefinitionAsync: Token is a parameter reference, navigating to definition");
-            // Navigate to the parameter definition
-            string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
-            // For parameters, use the token from the ParamNode
-            Range targetRange = paramSymbol.DefinitionSource switch
-            {
-                ParamNode paramNode => paramNode.Name?.Range ?? paramSymbol.Range,
-                _ => paramSymbol.Range // Fallback to the parameter symbol's range
-            };
-            return new Location() { Uri = new Uri(normalized), Range = targetRange };
-        }
-
-        // If the token has an IntelliSense definition pointing at a dependency, return that file location.
-        if (Sense.GetSenseDefinition(token) is ScrDependencySymbol dep)
-        {
-            Log.Debug("GetDefinitionAsync: Token is a dependency symbol, navigating to file: {Path}", dep.Path);
-            string resolvedPath = dep.Path;
-            if (!File.Exists(resolvedPath))
-            {
-                Log.Debug("GetDefinitionAsync: Dependency file does not exist: {Path}", resolvedPath);
-                return null;
-            }
-            string normalized = ScriptFileResolver.NormalizeFilePathForUri(resolvedPath);
-            var targetUri = new Uri(normalized);
-            // Navigate to start of file in the target document
-            return new Location() { Uri = targetUri, Range = RangeHelper.From(0, 0, 0, 0) };
-        }
-
-        if (IsOnUsingLineByIndex(tokenIdx, out string? usingPath, out Range? usingRange))
-        {
-            string? resolved = Sense.GetDependencyPath(usingPath!, usingRange!);
-            if (resolved is not null && File.Exists(resolved))
-            {
-                string normalized = ScriptFileResolver.NormalizeFilePathForUri(resolved);
-                var targetUri = new Uri(normalized);
-                return new Location() { Uri = targetUri, Range = RangeHelper.From(0, 0, 0, 0) };
-            }
-        }
-
-        // If on an #insert line and we recorded a hover for it, go to the inserted file
-        IHoverable? h = Sense.HoverLibrary.Get(position);
-        if (h is Pre.InsertDirectiveHover ih)
-        {
-            string? resolved = Sense.ResolveInsertPath(ih.RawPath, ih.Range);
-            if (resolved is not null && File.Exists(resolved))
-            {
-                string normalized = ScriptFileResolver.NormalizeFilePathForUri(resolved);
-                var targetUri = new Uri(normalized);
-                return new Location() { Uri = targetUri, Range = RangeHelper.From(0, 0, 0, 0) };
-            }
-        }
-
-        // Ensure the token is a function-like identifier before attempting Go-to-Definition.
-        if (token.Type != TokenType.Identifier)
-        {
-            Log.Debug("GetDefinitionAsync: Token is not an identifier, type={Type}", token.Type);
-            return null;
-        }
-
-        Log.Debug("GetDefinitionAsync: Token is identifier '{Lexeme}', checking heuristics", token.Lexeme);
-
-        // If current token is namespace qualifier (followed by :: and identifier), forward to the function token
-        if (TryGetQualifiedFunctionTokenByIndex(tokenIdx, out int defFuncIdx))
-        {
-            tokenIdx = defFuncIdx;
-            token = Sense.Tokens.GetAt(tokenIdx)!;
-        }
-        int nextNonWsIdx = Sense.Tokens.NextNonWhitespaceIndex(tokenIdx);
-        Token? nextNonWs = Sense.Tokens.GetAt(nextNonWsIdx);
-        bool looksLikeCall = nextNonWs is not null && nextNonWs.Type == TokenType.OpenParen;
-        int prevNonTrivIdx = Sense.Tokens.PrevNonTriviaIndex(tokenIdx);
-        Token? prevNonTriv = Sense.Tokens.GetAt(prevNonTrivIdx);
-        bool isQualified = prevNonTriv is not null && prevNonTriv.Type == TokenType.ScopeResolution;
-        var tokenSenseDef = Sense.GetSenseDefinition(token);
-        bool hasDefinitionSymbol = tokenSenseDef is ScrFunctionSymbol || tokenSenseDef is ScrMethodSymbol || tokenSenseDef is ScrClassSymbol || tokenSenseDef is ScrClassReferenceSymbol;
-        bool isAddressOf = IsAddressOfIdentifierByIndex(tokenIdx);
-
-        Log.Debug("GetDefinitionAsync: Heuristics - looksLikeCall={Call}, isQualified={Qual}, hasDefinitionSymbol={Def}, isAddressOf={Addr}", 
-            looksLikeCall, isQualified, hasDefinitionSymbol, isAddressOf);
-
-        if (!looksLikeCall && !isQualified && !hasDefinitionSymbol && !isAddressOf)
-        {
-            Log.Debug("GetDefinitionAsync: Failed heuristic checks, returning null");
-            return null;
-        }
-
-        var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(tokenIdx);
-        Log.Debug("GetDefinitionAsync: Parsed identifier - qualifier={Qualifier}, name={Name}", qualifier ?? "(none)", name);
-
-        if (IsBuiltinFunction(name))
-        {
-            Log.Debug("GetDefinitionAsync: Identifier is builtin function, returning null");
-            return null;
-        }
-        if (qualifier is not null && DefinitionsTable is not null)
-        {
-            Log.Debug("GetDefinitionAsync: Looking up qualified function/class: {Qualifier}::{Name}", qualifier, name);
-            var loc = DefinitionsTable.GetFunctionLocation(qualifier, name)
-                   ?? DefinitionsTable.GetClassLocation(qualifier, name);
-            if (loc is not null)
-            {
-                Log.Debug("GetDefinitionAsync: Found qualified definition at {File}:{Range}", loc.Value.FilePath, loc.Value.Range);
-                string currentScriptPath = ScriptUri.ToUri().LocalPath;
-                return ScriptFileResolver.ResolveDefinitionLocation(currentScriptPath, loc.Value.FilePath, loc.Value.Range.ToRange());
-            }
-            Log.Debug("GetDefinitionAsync: Qualified lookup failed");
-        }
-        string ns = GetEffectiveNamespace();
-        Log.Debug("GetDefinitionAsync: Looking up in current namespace: {Namespace}", ns);
-        var localLoc = DefinitionsTable?.GetFunctionLocation(ns, name)
-                    ?? DefinitionsTable?.GetClassLocation(ns, name);
-        if (localLoc is not null)
-        {
-            Log.Debug("GetDefinitionAsync: Found local definition at {File}:{Range}", localLoc.Value.FilePath, localLoc.Value.Range);
-            string currentScriptPath = ScriptUri.ToUri().LocalPath;
-            return ScriptFileResolver.ResolveDefinitionLocation(currentScriptPath, localLoc.Value.FilePath, localLoc.Value.Range.ToRange());
-        }
-        Log.Debug("GetDefinitionAsync: Local namespace lookup failed, trying any namespace");
-        var anyLoc = DefinitionsTable?.GetFunctionLocationAnyNamespace(name)
-                  ?? DefinitionsTable?.GetClassLocationAnyNamespace(name);
-        if (anyLoc is not null)
-        {
-            Log.Debug("GetDefinitionAsync: Found definition in any namespace at {File}:{Range}", anyLoc.Value.FilePath, anyLoc.Value.Range);
-            string currentScriptPath = ScriptUri.ToUri().LocalPath;
-            return ScriptFileResolver.ResolveDefinitionLocation(currentScriptPath, anyLoc.Value.FilePath, anyLoc.Value.Range.ToRange());
-        }
-        Log.Debug("GetDefinitionAsync: All lookups failed, returning null");
-        return null;
+        return TryGetSymbolDefinitionLocation(token)
+            ?? TryGetFileReferenceLocation(position, token, tokenIdx)
+            ?? (token.Type == TokenType.Identifier ? TryGetFunctionOrClassLocation(tokenIdx) : null);
     }
 
     public async Task<(string? qualifier, string name)?> GetQualifiedIdentifierAtAsync(Position position, CancellationToken cancellationToken = default)
@@ -229,15 +45,8 @@ public partial class Script
         await WaitUntilParsedAsync(cancellationToken);
 
         position = AdjustPositionForSelectionEnd(position);
-
         int idx = Sense.Tokens.GetIndex(position);
-        Token? token = Sense.Tokens.GetAt(idx);
-        if (token is null)
-        {
-            return null;
-        }
-
-        return ParseNamespaceQualifiedIdentifierByIndex(idx);
+        return Sense.Tokens.GetAt(idx) is not null ? ParseNamespaceQualifiedIdentifierByIndex(idx) : null;
     }
 
     /// <summary>
@@ -277,6 +86,103 @@ public partial class Script
         return position;
     }
 
+    private Location? TryGetMacroDefinitionLocation(Position position) =>
+        Sense.HoverLibrary!.Get(position) switch
+        {
+            Pre.MacroDefinition { IsBuiltIn: false } macroDef => MakeLocalLocation(macroDef.Range),
+            Pre.ScriptMacro scriptMacro                       => MakeLocalLocation(scriptMacro.DefineSource.Range),
+            _                                                  => null
+        };
+
+    private Location? TryGetSymbolDefinitionLocation(Token token)
+    {
+        if (Sense.GetSenseDefinition(token) is ScrVariableSymbol varSymbol && varSymbol.DefinitionSource is not null)
+        {
+            return MakeLocalLocation(varSymbol.DefinitionSource switch
+            {
+                ExprNode expr             => expr.Range,
+                ConstStmtNode constStmt   => constStmt.IdentifierToken.Range,
+                ForeachStmtNode           => varSymbol.IdentifierToken.Range,
+                MemberDeclNode memberDecl => memberDecl.NameToken?.Range ?? varSymbol.IdentifierToken.Range,
+                ParamNode paramNode       => paramNode.Name?.Range ?? varSymbol.IdentifierToken.Range,
+                _                         => varSymbol.IdentifierToken.Range
+            });
+        }
+
+        if (Sense.GetSenseDefinition(token) is ScrParameterSymbol paramSymbol && paramSymbol.DefinitionSource is not null)
+        {
+            return MakeLocalLocation(paramSymbol.DefinitionSource switch
+            {
+                ParamNode paramNode => paramNode.Name?.Range ?? paramSymbol.Range,
+                _                   => paramSymbol.Range
+            });
+        }
+
+        return null;
+    }
+
+    private Location? TryGetFileReferenceLocation(Position position, Token token, int tokenIdx)
+    {
+        if (Sense.GetSenseDefinition(token) is ScrDependencySymbol dep && File.Exists(dep.Path))
+            return MakeFileStartLocation(dep.Path);
+
+        if (IsOnUsingLineByIndex(tokenIdx, out string? usingPath, out Range? usingRange))
+        {
+            string? resolved = Sense.GetDependencyPath(usingPath!, usingRange!);
+            if (resolved is not null && File.Exists(resolved))
+                return MakeFileStartLocation(resolved);
+        }
+
+        if (Sense.HoverLibrary!.Get(position) is Pre.InsertDirectiveHover ih)
+        {
+            string? resolved = Sense.ResolveInsertPath(ih.RawPath, ih.Range);
+            if (resolved is not null && File.Exists(resolved))
+                return MakeFileStartLocation(resolved);
+        }
+
+        return null;
+    }
+
+    private Location? TryGetFunctionOrClassLocation(int tokenIdx)
+    {
+        // Forward namespace qualifier token to the function name token
+        if (TryGetQualifiedFunctionTokenByIndex(tokenIdx, out int defFuncIdx))
+            tokenIdx = defFuncIdx;
+
+        var tokenSenseDef = Sense.GetSenseDefinition(Sense.Tokens.GetAt(tokenIdx)!);
+        bool hasDefinitionSymbol = tokenSenseDef is ScrFunctionSymbol or ScrMethodSymbol
+                                                  or ScrClassSymbol or ScrClassReferenceSymbol;
+
+        int nextNonWsIdx = Sense.Tokens.NextNonWhitespaceIndex(tokenIdx);
+        bool looksLikeCall = nextNonWsIdx >= 0 && Sense.Tokens.GetAt(nextNonWsIdx)!.Type == TokenType.OpenParen;
+        int prevNonTrivIdx = Sense.Tokens.PrevNonTriviaIndex(tokenIdx);
+        bool isQualified = prevNonTrivIdx >= 0 && Sense.Tokens.GetAt(prevNonTrivIdx)!.Type == TokenType.ScopeResolution;
+        bool isAddressOf = IsAddressOfIdentifierByIndex(tokenIdx);
+
+        Log.Debug("TryGetFunctionOrClassLocation: looksLikeCall={C} isQualified={Q} isAddressOf={A} hasDefinitionSymbol={D}",
+            looksLikeCall, isQualified, isAddressOf, hasDefinitionSymbol);
+
+        if (!looksLikeCall && !isQualified && !isAddressOf && !hasDefinitionSymbol) return null;
+
+        var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(tokenIdx);
+        if (IsBuiltinFunction(name)) return null;
+
+        string currentScriptPath = ScriptUri.ToUri().LocalPath;
+        string ns = GetEffectiveNamespace();
+
+        var loc = (qualifier is not null && DefinitionsTable is not null
+                      ? DefinitionsTable.GetFunctionLocation(qualifier, name) ?? DefinitionsTable.GetClassLocation(qualifier, name)
+                      : null)
+               ?? DefinitionsTable?.GetFunctionLocation(ns, name)
+               ?? DefinitionsTable?.GetClassLocation(ns, name)
+               ?? DefinitionsTable?.GetFunctionLocationAnyNamespace(name)
+               ?? DefinitionsTable?.GetClassLocationAnyNamespace(name);
+
+        return loc is not null
+            ? ScriptFileResolver.ResolveDefinitionLocation(currentScriptPath, loc.Value.FilePath, loc.Value.Range.ToRange())
+            : null;
+    }
+
     public async Task<SignatureHelp?> GetSignatureHelpAsync(Position position, CancellationToken cancellationToken)
     {
         await WaitUntilParsedAsync(cancellationToken);
@@ -291,14 +197,10 @@ public partial class Script
         if (!TryGetCallInfoByIndex(tokenIdx, out int idIdx, out int activeParam))
             return null;
 
-        Token? id = tokens.GetAt(idIdx);
-        if (id is null)
-            return null;
-
         var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(idIdx);
 
         // Try builtin API first
-        List<SignatureInformation> signatures = new();
+        List<SignatureInformation> signatures = [];
         var api = TryGetApi();
         if (api is not null)
         {
@@ -324,47 +226,32 @@ public partial class Script
 
         // Then script-defined (local or imported) using DefinitionsTable
         string ns = qualifier ?? GetEffectiveNamespace();
-        string[]? parms = DefinitionsTable?.GetFunctionParameters(ns, name) ?? DefinitionsTable?.GetFunctionParameters(qualifier ?? ns, name);
+        string[]? parms = DefinitionsTable?.GetFunctionParameters(ns, name);
         string? doc = DefinitionsTable?.GetFunctionDoc(ns, name);
         if (parms is not null)
         {
             var cleaned = parms.Select(StripDefault).ToArray();
             string label = $"function {name}({string.Join(", ", cleaned)})";
-            var paramList = new List<ParameterInformation>(cleaned.Length);
-            for (int i = 0; i < cleaned.Length; i++)
+            var paramList = cleaned.Select((p, i) =>
             {
-                string p = cleaned[i];
                 string? pDoc = ExtractParameterDocFromDoc(doc, p, i);
-                paramList.Add(new ParameterInformation
+                return new ParameterInformation
                 {
                     Label = p,
                     Documentation = string.IsNullOrWhiteSpace(pDoc) ? null : new MarkupContent { Kind = MarkupKind.Markdown, Value = pDoc }
-                });
-            }
-            var parameters = new Container<ParameterInformation>(paramList);
-            // Do not include full Markdown doc in SignatureHelp for script-defined; keep prototype and parameters only
-            signatures.Add(new SignatureInformation { Label = label, Parameters = parameters });
+                };
+            });
+            signatures.Add(new SignatureInformation { Label = label, Parameters = new Container<ParameterInformation>(paramList) });
         }
 
         if (signatures.Count == 0)
             return null;
 
         // Find the best matching signature based on parameter count
-        int activeSignature = 0;
-        for (int i = 0; i < signatures.Count; i++)
-        {
-            if (signatures[i].Parameters is { } p && p.Count() > activeParam)
-            {
-                activeSignature = i;
-                break;
-            }
-        }
+        int activeSignature = signatures.FindIndex(s => s.Parameters?.Count() > activeParam);
+        if (activeSignature < 0) activeSignature = 0;
 
-        int paramCount = 1;
-        if (signatures[activeSignature].Parameters is { } paramContainer)
-        {
-            paramCount = paramContainer.Count();
-        }
+        int paramCount = signatures[activeSignature].Parameters?.Count() ?? 1;
 
         return new SignatureHelp
         {
@@ -377,38 +264,33 @@ public partial class Script
     private static string? ExtractParameterDocFromDoc(string? doc, string paramName, int paramIndex)
     {
         if (string.IsNullOrWhiteSpace(doc) || string.IsNullOrWhiteSpace(paramName)) return null;
-        string Normalize(string s) => s.Trim().Trim('<', '>', '[', ']').Trim();
 
-        // Try to parse prototype line to map by position
-        string[] ParseDocPrototypeParams(string d)
+        static string Normalize(string s) => s.Trim().Trim('<', '>', '[', ']').Trim();
+
+        // Split once; reuse for both prototype extraction and line scanning.
+        string[] lines = doc.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+
+        // Build candidate set: the provided param name + the positionally-matching name
+        // from the prototype on the second doc line (```gsc\nfoo(a, b, ...)```).
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Normalize(paramName) };
+        if (lines.Length > 1)
         {
-            var lines = d.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-            var line = lines.Length > 1 ? lines[1].Trim() : string.Empty; // second line from ```gsc\r\nfoo(bar)...```
-            int lp = line.IndexOf('(');
-            int rp = line.LastIndexOf(')');
-            if (lp < 0 || rp < lp) return Array.Empty<string>();
-            string inside = line.Substring(lp + 1, rp - lp - 1);
-            if (string.IsNullOrWhiteSpace(inside)) return Array.Empty<string>();
-            var parts = inside.Split(',');
-            var list = new List<string>(parts.Length);
-            foreach (var p in parts)
+            string proto = lines[1].Trim();
+            int lp = proto.IndexOf('('), rp = proto.LastIndexOf(')');
+            if (lp >= 0 && rp > lp)
             {
-                var v = Normalize(p);
-                if (v.Length > 0) list.Add(v);
+                var protoParams = proto[(lp + 1)..rp]
+                    .Split(',')
+                    .Select(Normalize)
+                    .Where(p => p.Length > 0)
+                    .ToArray();
+                if (paramIndex >= 0 && paramIndex < protoParams.Length)
+                    candidates.Add(protoParams[paramIndex]);
             }
-            return list.ToArray();
         }
 
-        string[] protoParams = ParseDocPrototypeParams(doc);
-        List<string> candidates = new() { Normalize(paramName) };
-        if (paramIndex >= 0 && paramIndex < protoParams.Length)
-        {
-            candidates.Add(Normalize(protoParams[paramIndex]));
-        }
-
-        // Scan parameter description lines (``<param>`` — desc)
-        string[] linesDoc = doc.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-        foreach (var raw in linesDoc)
+        // Scan for ``<param>`` — description lines
+        foreach (string raw in lines)
         {
             string line = raw.Trim();
             if (line.Length == 0) continue;
@@ -416,19 +298,26 @@ public partial class Script
             if (b1 < 0) continue;
             int b2 = line.IndexOf('`', b1 + 1);
             if (b2 < 0) continue;
-            string token = Normalize(line.Substring(b1 + 1, b2 - b1 - 1));
-            bool match = false;
-            foreach (var c in candidates)
-            {
-                if (string.Equals(c, token, StringComparison.OrdinalIgnoreCase)) { match = true; break; }
-            }
-            if (!match) continue;
-            int dash = line.IndexOf('—', b2 + 1); // em dash
-            if (dash < 0) dash = line.IndexOf('-', b2 + 1); // fallback
-            string desc = dash >= 0 && dash + 1 < line.Length ? line[(dash + 1)..].Trim() : string.Empty;
-            return desc;
+
+            if (!candidates.Contains(Normalize(line[(b1 + 1)..b2]))) continue;
+
+            int dash = line.IndexOf('—', b2 + 1);
+            if (dash < 0) dash = line.IndexOf('-', b2 + 1);
+            return dash >= 0 && dash + 1 < line.Length ? line[(dash + 1)..].Trim() : string.Empty;
         }
         return null;
+    }
+
+    private Location MakeLocalLocation(Range range)
+    {
+        string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
+        return new Location { Uri = new Uri(normalized), Range = range };
+    }
+
+    private static Location MakeFileStartLocation(string filePath)
+    {
+        string normalized = ScriptFileResolver.NormalizeFilePathForUri(filePath);
+        return new Location { Uri = new Uri(normalized), Range = RangeHelper.From(0, 0, 0, 0) };
     }
 
     private bool TryGetCallInfoByIndex(int tokenIdx, out int idTokenIdx, out int activeParam)
@@ -436,9 +325,8 @@ public partial class Script
         idTokenIdx = -1;
         activeParam = 0;
         Token? token = Sense.Tokens.GetAt(tokenIdx);
-        if (token is null) return false;
-        if (!TryFindCallContext(token, out Token? idToken, out activeParam)) return false;
-        if (idToken is null) return false;
+        if (token is null || !TryFindCallContext(token, out Token? idToken, out activeParam) || idToken is null)
+            return false;
         idTokenIdx = Sense.Tokens.IndexOf(idToken);
         return idTokenIdx >= 0;
     }

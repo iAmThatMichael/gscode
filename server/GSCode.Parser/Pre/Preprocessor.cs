@@ -125,11 +125,6 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
         Sense.AddPreDiagnostic(CurrentTokenRange, errorCode, args);
     }
 
-    private void AddErrorAtToken(GSCErrorCodes errorCode, Token token, params object?[] args)
-    {
-        Sense.AddPreDiagnostic(token.Range, errorCode, args);
-    }
-
     private void AddErrorAtLinkedToken(GSCErrorCodes errorCode, LinkedToken token, params object?[] args)
     {
         Sense.AddPreDiagnostic(token.Range, errorCode, args);
@@ -175,15 +170,12 @@ internal ref partial struct Preprocessor(LinkedToken startNode, ParserIntelliSen
 
     private bool ConsumeIfType(TokenType type, [NotNullWhen(true)] out LinkedToken? consumed)
     {
-        LinkedToken current = CurrentNode;
-        if (AdvanceIfType(type))
+        if (CurrentTokenType != type)
         {
-            consumed = current;
-            return true;
+            consumed = null;
+            return false;
         }
-
-        consumed = default;
-        return false;
+        consumed = Consume();
+        return true;
     }
-
 }

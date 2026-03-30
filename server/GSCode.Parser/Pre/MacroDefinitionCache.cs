@@ -40,20 +40,12 @@ public sealed class MacroDefinitionCache
     /// <param name="macroName">The name of the macro</param>
     /// <param name="definition">The macro definition to cache</param>
     /// <returns>The cached macro definition (may be the same instance or an existing one)</returns>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal MacroDefinition GetOrAdd(string? sourceFilePath, string macroName, MacroDefinition definition)
     {
-        // Normalize the source file path to avoid duplicates due to casing/separator differences
-        // Use lowercase and forward slashes for consistency
-        string cacheFilePath;
-        if (sourceFilePath != null)
-        {
-            cacheFilePath = ScriptFileResolver.NormalizeFilePathForUri(sourceFilePath);
-        }
-        else
-        {
-            cacheFilePath = "<built-in>";
-        }
+        // Normalize path separators for consistent cache key comparison
+        string cacheFilePath = sourceFilePath is not null
+            ? ScriptFileResolver.NormalizeFilePathForUri(sourceFilePath)
+            : "<built-in>";
 
         // Create cache key based on source file and macro name only
         // DefineSnippet is not included because it may vary due to token ranges
@@ -63,23 +55,7 @@ public sealed class MacroDefinitionCache
         // Get or add to cache
         MacroDefinition cached = _cache.GetOrAdd(key, definition);
 
-//#if FLAG_MEMORY_DEBUG
-//        // Log every 100th addition to trace the pattern
-//        bool keyExisted = _cache.ContainsKey(key);
-//        if (!keyExisted && _cache.Count % 100 == 0)
-//        {
-//            Log.Debug("[MACRO_CACHE_ADD] #{Count} | Key: {Path}::{Macro} | SourceInput: {RawSource}", 
-//                _cache.Count, cacheFilePath, macroName, sourceFilePath ?? "<null>");
-//        }
-//        // Log duplicates occasionally
-//        if (keyExisted && _cache.Count % 1000 == 0)
-//        {
-//            Log.Debug("[MACRO_CACHE_DUP] Total: {Count} | Duplicate key: {Path}::{Macro}", 
-//                _cache.Count, cacheFilePath, macroName);
-//        }
-//#endif
-
-        // Track which file uses this macro (for cleanup)
+// Track which file uses this macro (for cleanup)
         if (sourceFilePath != null)
         {
             _fileToMacros.AddOrUpdate(
@@ -115,14 +91,6 @@ public sealed class MacroDefinitionCache
     {
         _cache.Clear();
         _fileToMacros.Clear();
-    }
-
-    /// <summary>
-    /// Gets the current cache statistics for debugging/monitoring.
-    /// </summary>
-    public (int TotalMacros, int TrackedFiles) GetStatistics()
-    {
-        return (_cache.Count, _fileToMacros.Count);
     }
 
     /// <summary>

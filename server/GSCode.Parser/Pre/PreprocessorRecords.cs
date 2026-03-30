@@ -4,9 +4,6 @@ using GSCode.Parser.Lexical;
 using GSCode.Parser.Util;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 
 namespace GSCode.Parser.Pre;
@@ -54,39 +51,18 @@ internal class MacroDefinition : ISenseDefinition
         Parameters = parameters;
     }
 
-    /// <summary>
-    /// Release LinkedToken chains to allow GC after preprocessing.
-    /// The cached snippet strings remain available.
-    /// Parameters are preserved as they are lightweight structural metadata
-    /// needed by any concurrent parser sharing this cached definition.
-    /// </summary>
-    public void ReleaseTokenLists()
+    public Hover GetHover() => new()
     {
-        ExpansionTokens = TokenList.Empty;
-    }
-
-    public Hover GetHover()
-    {
-        return new()
+        Range = Range,
+        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
         {
-            Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
-                Kind = MarkupKind.Markdown,
-                Value = string.Format("```gsc\n{0}\n```\n{1}",
-                    DefineSnippet, GetFormattedDocumentation())
-            })
-        };
-    }
+            Kind = MarkupKind.Markdown,
+            Value = $"```gsc\n{DefineSnippet}\n```\n{GetFormattedDocumentation()}"
+        })
+    };
 
-    private string GetFormattedDocumentation()
-    {
-        if (!string.IsNullOrEmpty(Documentation))
-        {
-            return string.Format("---\n{0}", Documentation);
-        }
-        return string.Empty;
-    }
+    private string GetFormattedDocumentation() =>
+        string.IsNullOrEmpty(Documentation) ? string.Empty : $"---\n{Documentation}";
 
     public static MacroDefinition BuiltInMacroDefinition(string source, params Token[] expansion)
     {
@@ -127,7 +103,7 @@ internal class ScriptMacro : ISenseDefinition
     public string ExpansionSnippet { get; }
 
     public string SemanticTokenType { get; } = OmniSharp.Extensions.LanguageServer.Protocol.Models.SemanticTokenType.Macro;
-    public string[] SemanticTokenModifiers { get; } = Array.Empty<string>();
+    public string[] SemanticTokenModifiers { get; } = [];
 
     public ScriptMacro(Token source, MacroDefinition defineSource, TokenList expansionTokens)
     {
@@ -138,30 +114,18 @@ internal class ScriptMacro : ISenseDefinition
         // Don't store expansionTokens — snippet is cached, no further use needed
     }
 
-    public Hover GetHover()
+    public Hover GetHover() => new()
     {
-        Hover hover = new()
+        Range = Source.Range,
+        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
         {
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
-                Kind = MarkupKind.Markdown,
-                Value = string.Format("```gsc\n{0}\n```\n{1}\n\n---\n{2}\n```gsc\n{3}\n```",
-                    DefineSource.DefineSnippet, GetFormattedDocumentation(), "Expands to:", ExpansionSnippet)
-            }),
-            Range = Source.Range,
-        };
+            Kind = MarkupKind.Markdown,
+            Value = $"```gsc\n{DefineSource.DefineSnippet}\n```\n{GetFormattedDocumentation()}\n\n---\nExpands to:\n```gsc\n{ExpansionSnippet}\n```"
+        })
+    };
 
-        return hover;
-    }
-
-    private string GetFormattedDocumentation()
-    {
-        if (!string.IsNullOrEmpty(DefineSource.Documentation))
-        {
-            return string.Format("---\n{0}", DefineSource.Documentation);
-        }
-        return string.Empty;
-    }
+    private string GetFormattedDocumentation() =>
+        string.IsNullOrEmpty(DefineSource.Documentation) ? string.Empty : $"---\n{DefineSource.Documentation}";
 }
 
 /// <summary>

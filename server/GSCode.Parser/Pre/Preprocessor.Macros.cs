@@ -63,7 +63,14 @@ internal ref partial struct Preprocessor
         // Before doing anything to it, connect it to the macro token
         expansion.ConnectToTokens(macroToken.Previous!, endAnchorToken);
 
-        // To do this, we'll need to map identifier names to their argument expansions.
+        // Use direct LinkedListNode<T> traversal rather than LINQ Zip here.
+        // macroDefinition.Parameters is a shared LinkedList<Token> owned by a MacroDefinition
+        // that lives in the MacroDefinitionCache. Multiple parser threads can expand the same
+        // macro concurrently (e.g. two files that both #insert the same header). A raw
+        // LinkedListNode<T> pointer is safe to hold across iterations because cached definitions
+        // are never mutated after insertion. An IEnumerator<T>, by contrast, tracks the list's
+        // internal version counter and will throw InvalidOperationException — or silently diverge
+        // on older runtimes — if any concurrent path touches the same list.
         Dictionary<string, TokenList?> argumentMappings = new();
 
         LinkedListNode<Token>? parameter = macroDefinition.Parameters!.First;

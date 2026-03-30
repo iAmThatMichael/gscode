@@ -143,7 +143,7 @@ internal ref partial struct Preprocessor
             return;
 
         LinkedToken current = tokenList.Start;
-        while (current != null)
+        while (current is not null)
         {
             current.Token.IsFromPreprocessor = true;
             if (current == tokenList.End)

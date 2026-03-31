@@ -124,45 +124,13 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         // Produce a definition for our function
         scrClass.Methods.Add(function);
 
-        // Record method/function location (method recorded as function under containing namespace)
-        DefinitionsTable.AddFunctionLocation(DefinitionsTable.CurrentNamespace, name, Sense.ScriptPath, nameToken.TokenRange);
-        // Record parameter names for outline/signature
-        DefinitionsTable.RecordFunctionParameters(DefinitionsTable.CurrentNamespace, name, (function.Overloads[0].Parameters ?? new List<ScrFunctionArg>()).Select(a => a.Name));
-        // Record flags (private, autoexec)
-        var flags = new List<string>();
-        if (function.Private)
-        {
-            flags.Add("private");
-        }
-        if (functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Autoexec))
-        {
-            flags.Add("autoexec");
-        }
-        DefinitionsTable.RecordFunctionFlags(DefinitionsTable.CurrentNamespace, name, flags);
-
-        // Record doc comment if present
-        DefinitionsTable.RecordFunctionDoc(DefinitionsTable.CurrentNamespace, name, doc);
-
-        // NEW: Also record under the class name as its own qualifier so ClassName::Method() resolves
-        string classNs = scrClass.Name;
-        DefinitionsTable.AddFunctionLocation(classNs, name, Sense.ScriptPath, nameToken.TokenRange);
-        DefinitionsTable.RecordFunctionParameters(classNs, name, (function.Overloads[0].Parameters ?? new List<ScrFunctionArg>()).Select(a => a.Name));
-        DefinitionsTable.RecordFunctionFlags(classNs, name, flags);
-        DefinitionsTable.RecordFunctionDoc(classNs, name, doc);
+        var flags = BuildFunctionFlags(functionDefn, function.Private);
+        RegisterFunctionInNamespace(DefinitionsTable.CurrentNamespace, name, nameToken.TokenRange, function, doc, flags);
+        // Also register under the class name as its own qualifier so ClassName::Method() resolves
+        RegisterFunctionInNamespace(scrClass.Name, name, nameToken.TokenRange, function, doc, flags);
 
         Sense.AddSenseToken(nameToken, new ScrMethodSymbol(nameToken, function, scrClass));
-
-        if (parameters is not null)
-        {
-            int paramIndex = 0;
-            foreach (ScrParameter parameter in parameters)
-            {
-                // Get the corresponding ParamNode for this parameter
-                ParamNode? paramNode = functionDefn.Parameters.Parameters.ElementAtOrDefault(paramIndex);
-                Sense.AddSenseToken(parameter.Source, new ScrParameterSymbol(parameter, paramNode));
-                paramIndex++;
-            }
-        }
+        RegisterParameterSenseTokens(parameters, functionDefn.Parameters);
     }
 
     private void AnalyseClassMember(ScrClass scrClass, MemberDeclNode memberDecl)

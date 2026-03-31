@@ -13,18 +13,23 @@ public static class ScriptDocCommentFormatter
     private static readonly Regex s_argPattern = new(@"^(?<n><[^>]+>|\[[^\]]+\]|[^:\s]+)\s*:?\s*(?<d>.+)$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     /// <summary>
-    /// Formats a sanitized doc comment string into structured Markdown.
-    /// Expects input from DocCommentHelper.Sanitize (cleaned but not formatted).
+    /// Formats a sanitized doc comment into structured Markdown, including the Name: prototype block.
+    /// Use for standalone hover display (e.g. ScrMember, macro definitions).
     /// </summary>
-    /// <param name="sanitizedDocComment">The sanitized doc comment text</param>
-    /// <param name="ns">The namespace of the function (for display)</param>
-    /// <returns>Formatted Markdown string</returns>
     public static string FormatToMarkdown(string sanitizedDocComment, string? ns)
+        => FormatCore(sanitizedDocComment, ns, includePrototype: true);
+
+    /// <summary>
+    /// Formats a sanitized doc comment into structured Markdown, omitting the Name: prototype block.
+    /// Use when the caller already prepends a live-data prototype (e.g. ScrFunction.Documentation).
+    /// </summary>
+    public static string FormatBodyOnly(string sanitizedDocComment, string? ns)
+        => FormatCore(sanitizedDocComment, ns, includePrototype: false);
+
+    private static string FormatCore(string sanitizedDocComment, string? ns, bool includePrototype)
     {
         if (string.IsNullOrWhiteSpace(sanitizedDocComment))
-        {
             return string.Empty;
-        }
 
         string[] lines = sanitizedDocComment.Split('\n');
 
@@ -103,7 +108,7 @@ public static class ScriptDocCommentFormatter
         // Render Markdown
         StringBuilder sb = new();
 
-        if (!string.IsNullOrWhiteSpace(name))
+        if (includePrototype && !string.IsNullOrWhiteSpace(name))
         {
             sb.AppendLine("```gsc");
             // Only add namespace prefix if name doesn't already contain it

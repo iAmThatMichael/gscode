@@ -1,3 +1,4 @@
+using GSCode.Data.Helpers;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
@@ -124,57 +125,15 @@ public partial class Script
 
         // First, check if the function token has a SenseDefinition with the function
         if (Sense.GetSenseDefinition(functionToken) is ScrFunctionSymbol funcSymbol)
-        {
-            Log.Debug("[HOVER] Found function via ScrFunctionSymbol");
             function = funcSymbol.Source;
-        }
         else if (Sense.GetSenseDefinition(functionToken) is ScrMethodSymbol methodSymbol)
-        {
-            Log.Debug("[HOVER] Found function via ScrMethodSymbol");
             function = methodSymbol.Source;
-        }
         else if (Sense.GetSenseDefinition(functionToken) is ScrFunctionReferenceSymbol refSymbol)
-        {
-            Log.Debug("[HOVER] Found ScrFunctionReferenceSymbol, looking up function in definitions table");
-            // Function reference doesn't contain the full function, need to look it up
-            string ns = qualifier ?? GetEffectiveNamespace();
+            function = refSymbol.Source;
 
-            // Try to get from local definitions first
-            var localFunc = DefinitionsTable?.LocalScopedFunctions
-                .FirstOrDefault(f => string.Equals(f.Function.Name, funcName, StringComparison.OrdinalIgnoreCase) &&
-                                   string.Equals(f.Function.Namespace, ns, StringComparison.OrdinalIgnoreCase));
-
-            if (localFunc != default)
-            {
-                Log.Debug("[HOVER] Found function in LocalScopedFunctions: ns={Ns}, name={Name}", ns, funcName);
-                function = localFunc.Value.Function;
-            }
-            else
-            {
-                // Try internal symbols (from other scripts)
-                string qualifiedName = string.IsNullOrEmpty(qualifier) ? funcName : $"{qualifier}::{funcName}";
-                if (DefinitionsTable?.InternalSymbols.TryGetValue(qualifiedName, out var symbol) == true && symbol is ScrFunction internalFunc)
-                {
-                    Log.Debug("[HOVER] Found function in InternalSymbols: qualifiedName={QualifiedName}", qualifiedName);
-                    function = internalFunc;
-                }
-            }
-        }
-
-        // If not in sense, check if it's a built-in API function
+        // If not resolved via sense, check built-in API
         if (function is null)
-        {
-            Log.Debug("[HOVER] Trying API lookup for function '{FuncName}'", funcName);
-            var api = TryGetApi();
-            if (api is not null)
-            {
-                function = api.GetApiFunction(funcName);
-                if (function is not null)
-                {
-                    Log.Debug("[HOVER] Found function in API");
-                }
-            }
-        }
+            function = TryGetApi()?.GetApiFunction(funcName);
 
         // If we found the function, use its full Documentation
         if (function is not null)
@@ -300,8 +259,9 @@ public partial class Script
         if (parms is not null)
         {
             string sig = FormatSignature(name, parms.Select(StripDefault).ToArray(), activeParam, qualifier);
-            // Doc comment is already formatted by SanitizeDocForMarkdown, don't sanitize again
-            string formattedDoc = doc ?? string.Empty;
+            string formattedDoc = string.IsNullOrWhiteSpace(doc)
+                ? string.Empty
+                : ScriptDocCommentFormatter.FormatBodyOnly(doc, ns);
             return string.IsNullOrEmpty(formattedDoc) ? sig : $"{sig}{s_markdownSeparator}{formattedDoc}";
         }
 

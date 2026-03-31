@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using GSCode.Parser.AST;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
@@ -116,7 +114,7 @@ public class DefinitionsTable
 
     public void RecordFunctionParameters(string qualifier, string symbolName, IEnumerable<string> parameterNames)
     {
-        var value = parameterNames?.Select(p => StringPool.Intern(p?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? Array.Empty<string>();
+        var value = parameterNames?.Select(p => StringPool.Intern(p?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? [];
         lock (_lock) _functionParameters[QualifiedSymbolKey.Normalized(qualifier, symbolName)] = value;
     }
 
@@ -133,7 +131,7 @@ public class DefinitionsTable
 
     public void RecordFunctionFlags(string qualifier, string symbolName, IEnumerable<string> flags)
     {
-        var value = flags?.Select(f => StringPool.Intern(f?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? Array.Empty<string>();
+        var value = flags?.Select(f => StringPool.Intern(f?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? [];
         lock (_lock) _functionFlags[QualifiedSymbolKey.Normalized(qualifier, symbolName)] = value;
     }
 
@@ -255,16 +253,6 @@ public class DefinitionsTable
     public List<KeyValuePair<QualifiedSymbolKey, (string FilePath, TokenRange Range)>> GetAllClassLocations()
     {
         lock (_lock) return _classLocations.ToList();
-    }
-
-    public List<KeyValuePair<QualifiedSymbolKey, string[]>> GetAllFunctionParameters()
-    {
-        lock (_lock) return _functionParameters.ToList();
-    }
-
-    public List<KeyValuePair<QualifiedSymbolKey, string?>> GetAllFunctionDocs()
-    {
-        lock (_lock) return _functionDocs.ToList();
     }
 
     /// <summary>

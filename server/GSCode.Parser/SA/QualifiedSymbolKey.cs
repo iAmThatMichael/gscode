@@ -14,11 +14,8 @@ public readonly record struct QualifiedSymbolKey(string Qualifier, string Symbol
     /// Creates a <see cref="QualifiedSymbolKey"/> with both components normalized to lowercase
     /// and interned via <see cref="StringPool"/>.
     /// </summary>
-    public static QualifiedSymbolKey Normalized(string qualifier, string symbolName)
-    {
-        return new QualifiedSymbolKey(
-            StringPool.Intern(qualifier?.ToLowerInvariant() ?? string.Empty),
-            StringPool.Intern(symbolName?.ToLowerInvariant() ?? string.Empty)
-        );
-    }
+    public static QualifiedSymbolKey Normalized(string qualifier, string symbolName) => new(
+        StringPool.Intern(qualifier?.ToLowerInvariant() ?? string.Empty),
+        StringPool.Intern(symbolName?.ToLowerInvariant() ?? string.Empty)
+    );
 }

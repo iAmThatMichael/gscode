@@ -27,27 +27,11 @@ public static class FunctionDocumentationFormatter
     }
 
     /// <summary>
-    /// Formats a parameter list for display in code blocks (e.g., "param1, [param2], param3").
+    /// Formats a parameter list for display in code blocks (e.g., "param1, param2").
     /// </summary>
-    public static string FormatParameterList<T>(IEnumerable<T> parameters, Func<T, string> getName, Func<T, bool?> getMandatory)
+    public static string FormatParameterList<T>(IEnumerable<T> parameters, Func<T, string> getName)
     {
-        var paramList = new List<string>();
-        foreach (var parameter in parameters)
-        {
-            string name = getName(parameter);
-            bool isMandatory = getMandatory(parameter).HasValue && getMandatory(parameter).Value;
-            
-            if (isMandatory)
-            {
-                paramList.Add(name);
-            }
-            else
-            {
-                paramList.Add($"[{name}]");
-            }
-        }
-
-        return string.Join(", ", paramList);
+        return string.Join(", ", parameters.Select(p => getName(p)));
     }
 
     /// <summary>
@@ -57,7 +41,6 @@ public static class FunctionDocumentationFormatter
         IEnumerable<TParam> parameters,
         TCalledOn? calledOn,
         Func<TParam, string> getName,
-        Func<TParam, bool?> getMandatory,
         Func<TParam, string?> getDescription,
         Func<TCalledOn, string> getCalledOnName)
         where TCalledOn : class
@@ -75,7 +58,7 @@ public static class FunctionDocumentationFormatter
         // Add "Called on:" if present
         if (calledOn is not null)
         {
-            sb.AppendLine($"Called on: `<{getCalledOnName(calledOn)}>`");
+            sb.AppendLine($"Called on: `{getCalledOnName(calledOn)}`");
             sb.AppendLine(); // Blank line for proper Markdown spacing
         }
 
@@ -86,11 +69,9 @@ public static class FunctionDocumentationFormatter
             foreach (var parameter in paramList)
             {
                 string name = getName(parameter);
-                bool isMandatory = getMandatory(parameter).HasValue && getMandatory(parameter).Value;
-                string parameterNameString = isMandatory ? $"<{name}>" : $"[{name}]";
                 string desc = getDescription(parameter) ?? string.Empty;
 
-                sb.AppendLine($"* `{parameterNameString}` {desc}");
+                sb.AppendLine($"* `{name}` {desc}");
             }
         }
 

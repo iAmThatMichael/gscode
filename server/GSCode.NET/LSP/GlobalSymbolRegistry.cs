@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
@@ -344,6 +345,13 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     {
         var symbol = FindSymbol(ns, name);
         return symbol?.Type == ExportedSymbolType.Function ? symbol.Documentation : null;
+    }
+
+    /// <inheritdoc/>
+    ScrFunction? ISymbolLocationProvider.GetFunction(string ns, string name)
+    {
+        var symbol = FindSymbol(ns, name);
+        return symbol?.Type == ExportedSymbolType.Function ? symbol.Symbol as ScrFunction : null;
     }
 
     #endregion

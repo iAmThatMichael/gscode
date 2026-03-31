@@ -82,6 +82,12 @@ public partial record class ScrFunction
         }
     }
 
+    /// <summary>
+    /// Returns the hover documentation for this function when hovering inside a call.
+    /// Active parameter highlighting is handled by SignatureHelp (LSP), not hover.
+    /// </summary>
+    public string GetDocumentationWithActiveParam(int activeParam) => Documentation;
+
     private string GetDescriptionString() =>
         FunctionDocumentationFormatter.FormatDescription(Description);
 
@@ -90,8 +96,7 @@ public partial record class ScrFunction
         if (overload is null || overload.Parameters.Count == 0) return string.Empty;
         return FunctionDocumentationFormatter.FormatParameterList(
             overload.Parameters,
-            p => p.Name,
-            p => p.Mandatory);
+            p => p.Name);
     }
 
     private string GetParametersString(ScrFunctionOverload? overload, string prefix = "")
@@ -103,7 +108,6 @@ public partial record class ScrFunction
             overload.Parameters,
             calledOn,
             p => p.Name,
-            p => p.Mandatory,
             p => p.Description,
             c => c.Name);
     }

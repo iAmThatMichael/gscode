@@ -147,11 +147,11 @@ public static class ScriptDocCommentFormatter
             sb.AppendLine("Parameters:");
             foreach (var (a, d) in mandatory)
             {
-                sb.AppendLine($"* `<{a}>` {d}");
+                sb.AppendLine($"* `{a}` {d}");
             }
             foreach (var (a, d) in optional)
             {
-                sb.AppendLine($"* `[{a}]` {d}");
+                sb.AppendLine($"* `{a}` {d}");
             }
             sb.AppendLine();
             sb.AppendLine("---");

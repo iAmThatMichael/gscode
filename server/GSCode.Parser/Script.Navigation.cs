@@ -193,61 +193,34 @@ public partial class Script
         if (token is null)
             return null;
 
-        // Use index-based call info detection
         if (!TryGetCallInfoByIndex(tokenIdx, out int idIdx, out int activeParam))
             return null;
 
+        Token? idToken = tokens.GetAt(idIdx);
         var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(idIdx);
 
-        // Try builtin API first
-        List<SignatureInformation> signatures = [];
-        var api = TryGetApi();
-        if (api is not null)
+        // Resolve ScrFunction via the same chain as hover: sense definition → global provider → API
+        ScrFunction? function = Sense.GetSenseDefinition(idToken) switch
         {
-            try
-            {
-                var apiFn = api.GetApiFunction(name);
-                if (apiFn is not null)
-                {
-                    var docContent = new MarkupContent { Kind = MarkupKind.Markdown, Value = apiFn.Description ?? string.Empty };
-                    foreach (var overload in apiFn.Overloads)
-                    {
-                        IEnumerable<ScrFunctionArg> paramSeq = overload.Parameters;
-                        string calledOnStr = overload.CalledOn is ScrFunctionArg co ? $"{co.Name} " : string.Empty;
-                        var cleaned = paramSeq.Select(p => StripDefault(p.Name)).ToArray();
-                        string label = $"{calledOnStr}function {name}({string.Join(", ", cleaned)})";
-                        var parameters = new Container<ParameterInformation>(paramSeq.Select(p => new ParameterInformation { Label = StripDefault(p.Name), Documentation = string.IsNullOrWhiteSpace(p.Description) ? null : new MarkupContent { Kind = MarkupKind.Markdown, Value = p.Description! } }));
-                        signatures.Add(new SignatureInformation { Label = label, Documentation = docContent, Parameters = parameters });
-                    }
-                }
-            }
-            catch { }
-        }
+            ScrMethodSymbol ms            => ms.Source,
+            ScrFunctionSymbol fs          => fs.Source,
+            ScrFunctionReferenceSymbol rs => rs.Source,
+            _                             => null
+        };
 
-        // Then script-defined (local or imported) using DefinitionsTable
         string ns = qualifier ?? GetEffectiveNamespace();
-        string[]? parms = DefinitionsTable?.GetFunctionParameters(ns, name);
-        string? doc = DefinitionsTable?.GetFunctionDoc(ns, name);
-        if (parms is not null)
-        {
-            var cleaned = parms.Select(StripDefault).ToArray();
-            string label = $"function {name}({string.Join(", ", cleaned)})";
-            var paramList = cleaned.Select((p, i) =>
-            {
-                string? pDoc = ExtractParameterDocFromDoc(doc, p, i);
-                return new ParameterInformation
-                {
-                    Label = p,
-                    Documentation = string.IsNullOrWhiteSpace(pDoc) ? null : new MarkupContent { Kind = MarkupKind.Markdown, Value = pDoc }
-                };
-            }).ToList();
-            signatures.Add(new SignatureInformation { Label = label, Parameters = new Container<ParameterInformation>(paramList) });
-        }
+        function ??= GlobalSymbolProvider?.GetFunction(ns, name)
+                  ?? TryGetApi()?.GetApiFunction(name);
+
+        if (function is null)
+            return null;
+
+        string? doc = function.DocComment;
+        List<SignatureInformation> signatures = BuildSignatures(function, name, doc);
 
         if (signatures.Count == 0)
             return null;
 
-        // Find the best matching signature based on parameter count
         int activeSignature = signatures.FindIndex(s => s.Parameters?.Count() > activeParam);
         if (activeSignature < 0) activeSignature = 0;
 
@@ -259,6 +232,48 @@ public partial class Script
             ActiveParameter = Math.Max(0, Math.Min(activeParam, paramCount - 1)),
             Signatures = new Container<SignatureInformation>(signatures)
         };
+    }
+
+    private static List<SignatureInformation> BuildSignatures(ScrFunction function, string name, string? doc)
+    {
+        List<SignatureInformation> signatures = [];
+
+        MarkupContent? funcDoc = string.IsNullOrWhiteSpace(function.Description)
+            ? null
+            : new MarkupContent { Kind = MarkupKind.Markdown, Value = function.Description };
+
+        foreach (var overload in function.Overloads)
+        {
+            string calledOnStr = overload.CalledOn is ScrFunctionArg co ? $"{co.Name} " : string.Empty;
+            string keyword = function.IsBuiltIn ? string.Empty : "function ";
+
+            var paramNames = overload.Parameters.Select(p => StripDefault(p.Name)).ToArray();
+            string label = $"{calledOnStr}{keyword}{name}({string.Join(", ", paramNames)})";
+
+            var paramInfos = overload.Parameters.Select((p, i) =>
+            {
+                string pName = StripDefault(p.Name);
+                string? pDoc = string.IsNullOrWhiteSpace(p.Description)
+                    ? ExtractParameterDocFromDoc(doc, pName, i)
+                    : p.Description;
+                return new ParameterInformation
+                {
+                    Label = pName,
+                    Documentation = string.IsNullOrWhiteSpace(pDoc)
+                        ? null
+                        : new MarkupContent { Kind = MarkupKind.Markdown, Value = pDoc }
+                };
+            });
+
+            signatures.Add(new SignatureInformation
+            {
+                Label = label,
+                Documentation = funcDoc,
+                Parameters = new Container<ParameterInformation>(paramInfos)
+            });
+        }
+
+        return signatures;
     }
 
     private static string? ExtractParameterDocFromDoc(string? doc, string paramName, int paramIndex)

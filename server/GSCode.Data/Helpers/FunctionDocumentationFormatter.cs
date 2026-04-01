@@ -30,9 +30,13 @@ public static class FunctionDocumentationFormatter
     /// Formats a parameter list for display in code blocks (e.g., "param1, param2").
     /// </summary>
     public static string FormatParameterList<T>(IEnumerable<T> parameters, Func<T, string> getName)
-    {
-        return string.Join(", ", parameters.Select(p => getName(p)));
-    }
+        => string.Join(", ", parameters.Select(getName));
+
+    /// <inheritdoc cref="FormatParameterList{T}(IEnumerable{T}, Func{T, string})"/>
+    /// <remarks>Index-aware overload — used when the formatter needs to know each parameter's position.</remarks>
+    public static string FormatParameterList<T>(IEnumerable<T> parameters, Func<T, int, string> getName)
+        => string.Join(", ", parameters.Select(getName));
+
 
     /// <summary>
     /// Formats the parameters section with "Called on:" and "Parameters:" list.

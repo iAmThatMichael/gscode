@@ -83,20 +83,47 @@ public partial record class ScrFunction
     }
 
     /// <summary>
-    /// Returns the hover documentation for this function when hovering inside a call.
-    /// Active parameter highlighting is handled by SignatureHelp (LSP), not hover.
+    /// Returns the hover documentation for this function with the specified parameter highlighted.
+    /// Falls back to the plain <see cref="Documentation"/> if no overload has that many parameters.
     /// </summary>
-    public string GetDocumentationWithActiveParam(int activeParam) => Documentation;
+    public string GetDocumentationWithActiveParam(int activeParam)
+    {
+        if (activeParam < 0) return Documentation;
+
+        // Find the best matching overload for the active param index
+        var overload = Overloads.FirstOrDefault(o => o.Parameters.Count > activeParam)
+                    ?? Overloads.FirstOrDefault();
+
+        if (overload is null || overload.Parameters.Count == 0) return Documentation;
+
+        string calledOn = overload.CalledOn is ScrFunctionArg co ? $"{co.Name} " : string.Empty;
+        string fnKeyword = IsBuiltIn ? string.Empty : "function ";
+        string paramList = GetCodedParameterList(overload, activeParam);
+        string prototype = $"```gsc\n{calledOn}{fnKeyword}{Name}({paramList})\n```\n---";
+
+        if (!string.IsNullOrWhiteSpace(DocComment))
+        {
+            string body = ScriptDocCommentFormatter.FormatBodyOnly(DocComment, Namespace);
+            return string.IsNullOrWhiteSpace(body) ? prototype : $"{prototype}\n{body}";
+        }
+
+        return $"""
+            {prototype}
+            {GetDescriptionString()}
+            {GetParametersString(overload)}
+            {GetFlagsString()}
+            """;
+    }
 
     private string GetDescriptionString() =>
         FunctionDocumentationFormatter.FormatDescription(Description);
 
-    private string GetCodedParameterList(ScrFunctionOverload? overload)
+    private string GetCodedParameterList(ScrFunctionOverload? overload, int activeParam = -1)
     {
         if (overload is null || overload.Parameters.Count == 0) return string.Empty;
         return FunctionDocumentationFormatter.FormatParameterList(
             overload.Parameters,
-            p => p.Name);
+            (p, i) => i == activeParam ? $"<{p.Name}>" : p.Name);
     }
 
     private string GetParametersString(ScrFunctionOverload? overload, string prefix = "")

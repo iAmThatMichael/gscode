@@ -89,6 +89,17 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
         catch { return false; }
     }
 
+    /// <summary>
+    /// Records a pipeline step failure: sets <see cref="Failed"/>, logs the exception,
+    /// and emits an IDE diagnostic. Call from a catch block to collapse repeated boilerplate.
+    /// </summary>
+    private void RecordStepFailure(Exception ex, string stepName, GSCErrorCodes errorCode)
+    {
+        Failed = true;
+        Log.Error(ex, "Failed to {StepName} script.", stepName);
+        Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), errorCode, ex.GetType().Name);
+    }
+
     public async Task ParseAsync(string documentText)
     {
         ParsingTask = DoParseAsync(documentText);
@@ -150,18 +161,8 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
 
         // Preprocess the tokens.
         Preprocessor preprocessor = new(startNode, sense);
-        try
-        {
-            preprocessor.Process();
-        }
-        catch (Exception ex)
-        {
-            Failed = true;
-            Log.Error(ex, "Failed to preprocess script.");
-
-            Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledMacError, ex.GetType().Name);
-            return Task.CompletedTask;
-        }
+        try { preprocessor.Process(); }
+        catch (Exception ex) { RecordStepFailure(ex, "preprocess", GSCErrorCodes.UnhandledMacError); return Task.CompletedTask; }
 
         // Build a library of tokens so IntelliSense can quickly lookup a token at a given position.
         Sense.CommitTokens(startNode);
@@ -169,18 +170,8 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
         // Build the AST.
         AST.Parser parser = new(startNode, sense, LanguageId);
 
-        try
-        {
-            RootNode = parser.Parse();
-        }
-        catch (Exception ex)
-        {
-            Failed = true;
-            Log.Error(ex, "Failed to AST-gen script.");
-
-            Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledAstError, ex.GetType().Name);
-            return Task.CompletedTask;
-        }
+        try { RootNode = parser.Parse(); }
+        catch (Exception ex) { RecordStepFailure(ex, "AST-gen", GSCErrorCodes.UnhandledAstError); return Task.CompletedTask; }
 
         // Gather signatures for all functions and classes.
         DefinitionsTable = new(ScriptFileName, GlobalSymbolProvider);
@@ -191,37 +182,17 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
             sense.SetDefinitionsTable(DefinitionsTable);
         }
 
-        SignatureAnalyser signatureAnalyser = new(RootNode, DefinitionsTable, Sense);
-        try
-        {
-            signatureAnalyser.Analyse();
-        }
-        catch (Exception ex)
-        {
-            Failed = true;
-            Log.Error(ex, "Failed to signature analyse script.");
-
-            Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSaError, ex.GetType().Name);
-            return Task.CompletedTask;
-        }
+        SignatureAnalyser signatureAnalyser = new(RootNode!, DefinitionsTable, Sense);
+        try { signatureAnalyser.Analyse(); }
+        catch (Exception ex) { RecordStepFailure(ex, "signature analyse", GSCErrorCodes.UnhandledSaError); return Task.CompletedTask; }
 
         // Editor-only: folding ranges and reference index
         if (Sense.IsEditorMode)
         {
             // Analyze folding ranges from the token stream
             UserRegionsAnalyser foldingRangeAnalyser = new(startNode, Sense);
-            try
-            {
-                foldingRangeAnalyser.Analyse();
-            }
-            catch (Exception ex)
-            {
-                Failed = true;
-                Console.Error.WriteLine($"Failed to analyse folding ranges: {ex.Message}");
-
-                Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSaError, ex.GetType().Name);
-                return Task.CompletedTask;
-            }
+            try { foldingRangeAnalyser.Analyse(); }
+            catch (Exception ex) { RecordStepFailure(ex, "analyse folding ranges", GSCErrorCodes.UnhandledSaError); return Task.CompletedTask; }
 
             // Build references index from token stream
             BuildReferenceIndex();
@@ -278,51 +249,31 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
         knownNamespaces.UnionWith(DefinitionsTable.GetAllFunctionLocations().Select(kv => kv.Key.Qualifier));
         knownNamespaces.UnionWith(DefinitionsTable.GetAllClassLocations().Select(kv => kv.Key.Qualifier));
 
-ControlFlowAnalyser controlFlowAnalyser = new(Sense, DefinitionsTable!);
-try
-{
-    controlFlowAnalyser.Run();
-}
-catch (Exception ex)
-{
-    Failed = true;
-    Log.Error(ex, "Failed to run control flow analyser.");
+        ControlFlowAnalyser controlFlowAnalyser = new(Sense, DefinitionsTable!);
+        try { controlFlowAnalyser.Run(); }
+        catch (Exception ex) { RecordStepFailure(ex, "run control flow analyser", GSCErrorCodes.UnhandledSpaError); return Task.CompletedTask; }
 
-    Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
-    return Task.CompletedTask;
-}
+        DataFlowAnalyser dataFlowAnalyser = new(controlFlowAnalyser.FunctionGraphs, controlFlowAnalyser.ClassGraphs, Sense, allSymbols, TryGetApi(), DefinitionsTable.CurrentNamespace, knownNamespaces, fileName, DefinitionsTable);
+        try { dataFlowAnalyser.Run(); }
+        catch (Exception ex) { RecordStepFailure(ex, "run data flow analyser", GSCErrorCodes.UnhandledSpaError); return Task.CompletedTask; }
 
-DataFlowAnalyser dataFlowAnalyser = new(controlFlowAnalyser.FunctionGraphs, controlFlowAnalyser.ClassGraphs, Sense, allSymbols, TryGetApi(), DefinitionsTable.CurrentNamespace, knownNamespaces, fileName, DefinitionsTable);
-try
-{
-    dataFlowAnalyser.Run();
-}
-catch (Exception ex)
-{
-    Failed = true;
-    Log.Error(ex, "Failed to run data flow analyser.");
+        // Basic SPA diagnostics (editor-only: rely on _references and Sense.Tokens)
+        if (Sense.IsEditorMode && RootNode is not null)
+        {
+            try
+            {
+                ScriptDiagnosticsAnalyser diagnosticsAnalyser = new(RootNode, Sense, DefinitionsTable, _references, LanguageId);
+                diagnosticsAnalyser.Run();
+            }
+            catch (Exception ex)
+            {
+                // Non-fatal: don't fail analysis entirely; surface as SPA failure
+                Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
+            }
+        }
 
-    Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
-    return Task.CompletedTask;
-}
-
-// Basic SPA diagnostics (editor-only: rely on _references and Sense.Tokens)
-if (Sense.IsEditorMode && RootNode is not null)
-{
-    try
-    {
-        ScriptDiagnosticsAnalyser diagnosticsAnalyser = new(RootNode, Sense, DefinitionsTable, _references, LanguageId);
-        diagnosticsAnalyser.Run();
-    }
-    catch (Exception ex)
-    {
-        // Do not fail analysis entirely; surface as SPA failure
-        Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledSpaError, ex.GetType().Name);
-    }
-}
-
-// === Memory compaction ===
-if (Sense.IsEditorMode)
+        // === Memory compaction ===
+        if (Sense.IsEditorMode)
         {
             Sense.FinalizeSemanticTokens();
             PrecomputeFunctionScopes();

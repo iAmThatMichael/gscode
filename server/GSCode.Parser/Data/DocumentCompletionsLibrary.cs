@@ -780,7 +780,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             // Add sorting information to keep API functions organized
             SortText = function.Name.ToLowerInvariant(),
             // Add commit characters to automatically complete when typing these
-            CommitCharacters = new Container<string>(new[] { "(", ")", ";" })
+            //CommitCharacters = new Container<string>(new[] { "(", ")", ";" })
         };
     }
 

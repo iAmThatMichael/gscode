@@ -10,7 +10,16 @@ GSCode's language server requires the .NET 10 Runtime, available at [Download .N
 
 ## Release Notes
 
-### 1.3.0 (latest)
+### 1.4.0 (latest)
+
+- Added context-aware completion suggestions based on editor location.
+- Various codebase quality improvements, optimisations, and bug fixes.
+- Significant API updates & improvements aimed to reduce false-positive diagnostics. Added typing to most methods.
+- Added type checking against function signatures.
+
+Special thanks go to [iAmThatMichael](https://github.com/iAmThatMichael) who contributed many of the above changes ([#54](https://github.com/Blakintosh/gscode/pull/54)).
+
+### 1.3
 
 - Add capability for more detailed diagnostics by 'emulating' select functions, such as `LuiNotifyEvent`.
 - Significant memory-focused optimisations.

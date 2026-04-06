@@ -49,4 +49,10 @@ public record class ScrFunctionDataType
     public string DataType { get; set; } = default!;
     public string? InstanceType { get; set; }
     public bool IsArray { get; set; } = false;
+
+    /// <summary>
+    /// If present, this type is a union of these types (unionOf in JSON).
+    /// When set, <see cref="DataType"/> is ignored in favour of the union members.
+    /// </summary>
+    public List<ScrFunctionDataType>? UnionOf { get; set; }
 }

@@ -277,6 +277,10 @@ public class ScrFunctionReferenceSymbol : ISenseDefinition
     {
         Source = source;
         Range = token.Range;
+        if (source.Flags.Contains("broken", StringComparer.OrdinalIgnoreCase))
+        {
+            SemanticTokenModifiers = ["deprecated"];
+        }
     }
 
     public Hover GetHover()
@@ -310,6 +314,10 @@ public class ScrMethodReferenceSymbol : ISenseDefinition
         Source = source;
         ClassSource = classSource;
         Range = token.Range;
+        if (source.Flags.Contains("broken", StringComparer.OrdinalIgnoreCase))
+        {
+            SemanticTokenModifiers = ["deprecated"];
+        }
     }
 
     public Hover GetHover()

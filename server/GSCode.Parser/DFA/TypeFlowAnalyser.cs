@@ -103,6 +103,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
     {
         Silent = true;
         Sense.SilentSenseTokens = true;
+        Flags.InDevBlock = function?.InDevBlock ?? false;
 
         // Clear state at the start of each function analysis
         SwitchContexts.Clear();
@@ -486,7 +487,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
         // Analyse the initialisation.
         if (node.Initialisation is not null)
         {
-            AnalyseExpr(node.Initialisation, symbolTable, Sense);
+            AnalyseExpr(node.Initialisation, symbolTable, Sense, resultConsumed: false);
 
             // For loop initialization should follow the same rules as expression statements
             // Only assignments, calls, increments, decrements should be allowed
@@ -510,7 +511,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
         // Analyse the increment if present
         if (node.Increment is not null)
         {
-            AnalyseExpr(node.Increment, symbolTable, Sense);
+            AnalyseExpr(node.Increment, symbolTable, Sense, resultConsumed: false);
 
             // For loop increment should also follow expression statement rules
             ValidateExpressionHasSideEffects(node.Increment);
@@ -692,6 +693,16 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
             case AstNodeType.WaitRealTimeStmt:
                 AnalyseWaitStmt((ReservedFuncStmtNode)statement, symbolTable);
                 break;
+            case AstNodeType.DevBlock:
+                bool wasInDevBlock = Flags.InDevBlock;
+                Flags.InDevBlock = true;
+                FunDevBlockNode devBlock = (FunDevBlockNode)statement;
+                for (LinkedListNode<AstNode>? n = devBlock.Body.Statements.First; n != null; n = n.Next)
+                {
+                    AnalyseStatement(n.Value, n.Previous?.Value, n.Next?.Value, symbolTable);
+                }
+                Flags.InDevBlock = wasInDevBlock;
+                break;
             default:
                 break;
         }
@@ -704,7 +715,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
             return;
         }
 
-        ScrData result = AnalyseExpr(statement.Expr, symbolTable, Sense);
+        ScrData result = AnalyseExpr(statement.Expr, symbolTable, Sense, resultConsumed: false);
 
         // If this is an assert() call, apply type narrowings from the condition being true.
         if (statement.Expr is FunCallNode { Function: IdentifierExprNode assertId } assertCall
@@ -877,6 +888,15 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
             return;
         }
         Sense.AddSpaDiagnostic(range, code, args);
+    }
+
+    public void AddIdeDiagnostic(Range range, GSCErrorCodes code, params object[] args)
+    {
+        if (Silent)
+        {
+            return;
+        }
+        Sense.AddIdeDiagnostic(range, code, args);
     }
 
     private static int CountAllNodes(ControlFlowGraph graph)

@@ -18,6 +18,7 @@
 	// Data type categories
 	const primitiveTypes = [
 		{ value: 'int', label: 'int' },
+		{ value: 'uint64', label: 'uint64' },
 		{ value: 'float', label: 'float' },
 		{ value: 'number', label: 'number' },
 		{ value: 'string', label: 'string' },

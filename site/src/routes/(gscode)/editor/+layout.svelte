@@ -10,7 +10,7 @@
 	import type { Snippet } from 'svelte';
 	import type { LayoutData } from './$types';
 	import { setEditorContext } from '$lib/api-editor/editor.svelte';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 
 	let sidebarOpen = $state(true);
 
@@ -19,11 +19,44 @@
 	setEditorContext(editor);
 
 	let initialized = $state(false);
+	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+	let saveIdleCallback: number | null = null;
+
+	function cancelScheduledSave() {
+		if (saveTimeout) {
+			clearTimeout(saveTimeout);
+			saveTimeout = null;
+		}
+		if (saveIdleCallback !== null && 'cancelIdleCallback' in window) {
+			window.cancelIdleCallback(saveIdleCallback);
+			saveIdleCallback = null;
+		}
+	}
+
+	function scheduleSave() {
+		cancelScheduledSave();
+		saveTimeout = setTimeout(() => {
+			saveTimeout = null;
+			const runSave = () => {
+				saveIdleCallback = null;
+				untrack(() => editor.saveToStorage());
+			};
+
+			if ('requestIdleCallback' in window) {
+				saveIdleCallback = window.requestIdleCallback(runSave, { timeout: 1000 });
+				return;
+			}
+
+			runSave();
+		}, 400);
+	}
 
 	// Restore from localStorage on mount, then enable auto-save
 	onMount(() => {
 		editor.restoreFromStorage();
 		initialized = true;
+
+		return () => cancelScheduledSave();
 	});
 
 	// Auto-save to localStorage when there are changes (only after initial restore)
@@ -32,16 +65,16 @@
 			return;
 		}
 
-		// Track all the state we want to persist
-		const _ = editor.stats.editedCount;
-		const __ = editor.selectedFunction;
 		const hasLibrary = editor.hasLibrary;
-
-		// Also track function map changes
-		const fnCount = editor.functions.size;
+		const persistenceVersion = editor.persistenceVersion;
+		const selectedFunction = editor.selectedFunction;
+		void persistenceVersion;
+		void selectedFunction;
 
 		if (hasLibrary) {
-			editor.saveToStorage();
+			scheduleSave();
+		} else {
+			cancelScheduledSave();
 		}
 	});
 </script>

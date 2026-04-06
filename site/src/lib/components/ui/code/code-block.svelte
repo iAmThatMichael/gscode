@@ -4,7 +4,7 @@
 	import { codeVariants, type Variant } from ".";
 	import { createHighlighter, type DecorationItem, type ShikiTransformer } from "shiki";
 	import { transformerNotationDiff } from "@shikijs/transformers";
-	import shakuCodeAnnotateShikiTransformer from "shaku-code-annotate-shiki-transformer";
+	import { shakuGscTransformer } from "$lib/util/shaku-gsc";
 
     let className: string | null | undefined = undefined;
 
@@ -13,8 +13,7 @@
     export let decorations: DecorationItem[] = [];
     export let transformers: ShikiTransformer[] = [
         transformerNotationDiff(),
-        // doesn't let us transform because it doesn't recognise GSC - but it could just be a copy of JS otherwise
-        shakuCodeAnnotateShikiTransformer()
+        shakuGscTransformer()
     ];
 	export { className as class };
 </script>

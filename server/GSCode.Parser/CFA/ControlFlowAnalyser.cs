@@ -21,21 +21,21 @@ internal ref struct ControlFlowAnalyser(ParserIntelliSense sense, DefinitionsTab
     public void Run()
     {
         // Evaluate & analyse all function bodies
-        foreach (Tuple<ScrFunction, FunDefnNode> pair in DefinitionsTable.LocalScopedFunctions)
+        foreach (var (function, funDefnNode) in DefinitionsTable.LocalScopedFunctions)
         {
             // Produce a CFG for the function
-            ControlFlowGraph functionGraph = ControlFlowGraph.ConstructFunctionGraph(pair.Item2, Sense);
+            ControlFlowGraph functionGraph = ControlFlowGraph.ConstructFunctionGraph(funDefnNode, Sense);
 
             // Add the CFG to the list
-            FunctionGraphs.Add(new(pair.Item1, functionGraph));
+            FunctionGraphs.Add(new(function, functionGraph));
         }
 
         // Evaluate & analyse all class bodies — produce independent CFGs per method
-        foreach (Tuple<ScrClass, ClassDefnNode> pair in DefinitionsTable.LocalScopedClasses)
+        foreach (var (scrClass, classDefnNode) in DefinitionsTable.LocalScopedClasses)
         {
             List<ControlFlowGraph> methodGraphs = new();
 
-            foreach (AstNode child in pair.Item2.Body.Definitions)
+            foreach (AstNode child in classDefnNode.Body.Definitions)
             {
                 switch (child.NodeType)
                 {
@@ -50,7 +50,7 @@ internal ref struct ControlFlowAnalyser(ParserIntelliSense sense, DefinitionsTab
                 }
             }
 
-            ClassGraphs.Add(new(pair.Item1, methodGraphs));
+            ClassGraphs.Add(new(scrClass, methodGraphs));
         }
     }
 }

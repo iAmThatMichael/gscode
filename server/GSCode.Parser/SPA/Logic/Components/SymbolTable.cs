@@ -1,6 +1,7 @@
 using GSCode.Parser.AST;
 using GSCode.Parser.DFA;
 using GSCode.Parser.DSA.Types;
+using GSCode.Parser.SA;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -42,6 +43,7 @@ internal class SymbolTable
     public Dictionary<string, ScrVariable> VariableSymbols { get; } = new(StringComparer.OrdinalIgnoreCase);
     private ScriptAnalyserData? ApiData { get; }
     internal ScrClass? CurrentClass { get; }
+    internal DefinitionsTable? DefinitionsTable { get; }
 
     /// <summary>
     /// The namespace of the current script. Functions in this namespace can be called without qualification.
@@ -72,7 +74,7 @@ internal class SymbolTable
 
     public int LexicalScope { get; } = 0;
 
-    public SymbolTable(Dictionary<string, IExportedSymbol> exportedSymbolTable, Dictionary<string, ScrVariable> inSet, int lexicalScope, ScriptAnalyserData? apiData = null, ScrClass? currentClass = null, string? currentNamespace = null, HashSet<string>? knownNamespaces = null, string? currentFunction = null)
+    public SymbolTable(Dictionary<string, IExportedSymbol> exportedSymbolTable, Dictionary<string, ScrVariable> inSet, int lexicalScope, ScriptAnalyserData? apiData = null, ScrClass? currentClass = null, string? currentNamespace = null, HashSet<string>? knownNamespaces = null, string? currentFunction = null, DefinitionsTable? definitionsTable = null)
     {
         GlobalSymbolTable = exportedSymbolTable;
         VariableSymbols = new Dictionary<string, ScrVariable>(inSet, StringComparer.OrdinalIgnoreCase);
@@ -82,6 +84,7 @@ internal class SymbolTable
         CurrentNamespace = currentNamespace;
         KnownNamespaces = knownNamespaces;
         CurrentFunction = currentFunction;
+        DefinitionsTable = definitionsTable;
     }
 
     /// <summary>
@@ -214,6 +217,24 @@ internal class SymbolTable
 
         // If the symbol doesn't exist, return undefined.
         return ScrData.Undefined();
+    }
+
+    /// <summary>
+    /// Tries to get the full variable information (including definition source) for a local variable.
+    /// Returns null for built-in globals since they don't have a definition source.
+    /// </summary>
+    /// <param name="symbol">The symbol to look for</param>
+    /// <returns>The ScrVariable if it exists in the local table, null otherwise</returns>
+    public ScrVariable? TryGetLocalVariableInfo(string symbol)
+    {
+        // Check if the symbol exists in the local variable table
+        if (VariableSymbols.TryGetValue(symbol, out ScrVariable? localData))
+        {
+            return localData;
+        }
+
+        // Built-in globals don't have definition sources
+        return null;
     }
 
     /// <summary>

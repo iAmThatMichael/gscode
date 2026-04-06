@@ -1,3 +1,4 @@
+using GSCode.Data.Models;
 using GSCode.Parser.Lexical;
 
 namespace GSCode.Parser.SA;
@@ -16,4 +17,5 @@ public interface ISymbolLocationProvider
     string[]? GetFunctionParameters(string ns, string name);
     string[]? GetFunctionFlags(string ns, string name);
     string? GetFunctionDoc(string ns, string name);
+    ScrFunction? GetFunction(string ns, string name);
 }

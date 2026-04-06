@@ -1,5 +1,6 @@
 ﻿using GSCode.Data.Models;
 using GSCode.Parser.Lexical;
+using Serilog;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -76,10 +77,15 @@ internal static partial class ParserUtil
         string scriptPath = NormalisePath(desiredScriptPath);
         string? basePath = ExtractBasePath(currentScriptPath, baseDir);
 
+        Log.Debug("[DEPENDENCY_RESOLVE] Resolving '{DesiredScript}' from '{CurrentScript}'", desiredScriptPath, currentScriptPath);
+        Log.Debug("[DEPENDENCY_RESOLVE] Extracted base path: {BasePath}", basePath ?? "null");
+
         // Check within the base path
         if (!string.IsNullOrEmpty(basePath) && ScriptFileExists(basePath, scriptPath))
         {
-            return Path.Combine(basePath, scriptPath);
+            string localPath = Path.Combine(basePath, scriptPath);
+            Log.Debug("[DEPENDENCY_RESOLVE] FOUND locally: {Path}", localPath);
+            return localPath;
         }
 
         // Check within the TA_TOOLS_PATH environment variable path
@@ -89,11 +95,14 @@ internal static partial class ParserUtil
             string sharedPath = Path.Combine(toolsPath, "share", "raw");
             if (ScriptFileExists(sharedPath, scriptPath))
             {
-                return Path.Combine(sharedPath, scriptPath);
+                string rawPath = Path.Combine(sharedPath, scriptPath);
+                Log.Debug("[DEPENDENCY_RESOLVE] FOUND in TA_TOOLS_PATH: {Path}", rawPath);
+                return rawPath;
             }
         }
 
         // Return null if the script file is not found
+        Log.Debug("[DEPENDENCY_RESOLVE] NOT FOUND: {DesiredScript}", desiredScriptPath);
         return null;
     }
 

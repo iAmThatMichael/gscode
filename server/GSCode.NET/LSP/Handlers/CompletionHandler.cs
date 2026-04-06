@@ -33,19 +33,36 @@ internal class CompletionHandler(ILanguageServerFacade facade,
 
     public override async Task<CompletionList> Handle(CompletionParams request, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Completion request received, processing...");
+        _logger.LogInformation("CompletionHandler.Handle: Request received for {Uri} at position {Line}:{Character}", 
+            request.TextDocument.Uri, request.Position.Line, request.Position.Character);
+
         var sw = Stopwatch.StartNew();
         CompletionList? result = null;
         Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
 
-        if (script is not null)
+        if (script is null)
+        {
+            _logger.LogWarning("CompletionHandler.Handle: Script is NULL for {Uri}", request.TextDocument.Uri);
+            return new CompletionList();
+        }
+
+        _logger.LogInformation("CompletionHandler.Handle: Script found, calling GetCompletionAsync...");
+
+        try
         {
             result = await script.GetCompletionAsync(request.Position, cancellationToken);
+            _logger.LogInformation("CompletionHandler.Handle: GetCompletionAsync returned successfully");
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CompletionHandler.Handle: Exception in GetCompletionAsync");
+            return new CompletionList();
+        }
+
         sw.Stop();
 
         int count = result is null ? 0 : result.Count();
-        _logger.LogInformation("Completion processed in {ElapsedMs} ms. Items: {Count}", sw.ElapsedMilliseconds, count);
+        _logger.LogInformation("CompletionHandler.Handle: Processed in {ElapsedMs} ms. Items: {Count}", sw.ElapsedMilliseconds, count);
         return result ?? new CompletionList();
     }
 
@@ -54,8 +71,8 @@ internal class CompletionHandler(ILanguageServerFacade facade,
         return new CompletionRegistrationOptions
         {
             DocumentSelector = _documentSelector,
-            // Include additional triggers useful for namespaces and preprocessor
-            TriggerCharacters = new List<string> { ".", ":", "#", "(", "," },
+            // Include additional triggers useful for namespaces, preprocessor, and paths
+            TriggerCharacters = new List<string> { ".", ":", "#", "(", ",", "\\", "/" },
             ResolveProvider = true
         };
     }

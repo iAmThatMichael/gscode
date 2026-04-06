@@ -16,7 +16,6 @@
 		"Other"
 	],
 	"activationEvents": [
-		"onStartupFinished",
 		"workspaceContains:**/*.gsc",
 		"workspaceContains:**/*.csc",
 		"workspaceContains:**/*.gsh"
@@ -112,21 +111,49 @@
 		"configuration": {
 			"title": "GSCode",
 			"properties": {
-				"gscode.trace.server": {
+				"gscode.serverLogLevel": {
 					"type": "string",
+					"default": "off",
 					"enum": [
 						"off",
 						"messages",
 						"verbose"
 					],
-					"default": "off",
-					"description": "Traces the communication between VS Code and the GSCode language server.",
+					"description": "Controls the verbosity of logging from the GSCode language server. Set to 'off' to disable logging, 'messages' for basic information, or 'verbose' for detailed debug output.",
 					"scope": "window"
 				},
-				"gscode.enableWorkspaceIndexing": {
+				"gscode.customRawPath": {
+					"type": "string",
+					"default": null,
+					"description": "Custom path to the 'raw' folder for script path completions. Overrides automatic detection via TA_GAME_PATH.",
+					"scope": "window"
+				},
+				"gscode.allowRawFolderWrites": {
 					"type": "boolean",
 					"default": false,
-					"description": "Enable workspace-wide indexing of all script files on startup.",
+					"description": "Allow saving/modifying files in raw folders (default or custom). When disabled, you'll be warned when editing files in protected raw folders to prevent accidental modifications to vanilla game files.",
+					"scope": "window"
+				},
+				"gscode.workspaceIndexingMode": {
+					"type": "string",
+					"default": "off",
+					"enum": [
+						"off",
+						"partial",
+						"full"
+					],
+					"enumDescriptions": [
+						"Workspace indexing disabled. Only open files are analyzed.",
+						"Fast indexing with signature analysis only. Provides symbol navigation and completions without diagnostics for unopened files. Recommended for large workspaces.",
+						"Complete semantic analysis with diagnostics. Slower but provides full language features including diagnostics for all indexed files."
+					],
+					"description": "Controls workspace indexing. 'off' disables indexing, 'partial' performs fast signature analysis (recommended), 'full' runs complete semantic analysis with diagnostics.",
+					"scope": "window"
+				},
+				"gscode.warnLanguageMismatch": {
+					"type": "boolean",
+					"default": true,
+					"description": "Warn when a .csc file is opened as GSC or a .gsc file is opened as CSC.",
 					"scope": "window"
 				}
 			}

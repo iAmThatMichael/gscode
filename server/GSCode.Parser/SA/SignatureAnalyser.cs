@@ -1,11 +1,11 @@
-using System.Text;
 using GSCode.Data;
 using GSCode.Parser.AST;
 using GSCode.Parser.Data;
 using GSCode.Parser.DFA;
 using GSCode.Parser.Lexical;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using GSCode.Parser.SPA;
 using System.Text.RegularExpressions;
+using GSCode.Parser.Util;
 
 namespace GSCode.Parser.SA;
 
@@ -22,33 +22,21 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
     public void Analyse()
     {
-        foreach (AstNode scriptDependency in RootNode.Dependencies)
-        {
-            switch (scriptDependency.NodeType)
-            {
-                case AstNodeType.Dependency:
-                    AnalyseDependency((DependencyNode)scriptDependency);
-                    break;
-            }
-        }
+        foreach (AstNode dep in RootNode.Dependencies)
+            if (dep is DependencyNode depNode) AnalyseDependency(depNode);
 
-        foreach (AstNode scriptDefn in RootNode.ScriptDefns)
+        foreach (AstNode defn in RootNode.ScriptDefns)
+            AnalyseScriptDefinition(defn);
+    }
+
+    private void AnalyseScriptDefinition(AstNode node)
+    {
+        switch (node)
         {
-            switch (scriptDefn.NodeType)
-            {
-                case AstNodeType.FunctionDefinition:
-                    AnalyseFunction((FunDefnNode)scriptDefn);
-                    break;
-                case AstNodeType.Namespace:
-                    AnalyseNamespace((NamespaceNode)scriptDefn);
-                    break;
-                case AstNodeType.ClassDefinition:
-                    AnalyseClass((ClassDefnNode)scriptDefn);
-                    break;
-                case AstNodeType.DevBlock:
-                    AnalyseDevBlock((DefnDevBlockNode)scriptDefn);
-                    break;
-            }
+            case FunDefnNode fn:       AnalyseFunction(fn);   break;
+            case NamespaceNode ns:     AnalyseNamespace(ns);  break;
+            case ClassDefnNode cls:    AnalyseClass(cls);     break;
+            case DefnDevBlockNode dev: AnalyseDevBlock(dev);  break;
         }
     }
 
@@ -71,14 +59,10 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         foreach (AstNode child in classDefn.Body.Definitions)
         {
-            switch (child.NodeType)
+            switch (child)
             {
-                case AstNodeType.FunctionDefinition:
-                    AnalyseClassFunction(scrClass, (FunDefnNode)child);
-                    break;
-                case AstNodeType.ClassMember:
-                    AnalyseClassMember(scrClass, (MemberDeclNode)child);
-                    break;
+                case FunDefnNode fn:        AnalyseClassFunction(scrClass, fn);    break;
+                case MemberDeclNode member: AnalyseClassMember(scrClass, member);  break;
             }
         }
 
@@ -106,23 +90,29 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         string name = nameToken.Lexeme;
 
-        // Analyze the parameter list
-        IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters);
+        // Extract raw doc comment token
+        Token? docCommentToken = FindDocCommentTokenBefore(nameToken);
+
+        // Parse mandatory parameters from raw text
+        var mandatoryParams = ExtractMandatoryParametersFromRaw(docCommentToken?.Lexeme);
+
+        // Store the SANITIZED (but not markdown-formatted) doc comment
+        string? doc = docCommentToken is null ? null : DocCommentHelper.Sanitize(docCommentToken.Lexeme);
+
+        // Analyze the parameter list with mandatory parameter information
+        IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters, mandatoryParams);
 
         // TODO: Probably needs to be a ScrMethod instead.
         ScrFunction function = new()
         {
             Name = name,
-            Description = null, // TODO: Check the DOC COMMENT
+            Description = null,
+            DocComment = doc,
             Overloads = [
                 new ScrFunctionOverload()
                 {
                     Parameters = GetParametersAsRecord(parameters)!,
-                    CalledOn = new ScrFunctionArg()
-                    {
-                        Name = "unk",
-                        Mandatory = false
-                    }, // TODO: Check the DOC COMMENT
+                    CalledOn = null, // Class methods don't need CalledOn - it's implicit
                     Returns = null!,
                     Vararg = functionDefn.Parameters.Vararg
                 }
@@ -135,42 +125,13 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         // Produce a definition for our function
         scrClass.Methods.Add(function);
 
-        // Record method/function location (method recorded as function under containing namespace)
-        DefinitionsTable.AddFunctionLocation(DefinitionsTable.CurrentNamespace, name, Sense.ScriptPath, nameToken.TokenRange);
-        // Record parameter names for outline/signature
-        DefinitionsTable.RecordFunctionParameters(DefinitionsTable.CurrentNamespace, name, (function.Overloads[0].Parameters ?? new List<ScrFunctionArg>()).Select(a => a.Name));
-        // Record flags (private, autoexec)
-        var flags = new List<string>();
-        if (function.Private)
-        {
-            flags.Add("private");
-        }
-        if (functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Autoexec))
-        {
-            flags.Add("autoexec");
-        }
-        DefinitionsTable.RecordFunctionFlags(DefinitionsTable.CurrentNamespace, name, flags);
-
-        // Record doc comment if present
-        string? doc = ExtractDocCommentBefore(nameToken);
-        DefinitionsTable.RecordFunctionDoc(DefinitionsTable.CurrentNamespace, name, doc);
-
-        // NEW: Also record under the class name as its own qualifier so ClassName::Method() resolves
-        string classNs = scrClass.Name;
-        DefinitionsTable.AddFunctionLocation(classNs, name, Sense.ScriptPath, nameToken.TokenRange);
-        DefinitionsTable.RecordFunctionParameters(classNs, name, (function.Overloads[0].Parameters ?? new List<ScrFunctionArg>()).Select(a => a.Name));
-        DefinitionsTable.RecordFunctionFlags(classNs, name, flags);
-        DefinitionsTable.RecordFunctionDoc(classNs, name, doc);
+        var flags = BuildFunctionFlags(functionDefn, function.Private);
+        RegisterFunctionInNamespace(DefinitionsTable.CurrentNamespace, name, nameToken.TokenRange, function, doc, flags);
+        // Also register under the class name as its own qualifier so ClassName::Method() resolves
+        RegisterFunctionInNamespace(scrClass.Name, name, nameToken.TokenRange, function, doc, flags);
 
         Sense.AddSenseToken(nameToken, new ScrMethodSymbol(nameToken, function, scrClass));
-
-        if (parameters is not null)
-        {
-            foreach (ScrParameter parameter in parameters)
-            {
-                Sense.AddSenseToken(parameter.Source, new ScrParameterSymbol(parameter));
-            }
-        }
+        RegisterParameterSenseTokens(parameters, functionDefn.Parameters);
     }
 
     private void AnalyseClassMember(ScrClass scrClass, MemberDeclNode memberDecl)
@@ -180,10 +141,15 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
             return;
         }
 
+        // Extract raw doc comment token and sanitize it
+        Token? docCommentToken = FindDocCommentTokenBefore(nameToken);
+        string? doc = docCommentToken is null ? null : DocCommentHelper.Sanitize(docCommentToken.Lexeme);
+
         ScrMember member = new()
         {
             Name = memberDecl.NameToken?.Lexeme ?? "",
-            Description = null // TODO: Check the DOC COMMENT
+            Description = null,
+            DocComment = doc
         };
 
         scrClass.Members.Add(member);
@@ -215,25 +181,8 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         bool wasInDevBlock = _inDevBlock;
         _inDevBlock = true;
 
-        // Recursively analyze all definitions within the devblock
-        foreach (AstNode scriptDefn in devBlockNode.Definitions)
-        {
-            switch (scriptDefn.NodeType)
-            {
-                case AstNodeType.FunctionDefinition:
-                    AnalyseFunction((FunDefnNode)scriptDefn);
-                    break;
-                case AstNodeType.Namespace:
-                    AnalyseNamespace((NamespaceNode)scriptDefn);
-                    break;
-                case AstNodeType.ClassDefinition:
-                    AnalyseClass((ClassDefnNode)scriptDefn);
-                    break;
-                case AstNodeType.DevBlock:
-                    AnalyseDevBlock((DefnDevBlockNode)scriptDefn);
-                    break;
-            }
-        }
+        foreach (AstNode node in devBlockNode.Definitions)
+            AnalyseScriptDefinition(node);
 
         _inDevBlock = wasInDevBlock;
     }
@@ -248,9 +197,17 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         string name = nameToken.Lexeme;
 
-        // Analyze the parameter list
-        IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters);
+        // Extract raw doc comment token
+        Token? docCommentToken = FindDocCommentTokenBefore(nameToken);
 
+        // Parse mandatory parameters from raw text
+        var mandatoryParams = ExtractMandatoryParametersFromRaw(docCommentToken?.Lexeme);
+
+        // Store the SANITIZED (but not markdown-formatted) doc comment
+        string? docComment = docCommentToken is null ? null : DocCommentHelper.Sanitize(docCommentToken.Lexeme);
+
+        // Analyze the parameter list with mandatory parameter information
+        IEnumerable<ScrParameter> parameters = AnalyseFunctionParameters(functionDefn.Parameters, mandatoryParams);
 
         ScrFunction function = new()
         {
@@ -267,544 +224,132 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
             ],
             Flags = [],
             Private = functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Private),
-            DocComment = ExtractDocCommentBefore(nameToken),
+            DocComment = docComment,
             InDevBlock = _inDevBlock
         };
 
         // Produce a definition for our function
         DefinitionsTable.AddFunction(function, functionDefn);
 
-        // Record function location for go-to-definition
-        DefinitionsTable.AddFunctionLocation(DefinitionsTable.CurrentNamespace, name, Sense.ScriptPath, nameToken.TokenRange);
-        // Record parameter names for outline/signature
-        DefinitionsTable.RecordFunctionParameters(DefinitionsTable.CurrentNamespace, name, (function.Overloads[0].Parameters ?? new List<ScrFunctionArg>()).Select(a => a.Name));
-        // Record flags (private, autoexec)
-        var flags = new List<string>();
-        if (function.Private)
-        {
-            flags.Add("private");
-        }
-        if (functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Autoexec))
-        {
-            flags.Add("autoexec");
-        }
-        DefinitionsTable.RecordFunctionFlags(DefinitionsTable.CurrentNamespace, name, flags);
-
-        // Record doc comment if present
-        DefinitionsTable.RecordFunctionDoc(DefinitionsTable.CurrentNamespace, name, function.DocComment);
+        var flags = BuildFunctionFlags(functionDefn, function.Private);
+        RegisterFunctionInNamespace(DefinitionsTable.CurrentNamespace, name, nameToken.TokenRange, function, function.DocComment, flags);
 
         Sense.AddSenseToken(nameToken, new ScrFunctionSymbol(nameToken, function));
-
-        if (parameters is not null)
-        {
-            foreach (ScrParameter parameter in parameters)
-            {
-                Sense.AddSenseToken(parameter.Source, new ScrParameterSymbol(parameter));
-            }
-        }
+        RegisterParameterSenseTokens(parameters, functionDefn.Parameters);
     }
 
-    private static List<ScrFunctionArg>? GetParametersAsRecord(IEnumerable<ScrParameter> parameters)
+    private static List<ScrFunctionArg>? GetParametersAsRecord(IEnumerable<ScrParameter> parameters) =>
+        parameters.Select(p => new ScrFunctionArg
+        {
+            Name = p.Name,
+            Description = null,
+            Type = null,
+            Mandatory = p.Mandatory,
+            Default = null
+        }).ToList();
+
+    private List<ScrParameter> AnalyseFunctionParameters(ParamListNode parameters, HashSet<string> mandatoryParams) =>
+        parameters.Parameters
+            .Where(p => p.Name is not null)
+            .Select(p => new ScrParameter(
+                p.Name!.Lexeme,
+                p.Name,
+                p.Name.Range,
+                p.ByRef,
+                p.Default,
+                Mandatory: mandatoryParams.Contains(p.Name!.Lexeme)))
+            .ToList();
+
+    private static List<string> BuildFunctionFlags(FunDefnNode functionDefn, bool isPrivate)
     {
-        List<ScrFunctionArg> result = new();
+        var flags = new List<string>(2);
+        if (isPrivate) flags.Add("private");
+        if (functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Autoexec)) flags.Add("autoexec");
+        return flags;
+    }
+
+    private void RegisterFunctionInNamespace(string ns, string name, TokenRange nameTokenRange,
+        ScrFunction function, string? doc, IEnumerable<string> flags)
+    {
+        DefinitionsTable.AddFunctionLocation(ns, name, Sense.ScriptPath, nameTokenRange);
+        DefinitionsTable.RecordFunctionParameters(ns, name, (function.Overloads[0].Parameters ?? []).Select(a => a.Name));
+        DefinitionsTable.RecordFunctionFlags(ns, name, flags);
+        DefinitionsTable.RecordFunctionDoc(ns, name, doc);
+    }
+
+    private void RegisterParameterSenseTokens(IEnumerable<ScrParameter> parameters, ParamListNode paramList)
+    {
+        int i = 0;
         foreach (ScrParameter parameter in parameters)
         {
-            result.Add(new ScrFunctionArg()
-            {
-                Name = parameter.Name,
-                Description = null, // TODO: Check the DOC COMMENT
-                Type = null, // TODO: Check the DOC COMMENT
-                Mandatory = parameter.Default is null,
-                Default = null // Not sure we can populate this
-            });
+            Sense.AddSenseToken(parameter.Source, new ScrParameterSymbol(parameter, paramList.Parameters.ElementAtOrDefault(i)));
+            i++;
         }
-
-        return result;
     }
 
-    private List<ScrParameter> AnalyseFunctionParameters(ParamListNode parameters)
-    {
-        List<ScrParameter> result = new();
-        foreach (ParamNode parameter in parameters.Parameters)
-        {
-            if (parameter.Name is not Token nameToken)
-            {
-                continue;
-            }
-
-            string name = parameter.Name.Lexeme;
-            bool byRef = parameter.ByRef;
-
-            if (parameter.Default is null)
-            {
-                result.Add(new ScrParameter(name, nameToken, nameToken.Range, byRef));
-                continue;
-            }
-
-            // TODO: do we need to handle defaults now, or leave till later?
-            result.Add(new ScrParameter(name, nameToken, nameToken.Range, byRef, parameter.Default));
-        }
-
-        return result;
-    }
-
-    private string? ExtractDocCommentBefore(Token nameToken)
+    private Token? FindDocCommentTokenBefore(Token nameToken)
     {
         DocumentTokensLibrary tokens = Sense.Tokens;
         int idx = tokens.IndexOf(nameToken);
-        if (idx < 0)
-        {
-            return null;
-        }
+        if (idx < 0) return null;
 
-        // Walk backwards to find the line break before the function definition
-        while (idx > 0)
+        // Walk backwards to the start of the current line (first LineBreak before the name token)
+        int lineStart = idx;
+        for (int i = idx - 1; i >= 0; i--)
         {
-            Token? t = tokens.GetAt(idx);
-            if (t == null)
-            {
-                return null;
-            }
+            Token? t = tokens.GetAt(i);
+            if (t == null) break;
             if (t.Type == TokenType.LineBreak)
             {
+                lineStart = i;
                 break;
             }
-            idx--;
         }
 
-        // Now scan backwards up to 50 tokens looking for a doc comment
-        int count = 50;
-        while (count > 0 && idx > 0)
+        // From the line start, scan backwards (up to ~50 tokens) for a DocComment
+        for (int i = lineStart - 1, count = 0; i >= 0 && count < 50; i--, count++)
         {
-            idx--;
-            count--;
-
-            Token? t = tokens.GetAt(idx);
-            if (t == null)
-            {
-                return null;
-            }
-            if (t.Type == TokenType.DocComment)
-            {
-                return SanitizeDocForMarkdown(t.Lexeme);
-            }
+            Token? t = tokens.GetAt(i);
+            if (t == null) break;
+            if (t.Type == TokenType.DocComment) return t;
         }
 
         return null;
     }
 
-    private static string SanitizeDocForMarkdown(string lexeme)
+    private static HashSet<string> ExtractMandatoryParametersFromRaw(string? rawDocComment)
     {
-        if (string.IsNullOrWhiteSpace(lexeme)) return string.Empty;
-        string s = lexeme;
+        var mandatoryParams = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // Strip common block wrappers
-        if (s.StartsWith("/@"))
+        if (string.IsNullOrWhiteSpace(rawDocComment))
         {
-            if (s.EndsWith("@/")) s = s.Substring(2, s.Length - 4);
-            else s = s.Substring(2);
-        }
-        else if (s.StartsWith("/*"))
-        {
-            if (s.EndsWith("*/")) s = s.Substring(2, s.Length - 4);
-            else s = s.Substring(2);
+            return mandatoryParams;
         }
 
-        // Normalize CRLF to LF and unescape common sequences (\\n, \\r, \\t, \\")
-        s = s.Replace("\r\n", "\n").Replace("\r", "\n");
-        s = s.Replace("\\n", "\n").Replace("\\r", string.Empty).Replace("\\t", "    ").Replace("\\\"", "\"");
-
-        // Split and clean each line: remove leading *, trim, remove surrounding quotes per line
-        string[] rawLines = s.Split('\n');
-        List<string> lines = new();
-        foreach (var line in rawLines)
+        // Parse RAW doc comment (before markdown formatting) for MandatoryArg entries
+        // Use DocCommentHelper.Sanitize to get clean lines but don't format to markdown yet
+        string[] lines = DocCommentHelper.Sanitize(rawDocComment).Split('\n');
+        foreach (var line in lines)
         {
-            string l = line.Trim();
-            if (l.StartsWith("*")) l = l.TrimStart('*').TrimStart();
-            if (l.Length >= 2 && l[0] == '"' && l[^1] == '"')
+            var match = s_kv.Match(line);
+            if (!match.Success) continue;
+
+            string key = match.Groups["k"].Value.Trim().ToLowerInvariant();
+            string val = match.Groups["v"].Value.Trim();
+
+            if (key == "mandatoryarg")
             {
-                l = l.Substring(1, l.Length - 2);
-            }
-            // Avoid stray Markdown code fence terminators
-            l = l.Replace("```", "`\u200B``");
-            if (l.Length > 0) lines.Add(l);
-        }
-
-        // Parse into fields
-        string? name = null, summary = null, module = null, callOn = null, spmp = null;
-        var mandatory = new List<(string Arg, string Desc)>();
-        var optional = new List<(string Arg, string Desc)>();
-        var examples = new List<string>();
-
-        foreach (var l in lines)
-        {
-            var m = s_kv.Match(l);
-            if (!m.Success) continue;
-            string key = m.Groups["k"].Value.Trim().ToLowerInvariant();
-            string val = m.Groups["v"].Value.Trim();
-
-            switch (key)
-            {
-                case "name":
-                    name = val;
-                    break;
-                case "summary":
-                    summary = val;
-                    break;
-                case "module":
-                    module = val;
-                    break;
-                case "callon":
-                    callOn = string.IsNullOrWhiteSpace(val) ? "UNKNOWN" : val;
-                    break;
-                case "spmp":
-                    spmp = val;
-                    break;
-                case "mandatoryarg":
-                    {
-                        var am = s_argPattern.Match(val);
-                        if (am.Success)
-                        {
-                            string a = am.Groups["n"].Value.Trim();
-                            string d = am.Groups["d"].Value.Trim();
-
-                            a = a.Replace("<", "").Replace(">", "");
-                            a = a.Replace("[", "").Replace("]", "");
-
-                            mandatory.Add((a, d));
-                        }
-                        break;
-                    }
-                case "optionalarg":
-                    {
-                        var am = s_argPattern.Match(val);
-                        if (am.Success)
-                        {
-                            string a = am.Groups["n"].Value.Trim();
-                            string d = am.Groups["d"].Value.Trim();
-
-                            a = a.Replace("<", "").Replace(">", "");
-                            a = a.Replace("[", "").Replace("]", "");
-
-                            optional.Add((a, d));
-                        }
-                        break;
-                    }
-                case "example":
-                    examples.Add(val);
-                    break;
-            }
-        }
-
-        // If parsing found nothing significant, fall back to cleaned plain text
-        if (name is null && summary is null && module is null && callOn is null && spmp is null && mandatory.Count == 0 && optional.Count == 0 && examples.Count == 0)
-        {
-            return string.Join('\n', lines).Trim();
-        }
-
-        // Render Markdown
-        StringBuilder sb = new();
-
-        if (!string.IsNullOrWhiteSpace(name))
-        {
-            sb.AppendLine("```gsc");
-            sb.AppendLine(name);
-            sb.AppendLine("```");
-            sb.AppendLine("---");
-        }
-
-        if (!string.IsNullOrWhiteSpace(summary))
-        {
-            sb.AppendLine($"### _{summary}_");
-            sb.AppendLine("---");
-        }
-
-        if (!string.IsNullOrWhiteSpace(module) || !string.IsNullOrWhiteSpace(callOn) || !string.IsNullOrWhiteSpace(spmp))
-        {
-            if (!string.IsNullOrWhiteSpace(module)) sb.AppendLine($"- Module: ```{module}```");
-            if (!string.IsNullOrWhiteSpace(callOn)) sb.AppendLine($"- CallOn: ```{callOn}```");
-            if (!string.IsNullOrWhiteSpace(spmp)) sb.AppendLine($"- SPMP: ```{spmp}```");
-            sb.AppendLine("---");
-        }
-
-        if (mandatory.Count > 0 || optional.Count > 0)
-        {
-            sb.AppendLine("### Parameters");
-            if (mandatory.Count > 0)
-            {
-                sb.AppendLine("- Mandatory");
-                foreach (var (a, d) in mandatory)
+                var argMatch = s_argPattern.Match(val);
+                if (argMatch.Success)
                 {
-                    sb.AppendLine($"  - `<{a}>` — {d}");
+                    string paramName = argMatch.Groups["n"].Value.Trim();
+                    // Remove angle brackets and square brackets
+                    paramName = paramName.Replace("<", "").Replace(">", "").Replace("[", "").Replace("]", "");
+                    mandatoryParams.Add(paramName);
                 }
             }
-            if (optional.Count > 0)
-            {
-                sb.AppendLine("- Optional");
-                foreach (var (a, d) in optional)
-                {
-                    sb.AppendLine($"  - `[{a}]` — {d}");
-                }
-            }
-            sb.AppendLine("---");
         }
 
-        foreach (var ex in examples)
-        {
-            sb.AppendLine("Example");
-            sb.AppendLine("```gsc");
-            sb.AppendLine(ex);
-            sb.AppendLine("```");
-        }
-
-        return sb.ToString().Trim();
-    }
-
-    private static string? BuildPrototype(string? ns, string name, IEnumerable<ScrFunctionArg>? args)
-    {
-        string paramList = args is null ? string.Empty : string.Join(", ", args.Select(a => a.Name));
-        string nsPrefix = string.IsNullOrEmpty(ns) ? string.Empty : ns + "::";
-        return $"function {nsPrefix}{name}({paramList})";
-    }
-}
-
-
-/// <summary>
-/// Records the definition of a function parameter for semantics & hovers
-/// </summary>
-/// <param name="Source">The parameter source</param>
-internal record ScrParameterSymbol(ScrParameter Source) : ISenseDefinition
-{
-    // I'm pretty sure this is redundant
-
-    public Range Range { get; } = Source.Range;
-
-    public string SemanticTokenType { get; } = "parameter";
-    public string[] SemanticTokenModifiers { get; } = [];
-
-    public Hover GetHover()
-    {
-        string parameterName = $"{Source.Name}";
-        return new()
-        {
-            Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
-                Kind = MarkupKind.Markdown,
-                Value = string.Format("```gsc\n{0}\n```",
-                   parameterName)
-            })
-        };
-    }
-}
-
-internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseDefinition
-{
-    public virtual Range Range { get; } = NameToken.Range;
-
-    public virtual string SemanticTokenType { get; } = "function";
-    public virtual string[] SemanticTokenModifiers { get; } = [];
-
-    public virtual Hover GetHover()
-    {
-        // Prefer user doc comment, if present
-        if (!string.IsNullOrWhiteSpace(Source.DocComment))
-        {
-            return new()
-            {
-                Range = Range,
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = Source.DocComment
-                })
-            };
-        }
-
-        // For API functions with overloads, use the Documentation property which
-        // handles multi-overload display. For single-overload, build inline.
-        if (Source.Overloads.Count > 1)
-        {
-            return new()
-            {
-                Range = Range,
-                Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-                {
-                    Kind = MarkupKind.Markdown,
-                    Value = Source.Documentation
-                })
-            };
-        }
-
-        StringBuilder builder = new();
-
-        builder.AppendLine("```gsc");
-        builder.Append($"function {Source.Name}(");
-
-        bool first = true;
-        foreach (ScrFunctionArg parameter in Source.Overloads[0].Parameters ?? [])
-        {
-            AppendParameter(builder, parameter, ref first);
-        }
-        builder.AppendLine(")");
-        builder.AppendLine("```");
-
-        return new()
-        {
-            Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
-                Kind = MarkupKind.Markdown,
-                Value = Source.Documentation
-            })
-        };
-    }
-
-    protected static void AppendParameter(StringBuilder builder, ScrFunctionArg parameter, ref bool first)
-    {
-        if (!first)
-        {
-            builder.Append(", ");
-        }
-        first = false;
-
-        if (parameter.Type is null)
-        {
-            builder.Append($"{parameter.Name}");
-            return;
-        }
-
-        builder.Append($"/@ {parameter.Type} @/ {parameter.Name}");
-    }
-}
-
-internal record ScrClassSymbol(Token NameToken, ScrClass Source) : ISenseDefinition
-{
-
-    public Range Range { get; } = NameToken.Range;
-
-    public string SemanticTokenType { get; } = "class";
-    public string[] SemanticTokenModifiers { get; } = [];
-
-    public Hover GetHover()
-    {
-        return new()
-        {
-            Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
-                Kind = MarkupKind.Markdown,
-                Value = "```gsc\nclass " + Source.Name + "\n```"
-            })
-        };
-    }
-}
-
-internal record ScrClassReferenceSymbol(Token NameToken, string ClassName) : ISenseDefinition
-{
-
-    public Range Range { get; } = NameToken.Range;
-
-    public string SemanticTokenType { get; } = "class";
-    public string[] SemanticTokenModifiers { get; } = [];
-
-    public Hover GetHover()
-    {
-        return new()
-        {
-            Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
-                Kind = MarkupKind.Markdown,
-                Value = "```gsc\nclass " + ClassName + "\n```"
-            })
-        };
-    }
-}
-
-
-internal record ScrClassMemberSymbol(Token NameToken, ScrMember Source, ScrClass ClassSource) : ISenseDefinition
-{
-
-    public Range Range { get; } = NameToken.Range;
-
-    public string SemanticTokenType { get; } = "property";
-    public string[] SemanticTokenModifiers { get; } = [];
-
-    public Hover GetHover()
-    {
-        return new()
-        {
-            Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
-                Kind = MarkupKind.Markdown,
-                Value = $"```gsc\n{ClassSource.Name}.{Source.Name}\n```"
-            })
-        };
-    }
-}
-
-internal record ScrMethodSymbol(Token NameToken, ScrFunction Source, ScrClass ClassSource) : ScrFunctionSymbol(NameToken, Source)
-{
-    public override Range Range { get; } = NameToken.Range;
-
-    public override string SemanticTokenType { get; } = "method";
-    public override string[] SemanticTokenModifiers { get; } = [];
-
-    public override Hover GetHover()
-    {
-        StringBuilder builder = new();
-
-        builder.AppendLine("```gsc");
-        foreach (var overload in Source.Overloads)
-        {
-            if (Source.Overloads.Count > 1)
-            {
-                builder.AppendLine($"// Overload {Source.Overloads.IndexOf(overload) + 1}");
-            }
-
-            builder.Append($"{ClassSource.Name}::{Source.Name}(");
-
-            bool first = true;
-            foreach (ScrFunctionArg parameter in overload.Parameters)
-            {
-                AppendParameter(builder, parameter, ref first);
-            }
-            builder.AppendLine(")");
-        }
-        builder.AppendLine("```");
-
-        return new()
-        {
-            Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
-                Kind = MarkupKind.Markdown,
-                Value = builder.ToString()
-            })
-        };
-    }
-}
-
-internal record ScrDependencySymbol(Range Range, string Path, string RawPath) : ISenseDefinition
-{
-
-    public Range Range { get; } = Range;
-
-    public string SemanticTokenType { get; } = "string";
-    public string[] SemanticTokenModifiers { get; } = [];
-
-    public Hover GetHover()
-    {
-        return new()
-        {
-            Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
-                Kind = MarkupKind.Markdown,
-                Value = $"```gsc\n#using {RawPath}\n/* (script) \"{Path}\" */\n```"
-            })
-        };
+        return mandatoryParams;
     }
 }

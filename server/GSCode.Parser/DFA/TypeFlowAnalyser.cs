@@ -466,7 +466,8 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
         }
         else if (valueAssignmentResult == AssignmentResult.SuccessMutated)
         {
-            Sense.AddSenseToken(valueIdentifier, ScrVariableSymbol.Usage(foreachStmt.ValueIdentifier, ScrData.Default));
+            AstNode? defSource = symbolTable.TryGetLocalVariableInfo(valueIdentifier.Lexeme)?.DefinitionSource;
+            Sense.AddSenseToken(valueIdentifier, ScrVariableSymbol.Usage(foreachStmt.ValueIdentifier, ScrData.Default, definitionSource: defSource));
         }
     }
 

@@ -11324,7 +11324,7 @@
                         "name": null,
                         "description": null,
                         "type": {
-                            "dataType": "string",
+                            "dataType": "any",
                             "isArray": false
                         },
                         "void": false

@@ -1,6 +1,7 @@
 ﻿using GSCode.Parser.SPA.Models;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -32,7 +33,7 @@ public class ScriptAnalyserData
         LanguageId = languageId;
     }
 
-    private static readonly Dictionary<string, ScrLibraryData> _languageLibraries = new();
+    private static readonly ConcurrentDictionary<string, ScrLibraryData> _languageLibraries = new();
 
     /// <summary>
     /// Static cache of ScriptAnalyserData instances by language ID.
@@ -130,7 +131,7 @@ public class ScriptAnalyserData
             }
 
             if (_languageLibraries.TryGetValue(library.LanguageId, out ScrLibraryData? existingLibrary)
-                && existingLibrary!.Library.Revision > library.Revision)
+                && existingLibrary!.Library.Revision >= library.Revision)
             {
                 return false;
             }

@@ -7,42 +7,61 @@
 
 import * as path from "path";
 import * as vscode from 'vscode';
-import { execSync } from "child_process";
+import { LanguageClient } from 'vscode-languageclient/node';
 
-import { workspace, Disposable, ExtensionContext, window } from "vscode";
+let pendingReload = false;
+import { execFile } from "child_process";
+
+import { workspace, ExtensionContext, window } from "vscode";
 import {
-    LanguageClient,
     LanguageClientOptions,
-    SettingMonitor,
     ServerOptions,
     TransportKind,
-    InitializeParams,
-    StreamInfo,
-    createServerPipeTransport,
 } from "vscode-languageclient/node";
-import { Trace, createClientPipeTransport } from "vscode-jsonrpc/node";
-import { createConnection } from "net";
 import dotenv = require("dotenv");
 
 const REQUIRED_DOTNET_MAJOR = 10;
 const DOTNET_DOWNLOAD_URL = "https://dotnet.microsoft.com/download/dotnet/10.0";
 
-function isDotnetRuntimeAvailable(): boolean {
-    try {
-        const output = execSync("dotnet --list-runtimes", { encoding: "utf-8" });
-        // Look for Microsoft.NETCore.App with the required major version
-        const pattern = new RegExp(`Microsoft\\.NETCore\\.App ${REQUIRED_DOTNET_MAJOR}\\.`);
-        return pattern.test(output);
-    } catch {
-        return false;
-    }
+function isDotnetRuntimeAvailable(): Promise<boolean> {
+    return new Promise((resolve) => {
+        execFile("dotnet", ["--list-runtimes"], { encoding: "utf-8" }, (error, stdout) => {
+            if (error) {
+                resolve(false);
+                return;
+            }
+            const pattern = new RegExp(`Microsoft\\.NETCore\\.App ${REQUIRED_DOTNET_MAJOR}\\.`);
+            resolve(pattern.test(stdout));
+        });
+    });
 }
 
 let client: LanguageClient;
 
-export function activate(context: ExtensionContext) {
+function checkLanguageMismatch(document: vscode.TextDocument): void {
+    const ext = path.extname(document.fileName).toLowerCase();
+    if (ext !== ".gsc" && ext !== ".csc") return;
+
+    const expectedLang = ext === ".gsc" ? "gsc" : "csc";
+    if (document.languageId === expectedLang) return;
+
+    const config = workspace.getConfiguration("gscode");
+    if (!config.get<boolean>("warnLanguageMismatch", true)) return;
+
+    window.showWarningMessage(
+        `'${path.basename(document.fileName)}' has a ${ext} extension but is set to ${document.languageId.toUpperCase()} language mode. GSCode features may not work correctly.`,
+        "Fix Language Mode",
+        "Dismiss"
+    ).then(action => {
+        if (action === "Fix Language Mode") {
+            vscode.languages.setTextDocumentLanguage(document, expectedLang);
+        }
+    });
+}
+
+export async function activate(context: ExtensionContext) {
     // Ensure the user has .NET 10 installed, otherwise there isn't a whole lot we can do.
-    if (!isDotnetRuntimeAvailable()) {
+    if (!await isDotnetRuntimeAvailable()) {
         window
             .showErrorMessage(
                 `GSCode requires the .NET ${REQUIRED_DOTNET_MAJOR} runtime to run. Please install it and reload the window.`,
@@ -112,36 +131,54 @@ export function activate(context: ExtensionContext) {
     const gscWatcher = workspace.createFileSystemWatcher("**/*.gsc");
     const cscWatcher = workspace.createFileSystemWatcher("**/*.csc");
 
-    // Get configuration from workspace settings
-    const config = workspace.getConfiguration("gscode");
-    const enableWorkspaceIndexing = config.get<boolean>("enableWorkspaceIndexing", false);
+  // Get configuration from workspace settings
+  const config = workspace.getConfiguration("gscode");
+  const workspaceIndexingMode = config.get<string>("workspaceIndexingMode", "off");
+  const serverLogLevel = config.get<string>("serverLogLevel", "off");
+  const customRawPath = config.get<string>("customRawPath");
+  const allowRawFolderWrites = config.get<boolean>("allowRawFolderWrites", false);
 
-    // Options to control the language client
-    let clientOptions: LanguageClientOptions = {
-        documentSelector: [
-            {
-                scheme: "file",
-                language: "gsc",
-                pattern: "**/*.gsc",
-            },
-            {
-                scheme: "file",
-                language: "csc",
-                pattern: "**/*.csc",
-            },
-        ],
-        progressOnInitialization: true,
-        synchronize: {
-            fileEvents: [gscWatcher, cscWatcher],
-        },
-        // Pass configuration via initializationOptions to avoid workspace/configuration request
-        initializationOptions: {
-            gscode: {
-                enableWorkspaceIndexing: enableWorkspaceIndexing,
-            },
-        },
-        outputChannel: window.createOutputChannel('GSCode Language Server'),
-    };
+  // Options to control the language client
+  let clientOptions: LanguageClientOptions = {
+    documentSelector: [
+      {
+        scheme: "file",
+        language: "gsc",
+        pattern: "**/*.gsc",
+      },
+      {
+        scheme: "file",
+        language: "csc",
+        pattern: "**/*.csc",
+      },
+    ],
+    progressOnInitialization: true,
+    synchronize: {
+      fileEvents: [gscWatcher, cscWatcher],
+      configurationSection: 'gscode',
+    },
+    // Pass configuration via initializationOptions to avoid workspace/configuration request
+    initializationOptions: {
+      gscode: {
+        workspaceIndexingMode: workspaceIndexingMode,
+        serverLogLevel: serverLogLevel,
+        customRawPath: customRawPath,
+        allowRawFolderWrites: allowRawFolderWrites,
+      },
+    },
+    outputChannel: window.createOutputChannel('GSCode Language Server'),
+    middleware: {
+      // Suppress diagnostics for files outside the workspace (e.g. raw folder files)
+      handleDiagnostics(uri, diagnostics, next) {
+        next(uri, diagnostics);
+      },
+
+      // Add extra context to completion resolve before handing back to VS Code
+      resolveCompletionItem(item, token, next) {
+        return next(item, token);
+      },
+    },
+  };
 
     // Create the language client and start the client.
     client = new LanguageClient(
@@ -151,56 +188,58 @@ export function activate(context: ExtensionContext) {
         clientOptions
     );
 
-    // Push the disposable to the context's subscriptions so that the
-    // client can be deactivated on extension deactivation
-    client.start();
+  // Push the disposable to the context's subscriptions so that the
+  // client can be deactivated on extension deactivation
+  client.start();
 
-    // Warn when a file's extension doesn't match its language ID (e.g. .csc opened as GSC).
-    const warnedDocuments = new Set<string>();
-    context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(doc => {
-        const config = workspace.getConfiguration("gscode");
-        if (!config.get<boolean>("warnLanguageMismatch", true)) {
+  // Check already-open documents for language mismatch
+  vscode.workspace.textDocuments.forEach(checkLanguageMismatch);
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument(checkLanguageMismatch)
+  );
+
+  // Watch for configuration changes and send to server
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async e => {
+      if (e.affectsConfiguration('gscode')) {
+        // Send the entire gscode configuration section to the server
+        const config = vscode.workspace.getConfiguration('gscode');
+        client.sendNotification('workspace/didChangeConfiguration', {
+          settings: {
+            gscode: {
+              customRawPath: config.get('customRawPath'),
+              allowRawFolderWrites: config.get('allowRawFolderWrites'),
+              workspaceIndexingMode: config.get('workspaceIndexingMode')
+            }
+          }
+        });
+
+        // For certain settings that require reload, prompt the user
+        if (e.affectsConfiguration('gscode.serverLogLevel') ||
+            e.affectsConfiguration('gscode.workspaceIndexingMode') ||
+            e.affectsConfiguration('gscode.customRawPath')) {
+
+          // Prevent multiple prompts
+          if (pendingReload) {
             return;
-        }
+          }
+          pendingReload = true;
 
-        const ext = path.extname(doc.fileName).toLowerCase();
-        const lang = doc.languageId;
-        let expectedLang: string | undefined;
+          const action = await vscode.window.showInformationMessage(
+            'GSCode configuration changed. Reload window for changes to take effect.',
+            'Reload Window',
+            'Later'
+          );
 
-        if (ext === ".csc" && lang === "gsc") {
-            expectedLang = "CSC";
-        } else if (ext === ".gsc" && lang === "csc") {
-            expectedLang = "GSC";
+          if (action === 'Reload Window') {
+            await vscode.commands.executeCommand('workbench.action.reloadWindow');
+          } else {
+            pendingReload = false;
+          }
         }
-
-        if (expectedLang && !warnedDocuments.has(doc.uri.toString())) {
-            warnedDocuments.add(doc.uri.toString());
-            vscode.window.showWarningMessage(
-                `This ${ext} file is being parsed as ${lang.toUpperCase()}. Did you mean to use ${expectedLang}?`,
-                "Change Language",
-                "Don't Ask Again"
-            ).then(sel => {
-                if (sel === "Change Language") {
-                    vscode.commands.executeCommand("workbench.action.editor.changeLanguageMode");
-                } else if (sel === "Don't Ask Again") {
-                    config.update("warnLanguageMismatch", false, vscode.ConfigurationTarget.Global);
-                }
-            });
-        }
-    }));
-
-    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
-        if (e.affectsConfiguration('gscode.enableWorkspaceIndexing')) {
-            vscode.window.showInformationMessage(
-                'Changing gscode.enableWorkspaceIndexing requires reloading the GSCode language server.',
-                'Reload'
-            ).then(sel => {
-                if (sel === 'Reload') {
-                    vscode.commands.executeCommand('workbench.action.reloadWindow');
-                }
-            });
-        }
-    }));
+      }
+    })
+  );
 }
 
 export function deactivate(): Thenable<void> | undefined {

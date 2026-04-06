@@ -580,8 +580,9 @@ internal ref partial struct TypeFlowAnalyser
                 return false;
             }
 
+            AstNode? defSource = symbolTable.TryGetLocalVariableInfo(symbolName)?.DefinitionSource;
             symbolTable.SetSymbol(symbolName, newValue);
-            Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Usage(identifier, newValue));
+            Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Usage(identifier, newValue, definitionSource: defSource));
             return true;
         }
 
@@ -834,7 +835,8 @@ internal ref partial struct TypeFlowAnalyser
                 return right;
             }
 
-            Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Usage(identifier, right));
+            AstNode? defSource = symbolTable.TryGetLocalVariableInfo(symbolName)?.DefinitionSource;
+            Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Usage(identifier, right, definitionSource: defSource));
             return right;
         }
 
@@ -973,7 +975,8 @@ internal ref partial struct TypeFlowAnalyser
             if (createSenseTokenForRhs)
             {
                 bool isConstant = symbolTable.SymbolIsConstant(expr.Identifier);
-                Sense.AddSenseToken(expr.Token, ScrVariableSymbol.Usage(expr, data, isConstant));
+                AstNode? defSource = symbolTable.TryGetLocalVariableInfo(expr.Identifier)?.DefinitionSource;
+                Sense.AddSenseToken(expr.Token, ScrVariableSymbol.Usage(expr, data, isConstant, defSource));
             }
         }
         return data;

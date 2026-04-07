@@ -151,7 +151,7 @@ public enum GSCErrorCodes
 
 public static class DiagnosticCodes
 {
-        private static readonly Dictionary<GSCErrorCodes, DiagnosticCode> diagnosticsDictionary = new()
+    private static readonly Dictionary<GSCErrorCodes, DiagnosticCode> diagnosticsDictionary = new()
     {
         // 1xxx
         { GSCErrorCodes.ExpectedPreprocessorToken, new("'{0}' expected, but instead got '{1}'.", DiagnosticSeverity.Error) },
@@ -235,7 +235,7 @@ public static class DiagnosticCodes
         { GSCErrorCodes.CannotAssignToReadOnlyProperty, new("The property '{0}' cannot be assigned to, it is read-only.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.MissingUsingFile, new("Unable to locate file '{0}' in the workspace or in the shared scripts directory.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.CannotEnumerateType, new("Type '{0}' is not enumerable.", DiagnosticSeverity.Error) },
-        { GSCErrorCodes.FunctionDoesNotExist, new("The function '{0}' could not be resolved in this context and may not exist in built-ins.\nNote: Built-in function checking is based on Treyarch's API, which contains errors. Report falsely flagged functions.", DiagnosticSeverity.Warning) },
+        { GSCErrorCodes.FunctionDoesNotExist, new("The function '{0}' could not be resolved in this context and may not exist in built-ins.\nNote: Built-in function checking is based on Treyarch's API, which contains errors. Report falsely flagged functions.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.ExpectedFunction, new("Expected a function, but instead got '{0}'.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.ReservedSymbol, new("The symbol '{0}' is reserved.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.UnusedVariable, new("The variable '{0}' is declared but never used.", DiagnosticSeverity.Information, new[] { DiagnosticTag.Unnecessary }) },
@@ -287,27 +287,26 @@ public static class DiagnosticCodes
 
         public static Diagnostic GetDiagnostic(Range range, string source, GSCErrorCodes key, params object?[] arguments)
         {
-                if (diagnosticsDictionary.ContainsKey(key))
-                {
-                        DiagnosticCode result = diagnosticsDictionary[key];
-                        return new()
-                        {
-                                Message = string.Format(result.Message, arguments),
-                                Range = range,
-                                Severity = result.Category,
-                                Code = (int)key,
-                                Source = source,
-                                Tags = result.Tags
-                        };
-                }
-
+            if (diagnosticsDictionary.TryGetValue(key, out DiagnosticCode? result))
+            {
                 return new()
                 {
-                        Message = "GSCode.NET Error: could not find an error matching this code.",
-                        Range = range,
-                        Severity = DiagnosticSeverity.Error,
-                        Code = (int)key,
-                        Source = source
+                    Message = string.Format(result.Message, arguments),
+                    Range = range,
+                    Severity = result.Category,
+                    Code = (int)key,
+                    Source = source,
+                    Tags = result.Tags
                 };
-        }
-}
+            }
+
+            return new()
+            {
+                Message = "GSCode.NET Error: could not find an error matching this code.",
+                Range = range,
+                Severity = DiagnosticSeverity.Error,
+                            Code = (int)key,
+                            Source = source
+                        };
+                    }
+                }

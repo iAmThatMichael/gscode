@@ -74,6 +74,13 @@ public partial class ScriptManager
         return Scripts.TryGetValue(document.Uri, out var script) ? script.Script : null;
     }
 
+    /// <summary>
+    /// Retrieves the current cached source text for the given document.
+    /// Returns false if the document is not open in the editor cache.
+    /// </summary>
+    public bool TryGetCachedContent(DocumentUri uri, out string content)
+        => _cache.TryGetContent(uri, out content);
+
     private async Task<IEnumerable<Diagnostic>> ProcessEditorAsync(Uri documentUri, Script script, string content, CancellationToken cancellationToken = default)
     {
         string filePath = documentUri.LocalPath;

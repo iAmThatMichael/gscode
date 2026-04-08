@@ -160,6 +160,21 @@ internal sealed class CodeActionHandler(
                     actions.Add(new CommandOrCodeAction(createAction));
                 }
             }
+
+            // UnknownNamespace: offer to add a #using directive for each file that
+            // exports symbols into the missing namespace. When multiple files define
+            // the same namespace, one code action per file is emitted so the user can
+            // pick the correct dependency.
+            if (errorCode == GSCErrorCodes.UnknownNamespace)
+            {
+                var usingActions = CreateAddUsingForNamespaceActions(
+                    request.TextDocument, diagnostic, content);
+
+                foreach (var usingAction in usingActions)
+                {
+                    actions.Add(new CommandOrCodeAction(usingAction));
+                }
+            }
         }
 
         // Source action: remove all unused #using directives in the file at once.
@@ -576,6 +591,150 @@ internal sealed class CodeActionHandler(
                 }
             }
         };
+    }
+
+    /// <summary>
+    /// Creates one code action per file that defines symbols in the missing namespace.
+    /// Each action inserts a <c>#using</c> directive at the top of the current document
+    /// pointing to the file that provides the namespace.
+    /// </summary>
+    /// <remarks>
+    /// The diagnostic range covers the namespace identifier token (e.g. <c>foo</c> in
+    /// <c>foo::bar()</c>), so <see cref="GetTextInRange"/> extracts the namespace name directly.
+    /// The <c>#using</c> path is derived from the provider file's absolute path by extracting
+    /// everything from the <c>scripts/</c> directory onward and stripping the file extension,
+    /// producing a path like <c>scripts\zm\utility</c>.
+    /// </remarks>
+    private List<CodeAction> CreateAddUsingForNamespaceActions(
+        TextDocumentIdentifier document, Diagnostic diagnostic, string content)
+    {
+        var results = new List<CodeAction>();
+
+        if (string.IsNullOrEmpty(content))
+        {
+            return results;
+        }
+
+        // The diagnostic range covers the namespace identifier token
+        string? namespaceName = GetTextInRange(content, diagnostic.Range);
+        if (string.IsNullOrEmpty(namespaceName))
+        {
+            return results;
+        }
+
+        // Query the global symbol registry for files that export this namespace
+        List<string> filePaths = _scriptManager.SymbolRegistry.FindFilesForNamespace(namespaceName);
+        if (filePaths.Count == 0)
+        {
+            return results;
+        }
+
+        // Find the insertion point: after the last existing #using line, or at (0,0)
+        Position insertPosition = FindUsingInsertPosition(content);
+        bool isFirst = filePaths.Count == 1;
+
+        foreach (string filePath in filePaths)
+        {
+            // Convert the absolute file path to a #using path (e.g. "scripts\zm\utility")
+            string? usingPath = ConvertFilePathToUsingPath(filePath);
+            if (usingPath is null)
+            {
+                continue;
+            }
+
+            string directive = $"#using {usingPath};\n";
+
+            results.Add(new CodeAction
+            {
+                Title = $"Add '#using {usingPath}'",
+                Kind = CodeActionKind.QuickFix,
+                IsPreferred = isFirst,
+                Diagnostics = new Container<Diagnostic>(diagnostic),
+                Edit = new WorkspaceEdit
+                {
+                    Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
+                    {
+                        [document.Uri] =
+                        [
+                            new TextEdit
+                            {
+                                Range = new Range(insertPosition, insertPosition),
+                                NewText = directive
+                            }
+                        ]
+                    }
+                }
+            });
+
+            // Only the first suggestion is marked as preferred
+            isFirst = false;
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Finds the position where a new <c>#using</c> directive should be inserted.
+    /// Returns the start of the line immediately after the last existing <c>#using</c>
+    /// directive, or <c>(0, 0)</c> if none exist.
+    /// </summary>
+    private static Position FindUsingInsertPosition(string content)
+    {
+        string[] lines = content.ReplaceLineEndings("\n").Split('\n');
+        int lastUsingLine = -1;
+
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string trimmed = lines[i].TrimStart();
+            if (trimmed.StartsWith("#using", StringComparison.Ordinal))
+            {
+                lastUsingLine = i;
+            }
+            // Stop scanning once we pass the header area (first non-blank, non-using,
+            // non-comment line that looks like a definition)
+            else if (trimmed.Length > 0
+                && !trimmed.StartsWith("//", StringComparison.Ordinal)
+                && !trimmed.StartsWith("/*", StringComparison.Ordinal))
+            {
+                break;
+            }
+        }
+
+        // Insert after the last #using, or at the very top
+        return lastUsingLine >= 0
+            ? new Position(lastUsingLine + 1, 0)
+            : new Position(0, 0);
+    }
+
+    /// <summary>
+    /// Converts an absolute file path to the <c>#using</c> directive path format.
+    /// Extracts the portion starting from the <c>scripts/</c> directory and removes
+    /// the file extension, producing paths like <c>scripts\zm\utility</c>.
+    /// Returns <see langword="null"/> when the file is not inside a <c>scripts/</c> hierarchy.
+    /// </summary>
+    private static string? ConvertFilePathToUsingPath(string filePath)
+    {
+        string normalised = filePath.Replace('\\', '/');
+        const string marker = "/scripts/";
+        int idx = normalised.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+
+        if (idx < 0)
+        {
+            return null;
+        }
+
+        // Extract from "scripts/" onward (including the "scripts/" prefix)
+        string relativePath = normalised[(idx + 1)..]; // skip the leading '/'
+
+        // Remove the file extension (.gsc, .csc, .gsh)
+        int dotIndex = relativePath.LastIndexOf('.');
+        if (dotIndex > 0)
+        {
+            relativePath = relativePath[..dotIndex];
+        }
+
+        // Convert to backslash-separated form to match GSC convention
+        return relativePath.Replace('/', '\\');
     }
 
     /// <summary>

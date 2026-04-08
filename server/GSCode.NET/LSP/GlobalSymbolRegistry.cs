@@ -355,4 +355,34 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     }
 
     #endregion
+
+    /// <summary>
+    /// Returns all distinct file paths that define at least one symbol in the given namespace.
+    /// Used by the code action handler to suggest <c>#using</c> directives when a namespace is unknown.
+    /// </summary>
+    /// <param name="namespaceName">The namespace to search for (case-insensitive).</param>
+    /// <returns>A list of file paths, or an empty list if no files define this namespace.</returns>
+    public List<string> FindFilesForNamespace(string namespaceName)
+    {
+        var normalizedNs = namespaceName?.ToLowerInvariant() ?? string.Empty;
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        _lock.EnterReadLock();
+        try
+        {
+            foreach (var (key, def) in _symbols)
+            {
+                if (string.Equals(key.Qualifier, normalizedNs, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(def.FilePath);
+                }
+            }
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+
+        return result.ToList();
+    }
 }

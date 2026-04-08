@@ -170,13 +170,23 @@ public partial class Script
         string currentScriptPath = ScriptUri.ToUri().LocalPath;
         string ns = GetEffectiveNamespace();
 
-        var loc = (qualifier is not null && DefinitionsTable is not null
-                      ? DefinitionsTable.GetFunctionLocation(qualifier, name) ?? DefinitionsTable.GetClassLocation(qualifier, name)
-                      : null)
-               ?? DefinitionsTable?.GetFunctionLocation(ns, name)
+        // When the call site carries an explicit namespace qualifier (e.g. util::init),
+        // only look inside that namespace.  Falling through to the AnyNamespace helpers
+        // would silently resolve to an unrelated function that merely shares the same
+        // name in a different namespace, causing GoTo to jump to the wrong file.
+        (string FilePath, TokenRange Range)? loc;
+        if (qualifier is not null && DefinitionsTable is not null)
+        {
+            loc = DefinitionsTable.GetFunctionLocation(qualifier, name)
+               ?? DefinitionsTable.GetClassLocation(qualifier, name);
+        }
+        else
+        {
+            loc = DefinitionsTable?.GetFunctionLocation(ns, name)
                ?? DefinitionsTable?.GetClassLocation(ns, name)
                ?? DefinitionsTable?.GetFunctionLocationAnyNamespace(name)
                ?? DefinitionsTable?.GetClassLocationAnyNamespace(name);
+        }
 
         return loc is not null
             ? ScriptFileResolver.ResolveDefinitionLocation(currentScriptPath, loc.Value.FilePath, loc.Value.Range.ToRange())

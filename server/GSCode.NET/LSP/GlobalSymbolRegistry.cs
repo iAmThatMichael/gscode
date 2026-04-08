@@ -64,9 +64,16 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
                 var key = QualifiedSymbolKey.Normalized(ns, name);
                 if (_symbols.TryGetValue(key, out var def))
                     return def;
+
+                // An explicit namespace was given but no exact match exists.
+                // Do NOT fall back to a name-only scan: that would silently
+                // resolve ns::func to an unrelated function that merely shares
+                // the same name in a different namespace, causing GoTo to jump
+                // to the wrong file.
+                return null;
             }
 
-            // Fall back to name-only search
+            // Unqualified reference — search by name only across all namespaces.
             return FindSymbolByNameOnlyCore(name);
         }
         finally

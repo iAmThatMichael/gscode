@@ -1449,6 +1449,18 @@ internal ref partial struct TypeFlowAnalyser
             return ScrData.Default;
         }
 
+        // Namespace is known but the requested function was not found inside it.
+        // Return ScrData.Default (type-unknown) so the upstream call-site check does
+        // not emit a cascading ExpectedFunction (3036) error — that message
+        // ("expected a function, got 'undefined'") is meaningless when the whole line
+        // is syntactically valid and the only problem is a missing symbol.
+        if (symbol.Type == ScrDataTypes.Undefined)
+        {
+            AddDiagnostic(memberNode.Range, GSCErrorCodes.NamespaceDoesNotContainFunction,
+                namespaceNode.Identifier, memberNode.Identifier);
+            return ScrData.Default;
+        }
+
         if (flags.HasFlag(SymbolFlags.Global) && symbol.Type == ScrDataTypes.Function)
         {
             if (symbol.TryGetFunction(out ScrFunction? function))

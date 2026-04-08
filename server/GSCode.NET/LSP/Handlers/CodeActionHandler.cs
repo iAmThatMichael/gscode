@@ -5,6 +5,7 @@ using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using System.IO;
 using System.Linq;
 using System.Text;
 
@@ -145,6 +146,19 @@ internal sealed class CodeActionHandler(
             if (action is not null)
             {
                 actions.Add(new CommandOrCodeAction(action));
+            }
+
+            // MissingUsingFile gets a second option: create the file at its expected path
+            // in addition to the existing "remove #using" quick fix.
+            if (errorCode == GSCErrorCodes.MissingUsingFile)
+            {
+                CodeAction? createAction = TryCreateMissingFileAction(
+                    request.TextDocument, diagnostic, content);
+
+                if (createAction is not null)
+                {
+                    actions.Add(new CommandOrCodeAction(createAction));
+                }
             }
         }
 
@@ -562,6 +576,109 @@ internal sealed class CodeActionHandler(
                 }
             }
         };
+    }
+
+    /// <summary>
+    /// Offers to create the missing file referenced by a failing <c>#using</c> directive.
+    /// <para>
+    /// The file is placed in the same scripts root as the current document (the directory
+    /// that contains the <c>scripts/</c> folder). The path hierarchy is:
+    /// <list type="bullet">
+    ///   <item>Mod: <c>&lt;game&gt;\mods\&lt;modname&gt;\scripts\…</c></item>
+    ///   <item>Usermap: <c>&lt;game&gt;\usermaps\&lt;mapname&gt;\scripts\…</c></item>
+    ///   <item>Root: <c>&lt;TA_GAME_PATH or custom raw&gt;\scripts\…</c></item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    private static CodeAction? TryCreateMissingFileAction(
+        TextDocumentIdentifier document, Diagnostic diagnostic, string content)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return null;
+        }
+
+        // The diagnostic range covers only the path segments of the #using directive
+        // (e.g. "scripts\m_shared\util_shared") — no keyword, no semicolon.
+        string? rawPath = GetTextInRange(content, diagnostic.Range);
+        if (string.IsNullOrEmpty(rawPath))
+        {
+            return null;
+        }
+
+        // Derive the file extension from the current document (.gsc / .csc / .gsh)
+        string currentFilePath = document.Uri.ToUri().LocalPath;
+        string extension = Path.GetExtension(currentFilePath).ToLowerInvariant();
+        if (string.IsNullOrEmpty(extension))
+        {
+            extension = ".gsc";
+        }
+
+        // Normalise separators and append the extension to get the qualified relative path,
+        // matching the format used by GetScriptFilePath (e.g. "scripts/m_shared/util_shared.gsc").
+        string qualifiedRelative = rawPath.Replace('\\', '/') + extension;
+
+        // Find the scripts root: the directory that contains the "scripts/" folder,
+        // using the same heuristic as ParserUtil.ExtractBasePath.
+        string? basePath = ExtractScriptsBasePath(currentFilePath);
+        if (basePath is null)
+        {
+            return null;
+        }
+
+        string newFilePath = Path.GetFullPath(
+            Path.Combine(basePath, qualifiedRelative.Replace('/', Path.DirectorySeparatorChar)));
+
+        DocumentUri newFileUri = DocumentUri.FromFileSystemPath(newFilePath);
+        string fileName = Path.GetFileName(newFilePath);
+
+        return new CodeAction
+        {
+            Title = $"Create file '{fileName}'",
+            Kind = CodeActionKind.QuickFix,
+            Diagnostics = new Container<Diagnostic>(diagnostic),
+            Edit = new WorkspaceEdit
+            {
+                DocumentChanges = new Container<WorkspaceEditDocumentChange>(
+                    // 1. Create the empty file (no-op if it already exists)
+                    new WorkspaceEditDocumentChange(new CreateFile
+                    {
+                        Uri = newFileUri,
+                        Options = new CreateFileOptions { IgnoreIfExists = true }
+                    })
+                )
+            }
+        };
+    }
+
+    /// <summary>
+    /// Extracts the root path that sits immediately above the <c>scripts/</c> folder in
+    /// <paramref name="filePath"/>. Returns <see langword="null"/> when no such ancestor
+    /// can be found (e.g. the file is not inside any <c>scripts</c> hierarchy).
+    /// </summary>
+    private static string? ExtractScriptsBasePath(string filePath)
+    {
+        string normalised = filePath.Replace('\\', '/');
+        const string marker = "/scripts/";
+        int idx = normalised.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+
+        if (idx < 0)
+        {
+            return null;
+        }
+
+        string basePath = normalised[..idx];
+
+        // On Windows the URI might have a leading slash before the drive letter ("/G:/...")
+        if (OperatingSystem.IsWindows()
+            && basePath.Length > 2
+            && basePath[0] == '/'
+            && basePath[2] == ':')
+        {
+            basePath = basePath[1..];
+        }
+
+        return basePath.Replace('/', Path.DirectorySeparatorChar);
     }
 
     // -------------------------------------------------------------------------

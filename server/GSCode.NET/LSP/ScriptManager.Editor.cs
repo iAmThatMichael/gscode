@@ -3,7 +3,9 @@ using GSCode.Parser;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using OmniSharp.Extensions.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using System.Linq;
 
 namespace GSCode.NET.LSP;
 
@@ -72,6 +74,52 @@ public partial class ScriptManager
     public Script? GetParsedEditor(TextDocumentIdentifier document)
     {
         return Scripts.TryGetValue(document.Uri, out var script) ? script.Script : null;
+    }
+
+    /// <summary>
+    /// Re-parses every document that is currently open in the editor and republishes
+    /// its diagnostics. Called when a watched file is created, changed externally, or
+    /// deleted so that diagnostics such as <see cref="GSCode.Data.GSCErrorCodes.MissingUsingFile"/>
+    /// are cleared (or raised) without requiring the user to manually edit each file.
+    /// </summary>
+    public async Task ReparseAllOpenEditorsAsync(CancellationToken cancellationToken = default)
+    {
+        // Snapshot the editor URIs so we don't hold a live enumerator while awaiting
+        var editorUris = Scripts
+            .Where(kv => kv.Value.Type == CachedScriptType.Editor)
+            .Select(kv => kv.Key)
+            .ToList();
+
+        foreach (DocumentUri docUri in editorUris)
+        {
+            // Skip if the document was closed while we were iterating
+            if (!_cache.TryGetContent(docUri, out string content))
+            {
+                continue;
+            }
+
+            await _editorPriority.WaitAsync(cancellationToken);
+            try
+            {
+                if (!Scripts.TryGetValue(docUri, out CachedScript? cached))
+                {
+                    continue;
+                }
+
+                IEnumerable<Diagnostic> diags =
+                    await ProcessEditorAsync(docUri.ToUri(), cached.Script, content, cancellationToken);
+
+                _facade?.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
+                {
+                    Uri = docUri,
+                    Diagnostics = new Container<Diagnostic>(diags.ToArray())
+                });
+            }
+            finally
+            {
+                _editorPriority.Release();
+            }
+        }
     }
 
     /// <summary>

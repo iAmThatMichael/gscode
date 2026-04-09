@@ -102,14 +102,17 @@ public class ScriptCache
 
         while (currentLine < line && pos < content.Length)
         {
-            int newlinePos = content.IndexOf(Environment.NewLine, pos);
+            // Find the next line break — handle \r\n, \n, and bare \r.
+            // VS Code always sends LF (\n) line endings regardless of the OS,
+            // so we must not rely on Environment.NewLine (which is \r\n on Windows).
+            int newlinePos = content.IndexOf('\n', pos);
             if (newlinePos == -1)
             {
                 // No more newlines found, return -1 to indicate line doesn't exist
                 return -1;
             }
-            // Move past the newline (Environment.NewLine could be \r\n or \n)
-            pos = newlinePos + Environment.NewLine.Length;
+            // Move past the \n
+            pos = newlinePos + 1;
             currentLine++;
         }
 
@@ -120,5 +123,21 @@ public class ScriptCache
     {
         DocumentUri documentUri = document.Uri;
         Scripts.Remove(documentUri, out StringBuilder? _);
+    }
+
+    /// <summary>
+    /// Retrieves the current cached content for the given document URI.
+    /// Returns false if the document is not in the cache.
+    /// </summary>
+    public bool TryGetContent(DocumentUri uri, out string content)
+    {
+        if (Scripts.TryGetValue(uri, out StringBuilder? sb))
+        {
+            content = sb.ToString();
+            return true;
+        }
+
+        content = string.Empty;
+        return false;
     }
 }

@@ -53,23 +53,23 @@ public class TextDocumentSyncHandler : ITextDocumentSyncHandler
         _logger.LogInformation("Document changed ({ChangeType}, {ChangeCount} change(s))", changeType, changeCount);
 
         var sw = Stopwatch.StartNew();
-        var diagnostics = ImmutableArray<Diagnostic>.Empty.ToBuilder();
 
-        IEnumerable<Diagnostic> results = await _scriptManager.UpdateEditorAsync(request.TextDocument, request.ContentChanges, cancellationToken);
+        IEnumerable<Diagnostic> results = await _scriptManager.UpdateEditorAsync(
+            request.TextDocument, request.ContentChanges, cancellationToken);
 
-        foreach(Diagnostic result in results)
-        {
-            diagnostics.Add(result);
-        }
-
+        // Omit Version — if the parse took time and the user kept typing, the document
+        // version has advanced past the one in request.TextDocument.Version.  VS Code
+        // discards publishDiagnostics notifications whose version < current, leaving
+        // stale squiggles on screen.  Omitting it tells the client "always accept."
         _facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams()
         {
-            Diagnostics = new Container<Diagnostic>(diagnostics.ToArray()),
-            Uri = request.TextDocument.Uri,
-            Version = request.TextDocument.Version
+            Diagnostics = new Container<Diagnostic>(results.ToArray()),
+            Uri = request.TextDocument.Uri
         });
+
         sw.Stop();
-        _logger.LogInformation("Document change processed in {ElapsedMs} ms with {DiagCount} diagnostics", sw.ElapsedMilliseconds, diagnostics.Count);
+        _logger.LogInformation("Document change processed in {ElapsedMs} ms with {DiagCount} diagnostics",
+            sw.ElapsedMilliseconds, results.Count());
         return Unit.Value;
     }
 
@@ -82,8 +82,7 @@ public class TextDocumentSyncHandler : ITextDocumentSyncHandler
         _facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams()
         {
             Diagnostics = resultingDiagnostics.ToArray(),
-            Uri = request.TextDocument.Uri,
-            Version = request.TextDocument.Version
+            Uri = request.TextDocument.Uri
         });
         sw.Stop();
         _logger.LogInformation("Document open processed in {ElapsedMs} ms with {DiagCount} diagnostics", sw.ElapsedMilliseconds, resultingDiagnostics.Count());

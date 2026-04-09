@@ -279,7 +279,8 @@ LanguageServer server = await LanguageServer.From(options =>
 		.AddHandler<SignatureHelpHandler>()
 		.AddHandler<ReferencesHandler>()
 		.AddHandler<ConfigurationHandler>()
-		.AddHandler<DidChangeWatchedFilesHandler>();
+		.AddHandler<DidChangeWatchedFilesHandler>()
+		.AddHandler<CodeActionHandler>();
 	// Allow disposal of the stream if required.
 	if (disposable is not null)
 	{

@@ -64,9 +64,16 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
                 var key = QualifiedSymbolKey.Normalized(ns, name);
                 if (_symbols.TryGetValue(key, out var def))
                     return def;
+
+                // An explicit namespace was given but no exact match exists.
+                // Do NOT fall back to a name-only scan: that would silently
+                // resolve ns::func to an unrelated function that merely shares
+                // the same name in a different namespace, causing GoTo to jump
+                // to the wrong file.
+                return null;
             }
 
-            // Fall back to name-only search
+            // Unqualified reference — search by name only across all namespaces.
             return FindSymbolByNameOnlyCore(name);
         }
         finally
@@ -355,4 +362,34 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     }
 
     #endregion
+
+    /// <summary>
+    /// Returns all distinct file paths that define at least one symbol in the given namespace.
+    /// Used by the code action handler to suggest <c>#using</c> directives when a namespace is unknown.
+    /// </summary>
+    /// <param name="namespaceName">The namespace to search for (case-insensitive).</param>
+    /// <returns>A list of file paths, or an empty list if no files define this namespace.</returns>
+    public List<string> FindFilesForNamespace(string namespaceName)
+    {
+        var normalizedNs = namespaceName?.ToLowerInvariant() ?? string.Empty;
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        _lock.EnterReadLock();
+        try
+        {
+            foreach (var (key, def) in _symbols)
+            {
+                if (string.Equals(key.Qualifier, normalizedNs, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(def.FilePath);
+                }
+            }
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+
+        return result.ToList();
+    }
 }

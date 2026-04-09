@@ -27,6 +27,10 @@ public partial class ScriptManager
         foreach (var func in defTable.ExportedFunctions)
         {
             var loc = defTable.GetFunctionLocation(func.Namespace, func.Name);
+            // Function flags (e.g. "autoexec", "private") are recorded on the DefinitionsTable
+            // by SignatureAnalyser via RecordFunctionFlags, not on the ScrFunction instance itself,
+            // so we read them from the table here.
+            var flags = defTable.GetFunctionFlags(func.Namespace, func.Name);
             newSymbols.Add(new SymbolDefinition(
                 Namespace: func.Namespace,
                 Name: func.Name,
@@ -34,7 +38,7 @@ public partial class ScriptManager
                 FilePath: loc?.FilePath ?? filePath,
                 Range: loc?.Range ?? default,
                 Parameters: func.Overloads.FirstOrDefault()?.Parameters?.Select(p => p.Name).ToArray(),
-                Flags: func.Flags?.ToArray(),
+                Flags: flags,
                 Documentation: func.DocComment ?? func.Description,
                 Symbol: func
             ));

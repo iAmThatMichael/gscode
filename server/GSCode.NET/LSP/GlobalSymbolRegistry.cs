@@ -361,6 +361,32 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         return symbol?.Type == ExportedSymbolType.Function ? symbol.Symbol as ScrFunction : null;
     }
 
+    /// <inheritdoc/>
+    bool ISymbolLocationProvider.AnyFunctionInFileHasFlag(string filePathSuffix, string flag)
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            foreach (var (path, keys) in _fileIndex)
+            {
+                if (!path.EndsWith(filePathSuffix, StringComparison.OrdinalIgnoreCase)) continue;
+                foreach (var key in keys.Keys)
+                {
+                    if (!_symbols.TryGetValue(key, out var def)) continue;
+                    if (def.Type != ExportedSymbolType.Function) continue;
+                    if (def.Flags is null) continue;
+                    for (int i = 0; i < def.Flags.Length; i++)
+                    {
+                        if (string.Equals(def.Flags[i], flag, StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
+                }
+            }
+            return false;
+        }
+        finally { _lock.ExitReadLock(); }
+    }
+
     #endregion
 
     /// <summary>

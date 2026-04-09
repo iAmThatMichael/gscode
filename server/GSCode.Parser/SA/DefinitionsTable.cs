@@ -44,6 +44,13 @@ public class DefinitionsTable
         _globalProvider = globalProvider;
     }
 
+    /// <summary>
+    /// Returns true if any function defined in a file matching <paramref name="filePathSuffix"/>
+    /// (case-insensitive) has the given flag. Returns false when no global provider is wired.
+    /// </summary>
+    public bool AnyFunctionInDependencyHasFlag(string filePathSuffix, string flag)
+        => _globalProvider?.AnyFunctionInFileHasFlag(filePathSuffix, flag) ?? false;
+
     internal void AddFunction(ScrFunction function, FunDefnNode node)
     {
         LocalScopedFunctions.Add((function, node));

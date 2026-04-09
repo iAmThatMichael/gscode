@@ -251,7 +251,7 @@ public static class DiagnosticCodes
         { GSCErrorCodes.FallthroughCase, new("Control falls through from 'case' to the next 'case'.", DiagnosticSeverity.Information) },
         { GSCErrorCodes.UnreachableCase, new("'case' is unreachable.", DiagnosticSeverity.Warning, new[] { DiagnosticTag.Unnecessary }) },
         { GSCErrorCodes.ShadowedSymbol, new("Local '{0}' shadows a symbol from an outer scope.", DiagnosticSeverity.Information) },
-        { GSCErrorCodes.UnusedUsing, new("The using file '{0}' is not referenced.", DiagnosticSeverity.Hint, new[] { DiagnosticTag.Unnecessary }) },
+        { GSCErrorCodes.UnusedUsing, new("The using file '{0}' is not referenced and contains no automatic entry points.", DiagnosticSeverity.Hint, new[] { DiagnosticTag.Unnecessary }) },
         { GSCErrorCodes.CircularDependency, new("Circular dependency detected involving '{0}'.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.NoMatchingOverload, new("No overload of '{0}' matches argument types ({1}).", DiagnosticSeverity.Error) },
         { GSCErrorCodes.CalledOnInvalidTarget, new("Called-on target must be an entity/struct; got '{0}'.", DiagnosticSeverity.Error) },

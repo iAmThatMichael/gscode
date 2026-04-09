@@ -86,6 +86,12 @@ internal ref struct ScriptDiagnosticsAnalyser(
 
             if (!anyFromThisUsing)
             {
+                // Don't flag the using as unused if the referenced file contains an autoexec
+                // function — autoexec runs purely because the file is #using'd, with no explicit
+                // call site for the analyser to find.
+                if (DefinitionsTable.AnyFunctionInDependencyHasFlag(expectedSuffix, "autoexec"))
+                    continue;
+
                 Sense.AddSpaDiagnostic(depNode.Range, GSCErrorCodes.UnusedUsing, depNode.Path);
             }
         }

@@ -1,6 +1,6 @@
 import type { ScrDataType, ScrFunction, ScrFunctionOverload, ScrFunctionParameter } from "$lib/models/library";
 
-export function singleTypeToString(type: ScrDataType | undefined): string {
+export function singleTypeToString(type: ScrDataType | null | undefined): string {
     if (!type || !type.dataType) {
         return "";
     }
@@ -25,7 +25,7 @@ export function singleTypeToString(type: ScrDataType | undefined): string {
     return type.dataType;
 }
 
-export function typeToString(type: ScrDataType | undefined): string {
+export function typeToString(type: ScrDataType | null | undefined): string {
     if (!type || !type.dataType) {
         return "";
     }

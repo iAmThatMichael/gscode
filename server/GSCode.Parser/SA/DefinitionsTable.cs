@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using GSCode.Parser.AST;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
@@ -14,8 +12,8 @@ public class DefinitionsTable
 {
     public string CurrentNamespace { get; set; }
 
-    internal List<Tuple<ScrFunction, FunDefnNode>> LocalScopedFunctions { get; } = new();
-    internal List<Tuple<ScrClass, ClassDefnNode>> LocalScopedClasses { get; } = new();
+    internal List<(ScrFunction Function, FunDefnNode Node)> LocalScopedFunctions { get; } = new();
+    internal List<(ScrClass Class, ClassDefnNode Node)> LocalScopedClasses { get; } = new();
     public List<ScrFunction> ExportedFunctions { get; } = new();
     public List<ScrClass> ExportedClasses { get; } = new();
     public Dictionary<string, IExportedSymbol> InternalSymbols { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -26,12 +24,12 @@ public class DefinitionsTable
     // Local dictionaries for symbols defined in THIS file only (used for merging/exporting)
     // Lock protects all local dictionaries from concurrent read/write during workspace indexing.
     private readonly Lock _lock = new();
-    private readonly Dictionary<(string Namespace, string Name), (string FilePath, TokenRange Range)> _functionLocations = new();
-    private readonly Dictionary<(string Namespace, string Name), (string FilePath, TokenRange Range)> _classLocations = new();
+    private readonly Dictionary<QualifiedSymbolKey, (string FilePath, TokenRange Range)> _functionLocations = new();
+    private readonly Dictionary<QualifiedSymbolKey, (string FilePath, TokenRange Range)> _classLocations = new();
 
-    private readonly Dictionary<(string Namespace, string Name), string[]> _functionParameters = new();
-    private readonly Dictionary<(string Namespace, string Name), string[]> _functionFlags = new();
-    private readonly Dictionary<(string Namespace, string Name), string?> _functionDocs = new();
+    private readonly Dictionary<QualifiedSymbolKey, string[]> _functionParameters = new();
+    private readonly Dictionary<QualifiedSymbolKey, string[]> _functionFlags = new();
+    private readonly Dictionary<QualifiedSymbolKey, string?> _functionDocs = new();
 
     /// <summary>
     /// Optional global symbol registry for workspace-wide O(1) lookups.
@@ -39,8 +37,6 @@ public class DefinitionsTable
     /// </summary>
     private readonly ISymbolLocationProvider? _globalProvider;
 
-    private static (string Namespace, string Name) NK(string ns, string name)
-        => (StringPool.Intern(ns?.ToLowerInvariant() ?? string.Empty), StringPool.Intern(name?.ToLowerInvariant() ?? string.Empty));
 
     public DefinitionsTable(string currentNamespace, ISymbolLocationProvider? globalProvider = null)
     {
@@ -48,9 +44,16 @@ public class DefinitionsTable
         _globalProvider = globalProvider;
     }
 
+    /// <summary>
+    /// Returns true if any function defined in a file matching <paramref name="filePathSuffix"/>
+    /// (case-insensitive) has the given flag. Returns false when no global provider is wired.
+    /// </summary>
+    public bool AnyFunctionInDependencyHasFlag(string filePathSuffix, string flag)
+        => _globalProvider?.AnyFunctionInFileHasFlag(filePathSuffix, flag) ?? false;
+
     internal void AddFunction(ScrFunction function, FunDefnNode node)
     {
-        LocalScopedFunctions.Add(new Tuple<ScrFunction, FunDefnNode>(function, node));
+        LocalScopedFunctions.Add((function, node));
 
         ScrFunction internalFunction = function with { Namespace = CurrentNamespace, Implicit = true };
         string qualifiedName = $"{CurrentNamespace}::{function.Name}";
@@ -90,7 +93,7 @@ public class DefinitionsTable
 
     internal void AddClass(ScrClass scrClass, ClassDefnNode node)
     {
-        LocalScopedClasses.Add(new Tuple<ScrClass, ClassDefnNode>(scrClass, node));
+        LocalScopedClasses.Add((scrClass, node));
 
         // Add to internal symbols for within-file references
         InternalSymbols.Add(scrClass.Name, scrClass);
@@ -106,156 +109,203 @@ public class DefinitionsTable
         Dependencies.Add(new Uri(scriptPath));
     }
 
-    public void AddFunctionLocation(string ns, string name, string filePath, TokenRange range)
+    public void AddFunctionLocation(string qualifier, string symbolName, string filePath, TokenRange range)
     {
-        lock (_lock) _functionLocations[NK(ns, name)] = (StringPool.Intern(filePath), range);
+        lock (_lock) _functionLocations[QualifiedSymbolKey.Normalized(qualifier, symbolName)] = (StringPool.Intern(filePath), range);
     }
 
-    public void AddClassLocation(string ns, string name, string filePath, TokenRange range)
+    public void AddClassLocation(string qualifier, string symbolName, string filePath, TokenRange range)
     {
-        lock (_lock) _classLocations[NK(ns, name)] = (StringPool.Intern(filePath), range);
+        lock (_lock) _classLocations[QualifiedSymbolKey.Normalized(qualifier, symbolName)] = (StringPool.Intern(filePath), range);
     }
 
-    public void RecordFunctionParameters(string ns, string name, IEnumerable<string> parameterNames)
+    public void RecordFunctionParameters(string qualifier, string symbolName, IEnumerable<string> parameterNames)
     {
-        var value = parameterNames?.Select(p => StringPool.Intern(p?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? Array.Empty<string>();
-        lock (_lock) _functionParameters[NK(ns, name)] = value;
+        var value = parameterNames?.Select(p => StringPool.Intern(p?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? [];
+        lock (_lock) _functionParameters[QualifiedSymbolKey.Normalized(qualifier, symbolName)] = value;
     }
 
-    public string[]? GetFunctionParameters(string ns, string name)
+    public string[]? GetFunctionParameters(string qualifier, string symbolName) =>
+        GetMetadata(_functionParameters, qualifier, symbolName, _globalProvider is not null ? _globalProvider.GetFunctionParameters : null);
+
+    public void RecordFunctionFlags(string qualifier, string symbolName, IEnumerable<string> flags)
     {
-        if (_globalProvider is not null)
-        {
-            var result = _globalProvider.GetFunctionParameters(ns, name);
-            if (result is not null)
-                return result;
-        }
-        lock (_lock) return _functionParameters.TryGetValue(NK(ns, name), out var list) ? list : null;
+        var value = flags?.Select(f => StringPool.Intern(f?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? [];
+        lock (_lock) _functionFlags[QualifiedSymbolKey.Normalized(qualifier, symbolName)] = value;
     }
 
-    public void RecordFunctionFlags(string ns, string name, IEnumerable<string> flags)
+    public string[]? GetFunctionFlags(string qualifier, string symbolName) =>
+        GetMetadata(_functionFlags, qualifier, symbolName, _globalProvider is not null ? _globalProvider.GetFunctionFlags : null);
+
+    public void RecordFunctionDoc(string qualifier, string symbolName, string? doc)
     {
-        var value = flags?.Select(f => StringPool.Intern(f?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? Array.Empty<string>();
-        lock (_lock) _functionFlags[NK(ns, name)] = value;
+        lock (_lock) _functionDocs[QualifiedSymbolKey.Normalized(qualifier, symbolName)] = string.IsNullOrWhiteSpace(doc) ? null : doc;
     }
 
-    public string[]? GetFunctionFlags(string ns, string name)
-    {
-        if (_globalProvider is not null)
-        {
-            var result = _globalProvider.GetFunctionFlags(ns, name);
-            if (result is not null)
-                return result;
-        }
-        lock (_lock) return _functionFlags.TryGetValue(NK(ns, name), out var list) ? list : null;
-    }
-
-    public void RecordFunctionDoc(string ns, string name, string? doc)
-    {
-        lock (_lock) _functionDocs[NK(ns, name)] = string.IsNullOrWhiteSpace(doc) ? null : doc;
-    }
-
-    public string? GetFunctionDoc(string ns, string name)
+    public string? GetFunctionDoc(string qualifier, string symbolName)
     {
         if (_globalProvider is not null)
         {
-            var result = _globalProvider.GetFunctionDoc(ns, name);
+            var result = _globalProvider.GetFunctionDoc(qualifier, symbolName);
             if (result is not null)
                 return result;
         }
-        lock (_lock) return _functionDocs.TryGetValue(NK(ns, name), out var doc) ? doc : null;
+        lock (_lock) return _functionDocs.TryGetValue(QualifiedSymbolKey.Normalized(qualifier, symbolName), out var doc) ? doc : null;
     }
 
-    public (string FilePath, TokenRange Range)? GetFunctionLocation(string ns, string name)
-    {
-        if (_globalProvider is not null)
-        {
-            var result = _globalProvider.FindFunctionLocation(ns, name);
-            if (result is not null)
-                return result;
-        }
-        lock (_lock)
-        {
-            if (ns is not null && _functionLocations.TryGetValue(NK(ns, name), out var loc))
-                return loc;
-            return null;
-        }
-    }
+    public (string FilePath, TokenRange Range)? GetFunctionLocation(string qualifier, string symbolName) =>
+        GetLocation(_functionLocations, qualifier, symbolName, _globalProvider is not null ? _globalProvider.FindFunctionLocation : null);
 
-    public (string FilePath, TokenRange Range)? GetClassLocation(string ns, string name)
-    {
-        if (_globalProvider is not null)
-        {
-            var result = _globalProvider.FindClassLocation(ns, name);
-            if (result is not null)
-                return result;
-        }
-        lock (_lock)
-        {
-            if (ns is not null && _classLocations.TryGetValue(NK(ns, name), out var loc))
-                return loc;
-            return null;
-        }
-    }
+    public (string FilePath, TokenRange Range)? GetClassLocation(string qualifier, string symbolName) =>
+        GetLocation(_classLocations, qualifier, symbolName, _globalProvider is not null ? _globalProvider.FindClassLocation : null);
 
-    public (string FilePath, TokenRange Range)? GetFunctionLocationAnyNamespace(string name)
-    {
-        if (_globalProvider is not null)
-        {
-            var result = _globalProvider.FindFunctionLocationAnyNamespace(name);
-            if (result is not null)
-                return result;
-        }
-        string lookup = name?.ToLowerInvariant() ?? string.Empty;
-        lock (_lock)
-        {
-            foreach (var kv in _functionLocations)
-            {
-                if (string.Equals(kv.Key.Name, lookup, StringComparison.Ordinal))
-                    return kv.Value;
-            }
-        }
-        return null;
-    }
+    public (string FilePath, TokenRange Range)? GetFunctionLocationAnyNamespace(string symbolName) =>
+        GetLocationAnyNamespace(_functionLocations, symbolName, _globalProvider is not null ? _globalProvider.FindFunctionLocationAnyNamespace : null);
 
-    public (string FilePath, TokenRange Range)? GetClassLocationAnyNamespace(string name)
-    {
-        if (_globalProvider is not null)
-        {
-            var result = _globalProvider.FindClassLocationAnyNamespace(name);
-            if (result is not null)
-                return result;
-        }
-        string lookup = name?.ToLowerInvariant() ?? string.Empty;
-        lock (_lock)
-        {
-            foreach (var kv in _classLocations)
-            {
-                if (string.Equals(kv.Key.Name, lookup, StringComparison.Ordinal))
-                    return kv.Value;
-            }
-        }
-        return null;
-    }
+    public (string FilePath, TokenRange Range)? GetClassLocationAnyNamespace(string symbolName) =>
+        GetLocationAnyNamespace(_classLocations, symbolName, _globalProvider is not null ? _globalProvider.FindClassLocationAnyNamespace : null);
 
-    public List<KeyValuePair<(string Namespace, string Name), (string FilePath, TokenRange Range)>> GetAllFunctionLocations()
+    public List<KeyValuePair<QualifiedSymbolKey, (string FilePath, TokenRange Range)>> GetAllFunctionLocations()
     {
         lock (_lock) return _functionLocations.ToList();
     }
 
-    public List<KeyValuePair<(string Namespace, string Name), (string FilePath, TokenRange Range)>> GetAllClassLocations()
+    public List<KeyValuePair<QualifiedSymbolKey, (string FilePath, TokenRange Range)>> GetAllClassLocations()
     {
         lock (_lock) return _classLocations.ToList();
     }
 
-    public List<KeyValuePair<(string Namespace, string Name), string[]>> GetAllFunctionParameters()
+    /// <summary>
+    /// Gets a method on a specific class by name.
+    /// Searches both the class's methods and its parent class chain.
+    /// </summary>
+    public ScrFunction? GetMethodOnClass(string className, string methodName)
     {
-        lock (_lock) return _functionParameters.ToList();
+        ScrClass? scrClass = FindLocalClass(className);
+
+        if (scrClass is not null)
+        {
+            return FindMethodInClassHierarchy(scrClass, methodName);
+        }
+
+        return null;
     }
 
-    public List<KeyValuePair<(string Namespace, string Name), string?>> GetAllFunctionDocs()
+    /// <summary>
+    /// Finds a class by name in local scope or internal symbols.
+    /// </summary>
+    private ScrClass? FindLocalClass(string className)
     {
-        lock (_lock) return _functionDocs.ToList();
+        var localEntry = LocalScopedClasses.FirstOrDefault(t =>
+            string.Equals(t.Class.Name, className, StringComparison.OrdinalIgnoreCase));
+
+        if (localEntry.Class is not null)
+        {
+            return localEntry.Class;
+        }
+
+        if (InternalSymbols.TryGetValue(className, out var symbol) && symbol is ScrClass scrClass)
+        {
+            return scrClass;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Recursively searches for a method in a class and its parent chain.
+    /// </summary>
+    private ScrFunction? FindMethodInClassHierarchy(ScrClass scrClass, string methodName)
+    {
+        // Search direct methods on this class
+        var method = scrClass.Methods.FirstOrDefault(m =>
+            string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase));
+
+        if (method is not null)
+        {
+            return method;
+        }
+
+        // If not found and class has a parent, search the parent
+        if (!string.IsNullOrEmpty(scrClass.InheritsFrom))
+        {
+            ScrClass? parentClass = FindLocalClass(scrClass.InheritsFrom);
+
+            if (parentClass is not null)
+            {
+                return FindMethodInClassHierarchy(parentClass, methodName);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the ScrClass object by name, searching local and exported symbols.
+    /// </summary>
+    public ScrClass? GetClassByName(string className)
+    {
+        return FindLocalClass(className);
+    }
+
+    // --- Shared lookup helpers ---
+
+    /// <summary>
+    /// Qualified location lookup: local dictionary (under lock) first, then global provider fallback.
+    /// </summary>
+    private (string FilePath, TokenRange Range)? GetLocation(
+        Dictionary<QualifiedSymbolKey, (string FilePath, TokenRange Range)> dict,
+        string? qualifier,
+        string symbolName,
+        Func<string, string, (string, TokenRange)?>? globalLookup)
+    {
+        lock (_lock)
+        {
+            if (qualifier is not null && dict.TryGetValue(QualifiedSymbolKey.Normalized(qualifier, symbolName), out var loc))
+                return loc;
+        }
+        return globalLookup?.Invoke(qualifier!, symbolName);
+    }
+
+    /// <summary>
+    /// Unqualified location lookup: global provider first, then linear scan of local dictionary.
+    /// </summary>
+    private (string FilePath, TokenRange Range)? GetLocationAnyNamespace(
+        Dictionary<QualifiedSymbolKey, (string FilePath, TokenRange Range)> dict,
+        string symbolName,
+        Func<string, (string, TokenRange)?>? globalLookup)
+    {
+        var globalResult = globalLookup?.Invoke(symbolName);
+        if (globalResult is not null)
+            return globalResult;
+
+        string lookup = symbolName?.ToLowerInvariant() ?? string.Empty;
+        lock (_lock)
+        {
+            foreach (var kv in dict)
+            {
+                if (string.Equals(kv.Key.SymbolName, lookup, StringComparison.Ordinal))
+                    return kv.Value;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Generic metadata lookup: global provider first, then local dictionary under lock.
+    /// </summary>
+    private T? GetMetadata<T>(
+        Dictionary<QualifiedSymbolKey, T> dict,
+        string qualifier,
+        string symbolName,
+        Func<string, string, T?>? globalLookup) where T : class
+    {
+        var globalResult = globalLookup?.Invoke(qualifier, symbolName);
+        if (globalResult is not null)
+            return globalResult;
+
+        lock (_lock)
+            return dict.TryGetValue(QualifiedSymbolKey.Normalized(qualifier, symbolName), out var value) ? value : default;
     }
 
     /// <summary>

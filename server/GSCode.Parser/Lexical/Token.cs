@@ -53,6 +53,16 @@ internal record class Token(TokenType Type, TokenRange TokenRange)
 
     public int Length => Lexeme.Length;
 
+    /// <summary>
+    /// Link to the previous token in the stored flat list. Set by DocumentTokensLibrary.
+    /// </summary>
+    public Token? Previous { get; set; }
+
+    /// <summary>
+    /// Link to the next token in the stored flat list. Set by DocumentTokensLibrary.
+    /// </summary>
+    public Token? Next { get; set; }
+
     public bool IsWhitespacey()
     {
         return Type == TokenType.Whitespace
@@ -68,6 +78,58 @@ internal record class Token(TokenType Type, TokenRange TokenRange)
         return Type == TokenType.LineComment
             || Type == TokenType.MultilineComment
             || Type == TokenType.DocComment;
+    }
+
+    /// <summary>
+    /// Gets the previous non-whitespace token, or null if at start.
+    /// </summary>
+    public Token? PreviousNonWhitespace()
+    {
+        Token? current = Previous;
+        while (current != null && current.IsWhitespacey())
+        {
+            current = current.Previous;
+        }
+        return current;
+    }
+
+    /// <summary>
+    /// Gets the next non-whitespace token, or null if at end.
+    /// </summary>
+    public Token? NextNonWhitespace()
+    {
+        Token? current = Next;
+        while (current != null && current.IsWhitespacey())
+        {
+            current = current.Next;
+        }
+        return current;
+    }
+
+    /// <summary>
+    /// Gets the previous non-trivia (non-whitespace and non-comment) token, or null if at start.
+    /// </summary>
+    public Token? PreviousNonTrivia()
+    {
+        Token? current = Previous;
+        while (current != null && (current.IsWhitespacey() || current.IsComment()))
+        {
+            current = current.Previous;
+        }
+        return current;
+    }
+
+    /// <summary>
+    /// Gets the next non-trivia (non-whitespace and non-comment) token, or null if at end.
+    /// </summary>
+    public Token? NextNonTrivia()
+    {
+        Token? current = Next;
+        while (current != null && (current.IsWhitespacey() || current.IsComment()))
+        {
+            current = current.Next;
+        }
+        return current;
     }
 
     public bool IsKeyword()

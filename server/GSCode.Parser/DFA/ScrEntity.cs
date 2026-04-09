@@ -50,7 +50,6 @@ internal static class ScrEntityRegistry
         new("isemp", new(ScrDataTypes.Bool, ReadOnly: true)),
         new("isflash", new(ScrDataTypes.Bool, ReadOnly: true)),
         new("isstun", new(ScrDataTypes.Bool, ReadOnly: true)),
-        new("isempkillstreak", new(ScrDataTypes.Bool, ReadOnly: false)), // TODO: confirm - seems to be one mutable property on weapon object?
         new("bulletImpactExplode", new(ScrDataTypes.Bool, ReadOnly: true)),
         new("doempdestroyfx", new(ScrDataTypes.Bool, ReadOnly: true)),
         new("dostun", new(ScrDataTypes.Bool, ReadOnly: true)),
@@ -682,14 +681,15 @@ internal static class ScrEntityRegistry
             return new ScrData(field.Type, readOnly: field.ReadOnly);
         }
 
-        // Otherwise, if it's immutable, then any other field must not be present.
-        if(entityType == ScrEntityTypes.Weapon || entityType == ScrEntityTypes.PathNode)
+        // Weapons support custom properties, so unknown fields fall back to any.
+        if(entityType == ScrEntityTypes.Weapon)
         {
-            // TODO: confirm how isEmpKillstreak works on weapons — permitting it as an edge case for now.
-            if(entityType == ScrEntityTypes.Weapon && fieldName.Equals("isempkillstreak", StringComparison.OrdinalIgnoreCase))
-            {
-                return new ScrData(ScrDataTypes.Bool);
-            }
+            return ScrData.Default;
+        }
+
+        // Path nodes are immutable, so unknown fields must not be present.
+        if(entityType == ScrEntityTypes.PathNode)
+        {
             return ScrData.Undefined();
         }
 
@@ -699,18 +699,15 @@ internal static class ScrEntityRegistry
 
     public static ScrEntitySetFieldResult SetField(ScrEntityTypes entityType, string fieldName, ScrData value)
     {
-        // Weapon and path node entities are completely immutable.
-        if(entityType == ScrEntityTypes.Weapon || entityType == ScrEntityTypes.PathNode)
+        // Weapons support custom property assignment.
+        if(entityType == ScrEntityTypes.Weapon)
         {
-            // TODO: confirm how isEmpKillstreak assignment works on weapons — permitting it as an edge case for now.
-            if(entityType == ScrEntityTypes.Weapon && fieldName.Equals("isempkillstreak", StringComparison.OrdinalIgnoreCase))
-            {
-                if(!value.IsCompatibleWith(ScrDataTypes.Bool))
-                {
-                    return ScrEntitySetFieldResult.FieldTypeMismatch;
-                }
-                return ScrEntitySetFieldResult.Success;
-            }
+            return ScrEntitySetFieldResult.Success;
+        }
+
+        // Path node entities are completely immutable.
+        if(entityType == ScrEntityTypes.PathNode)
+        {
             return ScrEntitySetFieldResult.EntityImmutable;
         }
 

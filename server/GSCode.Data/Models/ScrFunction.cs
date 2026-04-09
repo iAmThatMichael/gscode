@@ -1,304 +1,56 @@
 ﻿using GSCode.Data.Models.Interfaces;
 using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace GSCode.Data.Models;
 
-public record class ScrFunction : IExportedSymbol
+public partial record class ScrFunction : IExportedSymbol
 {
-    /// <summary>
-    /// The name of the function
-    /// </summary>
+    /// <summary>The name of the function.</summary>
     [JsonRequired]
     public required string Name { get; set; }
 
-    /// <summary>
-    /// The description for this function
-    /// </summary>
+    /// <summary>The description for this function.</summary>
     public string? Description { get; set; }
 
-    /// <summary>
-    /// An example of this function's usage
-    /// </summary>
+    /// <summary>An example of this function's usage.</summary>
     public string? Example { get; set; }
 
-    /// <summary>
-    /// The documentation comment for this function.
-    /// </summary>
+    /// <summary>The documentation comment for this function (user-defined scripts only).</summary>
     public string? DocComment { get; set; }
 
-    /// <summary>
-    /// The overloads (variants) of this function
-    /// </summary>
+    /// <summary>The overloads (variants) of this function.</summary>
     public List<ScrFunctionOverload> Overloads { get; set; } = [];
 
-    /// <summary>
-    /// The flags list of this function, which may be empty
-    /// </summary>
+    /// <summary>The flags list of this function, which may be empty.</summary>
     public List<string> Flags { get; set; } = [];
 
-    private string? _cachedDocumentation = null;
-
     /// <summary>
-    /// Yields a documentation hover string for this function. Generated once, then cached.
+    /// The confidence level for processed entries ("low", "medium", "high").
+    /// Only present on entries with the "processed" flag (or optionally on "verified").
     /// </summary>
-    public string Documentation
-    {
-        get
-        {
-            if (_cachedDocumentation is string documentation)
-            {
-                return documentation;
-            }
+    public string? Confidence { get; set; }
 
-            // If DocComment is present (from user-defined script doc), use it directly
-            // as it's already fully formatted by SanitizeDocForMarkdown
-            if (!string.IsNullOrWhiteSpace(DocComment))
-            {
-                _cachedDocumentation = DocComment;
-                return _cachedDocumentation;
-            }
-
-            if (Overloads.Count <= 1)
-            {
-                // Single overload (or none) — original format
-                string calledOnString = Overloads.FirstOrDefault()?.CalledOn is ScrFunctionArg calledOn ? $"{calledOn.Name} " : string.Empty;
-
-                _cachedDocumentation =
-                    $"""
-                    ```gsc
-                    {calledOnString}function {Name}({GetCodedParameterList(Overloads.FirstOrDefault())})
-                    ```
-                    ---
-                    {GetDescriptionString()}
-                    {GetParametersString(Overloads.FirstOrDefault())}
-                    {GetFlagsString()}
-                    """;
-            }
-            else
-            {
-                // Multiple overloads — show all signatures
-                StringBuilder sb = new();
-                sb.AppendLine("```gsc");
-                for (int i = 0; i < Overloads.Count; i++)
-                {
-                    var overload = Overloads[i];
-                    string calledOnStr = overload.CalledOn is ScrFunctionArg co ? $"{co.Name} " : string.Empty;
-                    sb.AppendLine($"// Overload {i + 1}");
-                    sb.AppendLine($"{calledOnStr}function {Name}({GetCodedParameterList(overload)})");
-                }
-                sb.AppendLine("```");
-                sb.AppendLine("---");
-
-                string desc = GetDescriptionString();
-                if (!string.IsNullOrEmpty(desc))
-                {
-                    sb.AppendLine(desc);
-                }
-
-                for (int i = 0; i < Overloads.Count; i++)
-                {
-                    string paramStr = GetParametersString(Overloads[i], $"**Overload {i + 1}** ");
-                    if (!string.IsNullOrEmpty(paramStr))
-                    {
-                        sb.AppendLine(paramStr);
-                    }
-                }
-
-                string flags = GetFlagsString();
-                if (!string.IsNullOrEmpty(flags))
-                {
-                    sb.Append(flags);
-                }
-
-                _cachedDocumentation = sb.ToString().TrimEnd();
-            }
-
-            return _cachedDocumentation;
-        }
-    }
-
-    private string GetDescriptionString()
-    {
-        if (Description is string description && !string.IsNullOrWhiteSpace(description))
-        {
-            return $"""
-                {description}
-
-                ---
-                """;
-        }
-        return string.Empty;
-    }
-
-    private string GetCodedParameterList(ScrFunctionOverload? overload)
-    {
-        if (overload is null || overload.Parameters.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        List<string> parameters = new();
-        foreach (ScrFunctionArg parameter in overload.Parameters)
-        {
-            // Include all parameters - mandatory ones as-is, optional ones with brackets
-            bool isMandatory = parameter.Mandatory.HasValue && parameter.Mandatory.Value;
-            if (isMandatory)
-            {
-                parameters.Add(parameter.Name);
-            }
-            else
-            {
-                // Show optional parameters with brackets to indicate they have defaults
-                parameters.Add($"[{parameter.Name}]");
-            }
-        }
-
-        return string.Join(", ", parameters);
-    }
-
-    private string GetParametersString(ScrFunctionOverload? overload, string prefix = "")
-    {
-        if (overload is null)
-        {
-            return string.Empty;
-        }
-
-        string calledOnString = overload.CalledOn is ScrFunctionArg calledOn ? $"Called on: `<{calledOn.Name}>`\n" : string.Empty;
-
-        string parametersString = string.Empty;
-        if (overload.Parameters.Count > 0)
-        {
-            parametersString = $"{prefix}Parameters:\n";
-            foreach (ScrFunctionArg parameter in overload.Parameters)
-            {
-                string parameterNameString = (parameter.Mandatory.HasValue && parameter.Mandatory.Value) ? $"<{parameter.Name}>" : $"[{parameter.Name}]";
-
-                parametersString += $"* `{parameterNameString}` {parameter.Description ?? string.Empty}\n";
-            }
-        }
-        else if (calledOnString == string.Empty)
-        {
-            return string.Empty;
-        }
-
-        return $"{calledOnString}{parametersString}\n---";
-    }
-
-    private static string GetLabelForFlag(string flag)
-    {
-        return flag switch
-        {
-            "autogenerated" => "_This documentation was generated from Treyarch's API, which may contain errors._",
-            "broken" => "**Do not use this function as it is broken.**",
-            "deprecated" => "**This function is deprecated and should not be used.**",
-            "useless" => "_This function serves no purpose for modders._",
-            _ => string.Empty
-        };
-    }
-
-    private string GetFlagsString()
-    {
-        List<string> flags = new();
-        foreach (string flag in Flags)
-        {
-            string label = GetLabelForFlag(flag);
-            if (!string.IsNullOrEmpty(label))
-            {
-                flags.Add(label);
-            }
-        }
-
-        return string.Join('\n', flags);
-    }
-
-    /// <summary>
-    /// The namespace of this function.
-    /// </summary>
+    /// <summary>The namespace of this function.</summary>
     public string Namespace { get; set; } = "sys";
 
     public ExportedSymbolType Type { get; set; } = ExportedSymbolType.Function;
 
     /// <summary>
-    /// Whether this function's namespace can be skipped, e.g. because it's a built-in
-    /// function or it belongs to this script.
+    /// Whether this function's namespace can be omitted at call-sites.
+    /// True for built-in API functions (sys namespace) and functions in the current script's namespace.
     /// </summary>
     public bool Implicit { get; set; } = false;
 
-    /// <summary>
-    /// Whether this function is private and cannot be accessed from other scripts.
-    /// </summary>
+    /// <summary>Whether this function is private and cannot be accessed from other scripts.</summary>
     public bool Private { get; set; } = false;
-}
-
-
-public sealed class ScrFunctionOverload
-{
-    /// <summary>
-    /// The entity that this function is called on
-    /// </summary>
-    public ScrFunctionArg? CalledOn { get; set; }
 
     /// <summary>
-    /// The parameter list of this function, which may be empty
+    /// Whether this function was defined inside a developer block.
     /// </summary>
-    public List<ScrFunctionArg> Parameters { get; set; } = [];
+    [JsonIgnore]
+    public bool InDevBlock { get; set; } = false;
 
-    /// <summary>
-    /// The return value of this function, if any
-    /// </summary>
-    public ScrFunctionReturn? Returns { get; set; }
-
-    /// <summary>
-    /// Whether this function accepts variable arguments (...)
-    /// </summary>
-    public bool Vararg { get; set; } = false;
-}
-
-public record class ScrFunctionReturn
-{
-    public string Name { get; set; } = default!;
-    public string? Description { get; set; } = default!;
-    public ScrFunctionDataType? Type { get; set; } = default!;
-    public bool? Void { get; set; }
-}
-
-public record class ScrFunctionArg
-{
-    // TODO: this currently is nullable due to issues within the API, it'd be better to enforce not null though asap
-    /// <summary>
-    /// The name of the parameter
-    /// </summary>
-    public string Name { get; set; } = default!;
-
-    /// <summary>
-    /// The description for this parameter
-    /// </summary>
-    public string? Description { get; set; } = default!;
-
-    /// <summary>
-    /// The type of the parameter
-    /// </summary>
-    public ScrFunctionDataType? Type { get; set; } = default!;
-
-    /// <summary>
-    /// Whether the parameter is mandatory or optional
-    /// </summary>
-    public bool? Mandatory { get; set; }
-
-    /// <summary>
-    /// The default value for this parameter
-    /// </summary>
-    public ScriptValue? Default { get; set; }
-}
-
-public record class ScrFunctionDataType
-{
-    public string DataType { get; set; } = default!;
-    public string? InstanceType { get; set; }
-    public bool IsArray { get; set; } = false;
+    /// <summary>Whether this is a built-in function.</summary>
+    [JsonIgnore]
+    public bool IsBuiltIn { get; set; } = false;
 }

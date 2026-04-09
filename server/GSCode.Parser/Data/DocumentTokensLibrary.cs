@@ -167,16 +167,7 @@ public sealed class DocumentTokensLibrary
             }
         }
 
-        // Fallback: linear scan (shouldn't normally be needed)
-        for (int i = 0; i < TokenList.Count; i++)
-        {
-            if (ReferenceEquals(TokenList[i], token))
-            {
-                return i;
-            }
-        }
-
-        return -1;
+        return index;
     }
 
     /// <summary>
@@ -200,6 +191,13 @@ public sealed class DocumentTokensLibrary
             currentNode = currentNode.Next;
         }
         TokenList.TrimExcess();
+
+        // Wire up Previous/Next links on the stored Token objects so navigation methods work.
+        for (int i = 0; i < TokenList.Count; i++)
+        {
+            TokenList[i].Previous = i > 0 ? TokenList[i - 1] : null;
+            TokenList[i].Next = i < TokenList.Count - 1 ? TokenList[i + 1] : null;
+        }
     }
 
     internal IEnumerable<Token> GetAll()

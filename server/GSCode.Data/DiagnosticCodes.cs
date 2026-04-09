@@ -127,9 +127,15 @@ public enum GSCErrorCodes
         ExpectedConstantExpression = 3060,
         CannotAssignToImmutableEntity = 3061,
         PredefinedFieldTypeMismatch = 3062,
+        ArgumentTypeMismatchUnverified = 3063,
+        DevBlockFunctionOutsideDevBlock = 3064,
+        ConsumedThreadedCallResult = 3065,
+        BrokenFunctionUsage = 3066,
+        NamespaceDoesNotContainFunction = 3067,
 
         // 8xxx errors are issued by the IDE for conventions
         UnterminatedRegion = 8000,
+        PreferBooleanLiteral = 8001,
 
         // 9xxx errors are issued by the IDE for GSCode.NET faults
         UnhandledLexError = 9000,
@@ -146,7 +152,7 @@ public enum GSCErrorCodes
 
 public static class DiagnosticCodes
 {
-        private static readonly Dictionary<GSCErrorCodes, DiagnosticCode> diagnosticsDictionary = new()
+    private static readonly Dictionary<GSCErrorCodes, DiagnosticCode> diagnosticsDictionary = new()
     {
         // 1xxx
         { GSCErrorCodes.ExpectedPreprocessorToken, new("'{0}' expected, but instead got '{1}'.", DiagnosticSeverity.Error) },
@@ -230,7 +236,7 @@ public static class DiagnosticCodes
         { GSCErrorCodes.CannotAssignToReadOnlyProperty, new("The property '{0}' cannot be assigned to, it is read-only.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.MissingUsingFile, new("Unable to locate file '{0}' in the workspace or in the shared scripts directory.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.CannotEnumerateType, new("Type '{0}' is not enumerable.", DiagnosticSeverity.Error) },
-        { GSCErrorCodes.FunctionDoesNotExist, new("The function '{0}' could not be resolved in this context and may not exist in built-ins.\nNote: Built-in function checking is based on Treyarch's API, which contains errors. Report falsely flagged functions.", DiagnosticSeverity.Warning) },
+        { GSCErrorCodes.FunctionDoesNotExist, new("The function '{0}' could not be resolved.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.ExpectedFunction, new("Expected a function, but instead got '{0}'.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.ReservedSymbol, new("The symbol '{0}' is reserved.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.UnusedVariable, new("The variable '{0}' is declared but never used.", DiagnosticSeverity.Information, new[] { DiagnosticTag.Unnecessary }) },
@@ -245,7 +251,7 @@ public static class DiagnosticCodes
         { GSCErrorCodes.FallthroughCase, new("Control falls through from 'case' to the next 'case'.", DiagnosticSeverity.Information) },
         { GSCErrorCodes.UnreachableCase, new("'case' is unreachable.", DiagnosticSeverity.Warning, new[] { DiagnosticTag.Unnecessary }) },
         { GSCErrorCodes.ShadowedSymbol, new("Local '{0}' shadows a symbol from an outer scope.", DiagnosticSeverity.Information) },
-        { GSCErrorCodes.UnusedUsing, new("The using file '{0}' is not referenced.", DiagnosticSeverity.Hint, new[] { DiagnosticTag.Unnecessary }) },
+        { GSCErrorCodes.UnusedUsing, new("The using file '{0}' is not referenced and contains no automatic entry points.", DiagnosticSeverity.Hint, new[] { DiagnosticTag.Unnecessary }) },
         { GSCErrorCodes.CircularDependency, new("Circular dependency detected involving '{0}'.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.NoMatchingOverload, new("No overload of '{0}' matches argument types ({1}).", DiagnosticSeverity.Error) },
         { GSCErrorCodes.CalledOnInvalidTarget, new("Called-on target must be an entity/struct; got '{0}'.", DiagnosticSeverity.Error) },
@@ -258,9 +264,15 @@ public static class DiagnosticCodes
         { GSCErrorCodes.ExpectedConstantExpression, new("A constant declaration must have a compile-time constant expression on the right-hand side.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.CannotAssignToImmutableEntity, new("The entity type '{0}' is immutable and cannot be assigned to.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.PredefinedFieldTypeMismatch, new("Cannot assign value of type '{0}' to entity field of type '{1}'.", DiagnosticSeverity.Error) },
+        { GSCErrorCodes.ArgumentTypeMismatchUnverified, new("Argument {0} to '{1}' expects '{2}', got '{3}'.\nNote: Argument types are derived from Treyarch's API, which may contain errors.", DiagnosticSeverity.Warning) },
+        { GSCErrorCodes.DevBlockFunctionOutsideDevBlock, new("Function '{0}' can only be used inside developer blocks.", DiagnosticSeverity.Error) },
+        { GSCErrorCodes.ConsumedThreadedCallResult, new("Consuming the result of a threaded call is unreliable; if the threaded function blocks, the expression will evaluate to 'undefined'.", DiagnosticSeverity.Warning) },
+        { GSCErrorCodes.BrokenFunctionUsage, new("Function '{0}' is marked as broken and should not be used.", DiagnosticSeverity.Warning, new[] { DiagnosticTag.Deprecated }) },
+        { GSCErrorCodes.NamespaceDoesNotContainFunction, new("The namespace '{0}' does not contain a function named '{1}'.", DiagnosticSeverity.Error) },
 
         // 8xxx
         { GSCErrorCodes.UnterminatedRegion, new("No corresponding '/* endregion */' found to terminate '{0}' region.", DiagnosticSeverity.Warning) },
+        { GSCErrorCodes.PreferBooleanLiteral, new("Prefer the use of boolean keyword '{0}' over integer literal '{1}'.", DiagnosticSeverity.Hint) },
       
         // 9xxx
         { GSCErrorCodes.UnhandledLexError, new("An unhandled exception '{0}' caused tokenisation (gscode-lex) of the script to fail. File a GSCode issue report and provide this script file for error reproduction.", DiagnosticSeverity.Error) },
@@ -277,27 +289,26 @@ public static class DiagnosticCodes
 
         public static Diagnostic GetDiagnostic(Range range, string source, GSCErrorCodes key, params object?[] arguments)
         {
-                if (diagnosticsDictionary.ContainsKey(key))
-                {
-                        DiagnosticCode result = diagnosticsDictionary[key];
-                        return new()
-                        {
-                                Message = string.Format(result.Message, arguments),
-                                Range = range,
-                                Severity = result.Category,
-                                Code = (int)key,
-                                Source = source,
-                                Tags = result.Tags
-                        };
-                }
-
+            if (diagnosticsDictionary.TryGetValue(key, out DiagnosticCode? result))
+            {
                 return new()
                 {
-                        Message = "GSCode.NET Error: could not find an error matching this code.",
-                        Range = range,
-                        Severity = DiagnosticSeverity.Error,
-                        Code = (int)key,
-                        Source = source
+                    Message = string.Format(result.Message, arguments),
+                    Range = range,
+                    Severity = result.Category,
+                    Code = (int)key,
+                    Source = source,
+                    Tags = result.Tags
                 };
-        }
-}
+            }
+
+            return new()
+            {
+                Message = "GSCode.NET Error: could not find an error matching this code.",
+                Range = range,
+                Severity = DiagnosticSeverity.Error,
+                            Code = (int)key,
+                            Source = source
+                        };
+                    }
+                }

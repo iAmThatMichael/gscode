@@ -13,6 +13,7 @@ using GSCode.Parser;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using GSCode.Parser.Data;
+using GSCode.Parser.Util;
 
 namespace GSCode.NET.LSP.Handlers;
 
@@ -33,41 +34,11 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
         _documentSelector = documentSelector;
     }
 
-    private static string NormalizePath(string path)
-    {
-        if (string.IsNullOrEmpty(path)) return path;
-        if (path.Length >= 3 && path[0] == '/' && char.IsLetter(path[1]) && path[2] == ':')
-        {
-            path = path.Substring(1);
-        }
-        if (Path.DirectorySeparatorChar == '\\')
-        {
-            path = path.Replace('/', Path.DirectorySeparatorChar);
-        }
-        try { return Path.GetFullPath(path); } catch { return path; }
-    }
-
     private static string BuildFunctionLabel(string name, string ns, string[]? parameters, string[]? flags)
     {
         string paramText = (parameters is null || parameters.Length == 0) ? "()" : ($"(" + string.Join(", ", parameters) + ")");
         if (flags is null || flags.Length == 0) return name + paramText;
         return name + paramText + " [" + string.Join(", ", flags) + "]";
-    }
-
-    private static Range ComputeContainerRange(List<DocumentSymbol> children)
-    {
-        // children is never empty when called
-        var start = children[0].Range.Start;
-        var end = children[0].Range.End;
-
-        for (int i = 1; i < children.Count; i++)
-        {
-            var s = children[i].Range.Start;
-            var d = children[i].Range.End;
-            if (s.Line < start.Line || (s.Line == start.Line && s.Character < start.Character)) start = s;
-            if (d.Line > end.Line || (d.Line == end.Line && d.Character > end.Character)) end = d;
-        }
-        return new Range(start, end);
     }
 
     public override async Task<SymbolInformationOrDocumentSymbolContainer?> Handle(DocumentSymbolParams request, CancellationToken cancellationToken)
@@ -88,7 +59,7 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             return new SymbolInformationOrDocumentSymbolContainer(new Container<SymbolInformationOrDocumentSymbol>());
         }
 
-        string currentPath = NormalizePath(request.TextDocument.Uri.ToUri().LocalPath);
+        string currentPath = ScriptFileResolver.NormalizeFilePathForUri(request.TextDocument.Uri.ToUri().LocalPath);
 
         // Collect by type
         List<DocumentSymbol> classNodes = new();
@@ -97,14 +68,14 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             cancellationToken.ThrowIfCancellationRequested();
 
             var key = kv.Key; var val = kv.Value;
-            string filePath = NormalizePath(val.FilePath ?? string.Empty);
+            string filePath = ScriptFileResolver.NormalizeFilePathForUri(val.FilePath ?? string.Empty);
             if (!string.Equals(filePath, currentPath, System.StringComparison.OrdinalIgnoreCase))
                 continue;
 
             classNodes.Add(new DocumentSymbol
             {
-                Name = key.Name,
-                Detail = key.Namespace,
+                Name = key.SymbolName,
+                Detail = key.Qualifier,
                 Kind = LspSymbolKind.Class,
                 Range = val.Range.ToRange(),
                 SelectionRange = val.Range.ToRange(),
@@ -118,16 +89,16 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             cancellationToken.ThrowIfCancellationRequested();
 
             var key = kv.Key; var val = kv.Value;
-            string filePath = NormalizePath(val.FilePath ?? string.Empty);
+            string filePath = ScriptFileResolver.NormalizeFilePathForUri(val.FilePath ?? string.Empty);
             if (!string.Equals(filePath, currentPath, System.StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            string[]? parameters = script.DefinitionsTable.GetFunctionParameters(key.Namespace, key.Name);
-            string[]? flags = script.DefinitionsTable.GetFunctionFlags(key.Namespace, key.Name);
+            string[]? parameters = script.DefinitionsTable.GetFunctionParameters(key.Qualifier, key.SymbolName);
+            string[]? flags = script.DefinitionsTable.GetFunctionFlags(key.Qualifier, key.SymbolName);
             functionNodes.Add(new DocumentSymbol
             {
-                Name = BuildFunctionLabel(key.Name, key.Namespace, parameters, flags),
-                Detail = key.Namespace,
+                Name = BuildFunctionLabel(key.SymbolName, key.Qualifier, parameters, flags),
+                Detail = key.Qualifier,
                 Kind = LspSymbolKind.Function,
                 Range = val.Range.ToRange(),
                 SelectionRange = val.Range.ToRange()
@@ -153,7 +124,11 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             }
         }
 
-        // Build grouped root nodes (separates by type)
+        // Build grouped root nodes (separates by type).
+        // Groups are added in the desired display order: Classes → Functions → Macros.
+        // Each group uses a fixed synthetic range anchored to a stable line index (0, 1, 2)
+        // so that clients which re-sort root symbols by Range.Start respect the intended order
+        // rather than hoisting Macros above Functions because #defines appear earlier in the file.
         List<DocumentSymbol> root = new(capacity: 3);
 
         if (classNodes.Count > 0)
@@ -162,13 +137,13 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             {
                 classNodes.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase));
             }
-            var range = ComputeContainerRange(classNodes);
+            var anchor = new Range(new Position(0, 0), new Position(0, 0));
             root.Add(new DocumentSymbol
             {
                 Name = "Classes",
                 Kind = LspSymbolKind.Namespace,
-                Range = range,
-                SelectionRange = range,
+                Range = anchor,
+                SelectionRange = anchor,
                 Children = classNodes
             });
         }
@@ -179,13 +154,13 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             {
                 functionNodes.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase));
             }
-            var range = ComputeContainerRange(functionNodes);
+            var anchor = new Range(new Position(1, 0), new Position(1, 0));
             root.Add(new DocumentSymbol
             {
                 Name = "Functions",
                 Kind = LspSymbolKind.Namespace,
-                Range = range,
-                SelectionRange = range,
+                Range = anchor,
+                SelectionRange = anchor,
                 Children = functionNodes
             });
         }
@@ -196,13 +171,13 @@ internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
             {
                 macroNodes.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase));
             }
-            var range = ComputeContainerRange(macroNodes);
+            var anchor = new Range(new Position(2, 0), new Position(2, 0));
             root.Add(new DocumentSymbol
             {
                 Name = "Macros",
                 Kind = LspSymbolKind.Namespace,
-                Range = range,
-                SelectionRange = range,
+                Range = anchor,
+                SelectionRange = anchor,
                 Children = macroNodes
             });
         }

@@ -1,3 +1,4 @@
+using GSCode.Data.Models;
 using GSCode.Parser.Lexical;
 
 namespace GSCode.Parser.SA;
@@ -16,4 +17,12 @@ public interface ISymbolLocationProvider
     string[]? GetFunctionParameters(string ns, string name);
     string[]? GetFunctionFlags(string ns, string name);
     string? GetFunctionDoc(string ns, string name);
+    ScrFunction? GetFunction(string ns, string name);
+
+    /// <summary>
+    /// Returns true if any function defined in a file whose path ends with
+    /// <paramref name="filePathSuffix"/> (case-insensitive) carries the given flag.
+    /// Used by the unused-#using diagnostic to keep entry-point files alive.
+    /// </summary>
+    bool AnyFunctionInFileHasFlag(string filePathSuffix, string flag);
 }

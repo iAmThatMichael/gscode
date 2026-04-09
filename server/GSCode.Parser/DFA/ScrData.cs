@@ -93,6 +93,7 @@ internal record class ScrDataObjectInstanceType : IScrDataSubType
 {
     public ScrDataSubTypeKind Kind => ScrDataSubTypeKind.ObjectInstance;
     public int ClassId { get; init; }
+    public string? ClassName { get; init; }
 }
 
 internal record class ScrDataEntityType : IScrDataSubType
@@ -124,6 +125,7 @@ internal static class ScrDataTypeNames
     public const string Void = "void";
     public const string Bool = "bool";
     public const string Int = "int";
+    public const string UInt64 = "uint64";
     public const string Float = "float";
     public const string Number = "number";
     public const string String = "string";
@@ -195,6 +197,7 @@ internal static class ScrDataTypeNames
                 result.Append(value switch
                 {
                     ScrDataTypes.Int => ScrDataTypeNames.Int,
+                    ScrDataTypes.UInt64 => ScrDataTypeNames.UInt64,
                     ScrDataTypes.Float => ScrDataTypeNames.Float,
                     ScrDataTypes.Number => ScrDataTypeNames.Number,
                     ScrDataTypes.Bool => ScrDataTypeNames.Bool,
@@ -341,6 +344,21 @@ internal record struct ScrData
     }
 
     /// <summary>
+    /// Creates an Object type instance with class name information.
+    /// Used for tracking the concrete class type of an object for method resolution.
+    /// </summary>
+    /// <param name="className">The name of the class</param>
+    /// <returns>A ScrData instance representing an object of the specified class</returns>
+    public static ScrData ObjectOfClass(string className)
+    {
+        // Store both ClassId (hash) and ClassName for lookup
+        int classId = className.GetHashCode();
+        return new(ScrDataTypes.Object, 
+            [new ScrDataObjectInstanceType { ClassId = classId, ClassName = className }],
+            booleanValue: true); // Objects are truthy
+    }
+
+    /// <summary>
     /// Converts an API data type specification to an internal ScrData instance.
     /// </summary>
     /// <param name="apiType">The API type specification</param>
@@ -356,6 +374,33 @@ internal record struct ScrData
         if (apiType.IsArray)
         {
             return new ScrData(ScrDataTypes.Array);
+        }
+
+        // Handle unionOf types (e.g. unionOf: [{ dataType: "string" }, { dataType: "number" }])
+        if (apiType.UnionOf is { Count: > 0 })
+        {
+            return FromApiTypes(apiType.UnionOf);
+        }
+
+        // Handle union types (pipe-separated, e.g. "hash | int | string")
+        if (apiType.DataType.Contains('|'))
+        {
+            var parts = apiType.DataType.Split('|', StringSplitOptions.TrimEntries);
+            ScrDataTypes combined = ScrDataTypes.Void;
+            List<IScrDataSubType>? subTypes = null;
+
+            foreach (var part in parts)
+            {
+                var (type, subType) = ParseSingleApiTypeWithSubType(part, apiType.InstanceType);
+                combined |= type;
+                if (subType is not null)
+                {
+                    subTypes ??= new();
+                    subTypes.Add(subType);
+                }
+            }
+
+            return combined == ScrDataTypes.Void ? Default : new ScrData(combined, subTypes);
         }
 
         return ParseSingleApiType(apiType.DataType, apiType.InstanceType);
@@ -431,6 +476,7 @@ internal record struct ScrData
         {
             // Primitives
             "int" or "integer" => (ScrDataTypes.Int, null),
+            "uint64" or "ulong" or "unsigned long" or "unsigned long long" => (ScrDataTypes.UInt64, null),
             "float" => (ScrDataTypes.Float, null),
             "bool" or "boolean" => (ScrDataTypes.Bool, null),
             "string" => (ScrDataTypes.String, null),
@@ -438,6 +484,8 @@ internal record struct ScrData
             "number" => (ScrDataTypes.Number, null), // int | float
             "vector" or "vec3" => (ScrDataTypes.Vector, null),
             "hash" => (ScrDataTypes.Hash, null),
+            "animtree" => (ScrDataTypes.AnimTree, null),
+            "anim" => (ScrDataTypes.Anim, null),
             "undefined" => (ScrDataTypes.Undefined, null),
             "void" => (ScrDataTypes.Void, null),
 
@@ -783,6 +831,24 @@ internal record struct ScrData
             return true;
         }
 
+        // IString is implicitly compatible with String (localized strings are still strings)
+        if ((expected & ScrDataTypes.String) != ScrDataTypes.Void)
+        {
+            expected |= ScrDataTypes.IString;
+        }
+
+        // String accepts any type that can be implicitly converted to string at runtime
+        if ((expected & ScrDataTypes.String) != ScrDataTypes.Void)
+        {
+            expected |= ScrDataTypes.Number | ScrDataTypes.Bool | ScrDataTypes.Hash;
+        }
+
+        // Anim and String are interchangeable (anim refs are strings under the hood)
+        if ((expected & (ScrDataTypes.Anim | ScrDataTypes.String)) != ScrDataTypes.Void)
+        {
+            expected |= ScrDataTypes.Anim | ScrDataTypes.String;
+        }
+
         if (Indeterminate)
         {
             return (Type & expected) != ScrDataTypes.Void;
@@ -801,12 +867,32 @@ internal record struct ScrData
             return true;
         }
 
-        if (Indeterminate || expected.Indeterminate)
+        ScrDataTypes expectedType = expected.Type;
+
+        // IString is implicitly compatible with String (localized strings are still strings)
+        if ((expectedType & ScrDataTypes.String) != ScrDataTypes.Void)
         {
-            return (Type & expected.Type) != ScrDataTypes.Void;
+            expectedType |= ScrDataTypes.IString;
         }
 
-        return (Type & ~expected.Type) == ScrDataTypes.Void;
+        // String accepts any type that can be implicitly converted to string at runtime
+        if ((expectedType & ScrDataTypes.String) != ScrDataTypes.Void)
+        {
+            expectedType |= ScrDataTypes.Number | ScrDataTypes.Bool | ScrDataTypes.Hash;
+        }
+
+        // Anim and String are interchangeable (anim refs are strings under the hood)
+        if ((expectedType & (ScrDataTypes.Anim | ScrDataTypes.String)) != ScrDataTypes.Void)
+        {
+            expectedType |= ScrDataTypes.Anim | ScrDataTypes.String;
+        }
+
+        if (Indeterminate || expected.Indeterminate)
+        {
+            return (Type & expectedType) != ScrDataTypes.Void;
+        }
+
+        return (Type & ~expectedType) == ScrDataTypes.Void;
     }
 
     public string TypeToString()
@@ -955,6 +1041,29 @@ internal record struct ScrData
     }
 
     /// <summary>
+    /// Gets the class name if this ScrData represents an Object with known class type.
+    /// </summary>
+    /// <returns>The class name, or null if not an object or class unknown</returns>
+    public readonly string? GetObjectClassName()
+    {
+        if (!HasType(ScrDataTypes.Object) || SubTypes is null)
+        {
+            return null;
+        }
+
+        // Find the first ObjectInstance subtype and return its ClassName
+        foreach (var subType in SubTypes)
+        {
+            if (subType is ScrDataObjectInstanceType objType)
+            {
+                return objType.ClassName;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Checks whether the data is of type(s) given in the parameters. They must belong to one up to all of these types
     /// but no types beyond this.
     /// If an instance of type Unknown is passed to the function, it will return true.
@@ -1014,6 +1123,6 @@ internal record struct ScrData
     }
 }
 
-internal record ScrParameter(string Name, Token Source, Range Range, bool ByRef = false, ExprNode? Default = null);
+internal record ScrParameter(string Name, Token Source, Range Range, bool ByRef = false, ExprNode? Default = null, bool Mandatory = false);
 internal record ScrVariable(string Name, ScrData Data, int LexicalScope, bool Global = false, bool IsConstant = false, Range? SourceLocation = null, AstNode? DefinitionSource = null);
 // internal record ScrArguments(List<IExpressionNode> Arguments);

@@ -1,0 +1,190 @@
+using GSCode.Data.Models.Interfaces;
+using GSCode.Parser;
+using GSCode.Parser.Data;
+using GSCode.Parser.Lexical;
+using Microsoft.Extensions.Logging;
+using OmniSharp.Extensions.LanguageServer.Protocol;
+using System.Diagnostics;
+using System.IO;
+
+namespace GSCode.NET.LSP;
+
+public partial class ScriptManager
+{
+    public async Task IndexWorkspaceAsync(string rootDirectory, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(rootDirectory) || !Directory.Exists(rootDirectory))
+            {
+                _logger.LogWarning("IndexWorkspace skipped: directory not found: {Root}", rootDirectory);
+                return;
+            }
+
+            var filesList = Directory
+                .EnumerateFiles(rootDirectory, "*.*", SearchOption.AllDirectories)
+                .Where(p => p.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase) ||
+                            p.EndsWith(".csc", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+#if DEBUG
+            _logger.LogInformation("Indexing workspace under {Root}", rootDirectory);
+            _logger.LogInformation("Indexing started: {Count} files", filesList.Count);
+            var swAll = Stopwatch.StartNew();
+#endif
+
+            int maxDegree = Math.Max(1, Environment.ProcessorCount - 1);
+            using SemaphoreSlim gate = new(maxDegree, maxDegree);
+            List<Task> tasks = new();
+
+            int fileIndex = 0;
+            foreach (string file in filesList)
+            {
+                // Yield to editor operations every 10 files to reduce semaphore overhead
+                if (fileIndex++ % 10 == 0)
+                {
+                    await _editorPriority.WaitAsync(cancellationToken);
+                    _editorPriority.Release();
+                }
+
+                await gate.WaitAsync(cancellationToken);
+                tasks.Add(Task.Run(async () =>
+                {
+#if DEBUG
+                    var fileSw = Stopwatch.StartNew();
+#endif
+                    string rel = Path.GetRelativePath(rootDirectory, file);
+                    try
+                    {
+#if DEBUG
+                        _logger.LogInformation("Indexing {File}", rel);
+#endif
+                        await IndexFileAsync(file, cancellationToken);
+#if DEBUG
+                        fileSw.Stop();
+                        _logger.LogInformation("Indexed {File} in {ElapsedMs} ms", rel, fileSw.ElapsedMilliseconds);
+#endif
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to index {File}", file);
+                    }
+                    finally
+                    {
+                        gate.Release();
+                    }
+                }, cancellationToken));
+            }
+
+            await Task.WhenAll(tasks);
+
+#if DEBUG
+            swAll.Stop();
+            _logger.LogInformation("Indexing completed in {ElapsedMs} ms for {Count} files", swAll.ElapsedMilliseconds, filesList.Count);
+#endif
+        }
+        catch (OperationCanceledException)
+        {
+#if DEBUG
+            _logger.LogInformation("Indexing cancelled");
+#endif
+        }
+    }
+
+    private async Task IndexFileAsync(string filePath, CancellationToken cancellationToken)
+    {
+        string ext = Path.GetExtension(filePath);
+        string languageId = string.Equals(ext, ".csc", StringComparison.OrdinalIgnoreCase) ? "csc" : "gsc";
+
+        DocumentUri docUri = DocumentUri.FromFileSystemPath(filePath);
+
+        bool isNewFile = false;
+        var cached = Scripts.GetOrAdd(docUri, key =>
+        {
+            isNewFile = true;
+            return new CachedScript
+            {
+                Type = CachedScriptType.Dependency,
+                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index)
+            };
+        });
+
+        // Skip if already parsed (unless it's a new file)
+        if (!isNewFile && cached.Script.Parsed)
+            return;
+
+        await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken);
+
+        // Populate global symbol registry
+        bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
+        cached.ExportedSymbolsChanged = symbolsChanged;
+        cached.LastParsedAt = DateTime.UtcNow;
+
+        // Snapshot dependencies to avoid collection modification during enumeration
+        var dependencies = cached.Script.Dependencies.ToList();
+
+        // Parse and register dependencies
+        foreach (Uri dep in dependencies)
+        {
+            await AddDependencyAsync(docUri.ToUri(), dep, languageId);
+        }
+
+        var indexingMode = GSCode.Parser.Configuration.CompletionConfiguration.WorkspaceIndexingMode;
+
+        if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Off)
+        {
+            _logger.LogWarning("IndexFileAsync called with Off mode for {File} - this should not happen", Path.GetFileName(filePath));
+            return;
+        }
+
+        // Merge symbols from dependencies (filtering, deduplication, path conversion)
+        var (mergeFuncLocs, mergeClassLocs) = await MergeDependencySymbolsAsync(dependencies, filePath, cancellationToken);
+
+        // Merge definition tables (needed for go-to-definition in both modes)
+        await WithAnalysisLockAsync(docUri, async () =>
+        {
+            if (cached.Script.DefinitionsTable is not null)
+            {
+                foreach (var kv in mergeFuncLocs)
+                {
+                    var (ns, name) = kv.Key;
+                    var (fp, range) = kv.Value;
+                    cached.Script.DefinitionsTable.AddFunctionLocation(ns, name, fp, TokenRange.FromRange(range));
+                }
+                foreach (var kv in mergeClassLocs)
+                {
+                    var (ns, name) = kv.Key;
+                    var (fp, range) = kv.Value;
+                    cached.Script.DefinitionsTable.AddClassLocation(ns, name, fp, TokenRange.FromRange(range));
+                }
+            }
+            await Task.CompletedTask;
+        });
+
+        if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Partial)
+        {
+            // Partial: signature analysis only (already done during parse)
+            // Symbol registry populated, definition tables merged — nothing more to do
+        }
+        else if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Full)
+        {
+            // Full: build exported symbols and run semantic analysis
+            List<IExportedSymbol> exportedSymbols = new();
+            foreach (Uri dep in dependencies)
+            {
+                var depDoc = DocumentUri.From(dep);
+                if (Scripts.TryGetValue(depDoc, out CachedScript? depScript))
+                    exportedSymbols.AddRange(await depScript.Script.IssueExportedSymbolsAsync(cancellationToken));
+            }
+
+            await WithAnalysisLockAsync(docUri, async () =>
+            {
+                await cached.Script.AnalyseAsync(exportedSymbols, cancellationToken);
+            });
+
+            // Publish diagnostics for indexed file (if LSP facade is available)
+            await PublishDiagnosticsAsync(docUri, cached.Script, cancellationToken: cancellationToken);
+        }
+    }
+}

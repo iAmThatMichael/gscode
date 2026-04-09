@@ -1,8 +1,16 @@
 <Project>
-  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
-    <!-- Centralized Preprocessor Directives -->
 
-    <DefineConstants>$(DefineConstants);FLAG_MEMORY_DEBUG</DefineConstants>
-    <DefineConstants>$(DefineConstants);FLAG_PERFORMANCE_TRACKING</DefineConstants>
+  <!-- Debug Configuration -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+  <!-- add any debug-specific properties or constants here -->
   </PropertyGroup>
+
+  <!-- Uncomment to enable performance tracking -->
+  <!--
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);FLAG_PERFORMANCE_TRACKING</DefineConstants>
+    <DefineConstants>$(DefineConstants);FLAG_MEMORY_DEBUG</DefineConstants>
+  </PropertyGroup>
+  -->
+
 </Project>

@@ -119,6 +119,7 @@ public class ScriptAnalyserData
             {
                 function.Namespace = "sys";
                 function.Implicit = true;
+                function.IsBuiltIn = true;
 
                 // Check for vararg parameters and set the Vararg flag on the overload
                 foreach (ScrFunctionOverload overload in function.Overloads)

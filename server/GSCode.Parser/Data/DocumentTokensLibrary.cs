@@ -1,4 +1,5 @@
 
+using System.Text.RegularExpressions;
 using GSCode.Parser.Lexical;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 
@@ -8,10 +9,40 @@ public sealed class DocumentTokensLibrary
 {
     private List<Token> TokenList { get; set; } = new();
 
+    private static readonly Regex IgnoreCommentPattern = new(
+        @"^(?://|/\*)\s*(?:gscode|gsc)\s+ignore\b",
+        RegexOptions.Compiled);
+
     /// <summary>
     /// Release the backing token list to allow GC. Used for index-mode scripts after analysis.
     /// </summary>
     public void Clear() => TokenList = [];
+
+    /// <summary>
+    /// Returns the set of 0-indexed line numbers that are suppressed by a preceding
+    /// `// gscode ignore` / `/* gscode ignore */` (also `gsc ignore`) comment. The suppressed
+    /// line is always the line immediately following the comment's end line.
+    /// </summary>
+    internal HashSet<int> GetIgnoredLines()
+    {
+        HashSet<int>? ignored = null;
+        foreach (Token token in TokenList)
+        {
+            if (token.Type != TokenType.LineComment && token.Type != TokenType.MultilineComment)
+            {
+                continue;
+            }
+
+            if (!IgnoreCommentPattern.IsMatch(token.Lexeme))
+            {
+                continue;
+            }
+
+            ignored ??= new HashSet<int>();
+            ignored.Add(token.TokenRange.EndLine + 1);
+        }
+        return ignored ?? new HashSet<int>();
+    }
 
     private class TokenKeyComparer : IComparer<Token>
     {

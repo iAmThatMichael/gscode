@@ -10,7 +10,11 @@ GSCode's language server requires the .NET 10 Runtime, available at [Download .N
 
 ## Release Notes
 
-### 1.4.0 (latest)
+### 1.4.1 (latest)
+- Added a `gscode ignore` comment directive that suppresses diagnostics on the following line.
+- Added a "Don't show again" prompt to the raw scripts write warning.
+
+### 1.4.0
 
 - Added context-aware completion suggestions based on editor location.
 - Significant API updates & improvements aimed to reduce false-positive diagnostics. Added typing to most methods.

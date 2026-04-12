@@ -190,7 +190,21 @@ export async function activate(context: ExtensionContext) {
 
   // Push the disposable to the context's subscriptions so that the
   // client can be deactivated on extension deactivation
-  client.start();
+  client.start().then(() => {
+    client.onNotification('gscode/rawFolderWriteWarning', async () => {
+      const cfg = workspace.getConfiguration('gscode');
+      if (cfg.get<boolean>('allowRawFolderWrites', false)) return;
+
+      const action = await window.showWarningMessage(
+        'You are editing a file in a protected raw folder. Consider working in a separate mod directory to avoid modifying vanilla game files.',
+        'Dismiss',
+        "Don't show again"
+      );
+      if (action === "Don't show again") {
+        await cfg.update('allowRawFolderWrites', true, vscode.ConfigurationTarget.Global);
+      }
+    });
+  });
 
   // Check already-open documents for language mismatch
   vscode.workspace.textDocuments.forEach(checkLanguageMismatch);

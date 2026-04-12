@@ -109,11 +109,11 @@ public class TextDocumentSyncHandler : ITextDocumentSyncHandler
             {
                 _logger.LogWarning("File saved in protected raw folder: {Path}. Consider setting gscode.allowRawFolderWrites to false or working in a separate mod directory.", filePath);
 
-                // Send window/showMessage notification to the client
-                _facade.SendNotification("window/showMessage", new ShowMessageParams
+                // Send custom notification so the client can show a dismissible warning
+                // with a "Don't show again" action that toggles gscode.allowRawFolderWrites.
+                _facade.SendNotification("gscode/rawFolderWriteWarning", new
                 {
-                    Type = MessageType.Error,
-                    Message = "You are editing a file in a protected raw folder. Consider working in a separate mod directory to avoid modifying vanilla game files."
+                    path = filePath
                 });
             }
         }

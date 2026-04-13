@@ -10,19 +10,6 @@ using Serilog;
 
 namespace GSCode.Parser.SPA;
 
-/// <summary>
-/// GSC symbol types. Not all are applicable in all contexts, e.g. namespaces on a stack frame
-/// </summary>
-file enum ScrSymbolType
-{
-    Unknown,
-    Function,
-    Variable,
-    Namespace,
-    Object
-}
-file record class ScrSymbol();
-
 public class ScriptAnalyserData
 {
     public string GameId { get; } = "t7";

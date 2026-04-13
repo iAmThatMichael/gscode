@@ -12,10 +12,12 @@ namespace GSCode.NET.LSP.Handlers;
 internal class ConfigurationHandler : DidChangeConfigurationHandlerBase
 {
     private readonly ILogger<ConfigurationHandler> _logger;
+    private readonly CompletionOptions _options;
 
-    public ConfigurationHandler(ILogger<ConfigurationHandler> logger)
+    public ConfigurationHandler(ILogger<ConfigurationHandler> logger, CompletionOptions options)
     {
         _logger = logger;
+        _options = options;
     }
 
     public override Task<Unit> Handle(DidChangeConfigurationParams request, CancellationToken cancellationToken)
@@ -33,12 +35,12 @@ internal class ConfigurationHandler : DidChangeConfigurationHandlerBase
                     if (customRawPath != null)
                     {
                         _logger.LogInformation("Configuration: Setting customRawPath to {Path}", customRawPath);
-                        CompletionConfiguration.CustomRawPath = customRawPath;
+                        _options.CustomRawPath = customRawPath;
                     }
                     else
                     {
                         _logger.LogInformation("Configuration: customRawPath not set or null");
-                        CompletionConfiguration.CustomRawPath = null;
+                        _options.CustomRawPath = null;
                     }
 
                     // Read allowRawFolderWrites setting
@@ -46,12 +48,12 @@ internal class ConfigurationHandler : DidChangeConfigurationHandlerBase
                     if (allowRawFolderWrites.HasValue)
                     {
                         _logger.LogInformation("Configuration: Setting allowRawFolderWrites to {Value}", allowRawFolderWrites.Value);
-                        CompletionConfiguration.AllowRawFolderWrites = allowRawFolderWrites.Value;
+                        _options.AllowRawFolderWrites = allowRawFolderWrites.Value;
                     }
                     else
                     {
                         _logger.LogInformation("Configuration: allowRawFolderWrites not set, using default (false)");
-                        CompletionConfiguration.AllowRawFolderWrites = false;
+                        _options.AllowRawFolderWrites = false;
                     }
 
                     // Read workspaceIndexingMode setting (consolidated from enableWorkspaceIndexing)
@@ -61,28 +63,28 @@ internal class ConfigurationHandler : DidChangeConfigurationHandlerBase
                         if (indexingMode.Equals("off", System.StringComparison.OrdinalIgnoreCase))
                         {
                             _logger.LogInformation("Configuration: Setting workspaceIndexingMode to Off");
-                            CompletionConfiguration.WorkspaceIndexingMode = IndexingMode.Off;
+                            _options.WorkspaceIndexingMode = IndexingMode.Off;
                         }
                         else if (indexingMode.Equals("full", System.StringComparison.OrdinalIgnoreCase))
                         {
                             _logger.LogInformation("Configuration: Setting workspaceIndexingMode to Full");
-                            CompletionConfiguration.WorkspaceIndexingMode = IndexingMode.Full;
+                            _options.WorkspaceIndexingMode = IndexingMode.Full;
                         }
                         else if (indexingMode.Equals("partial", System.StringComparison.OrdinalIgnoreCase))
                         {
                             _logger.LogInformation("Configuration: Setting workspaceIndexingMode to Partial");
-                            CompletionConfiguration.WorkspaceIndexingMode = IndexingMode.Partial;
+                            _options.WorkspaceIndexingMode = IndexingMode.Partial;
                         }
                         else
                         {
                             _logger.LogWarning("Configuration: Invalid workspaceIndexingMode '{Mode}', using default (Off)", indexingMode);
-                            CompletionConfiguration.WorkspaceIndexingMode = IndexingMode.Off;
+                            _options.WorkspaceIndexingMode = IndexingMode.Off;
                         }
                     }
                     else
                     {
                         _logger.LogInformation("Configuration: workspaceIndexingMode not set, using default (Off)");
-                        CompletionConfiguration.WorkspaceIndexingMode = IndexingMode.Off;
+                        _options.WorkspaceIndexingMode = IndexingMode.Off;
                     }
                 }
             }

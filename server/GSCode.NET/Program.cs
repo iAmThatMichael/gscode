@@ -74,6 +74,9 @@ LanguageServer server = await LanguageServer.From(options =>
 		.WithServices(x => x.AddLogging(b => b.SetMinimumLevel(LogLevel.Debug)))
 		.WithServices(services =>
 		{
+			// Register CompletionOptions as singleton so ConfigurationHandler can inject
+			// and mutate it; parser-layer code reads the same instance via CompletionOptions.Current.
+			services.AddSingleton<CompletionOptions>();
 			// Inject ScriptManager with ILanguageServerFacade so it can publish diagnostics during indexing
 			services.AddSingleton<ScriptManager>(sp =>
 			{
@@ -82,105 +85,35 @@ LanguageServer server = await LanguageServer.From(options =>
 				return new ScriptManager(logger, facade);
 			});
 			services.AddSingleton(new TextDocumentSelector(
-                new TextDocumentFilter { Pattern = "**/*.gsc" },
-                new TextDocumentFilter { Pattern = "**/*.csc" },
-                new TextDocumentFilter { Pattern = "**/*.gsh" }
-            ));
+				new TextDocumentFilter { Pattern = "**/*.gsc" },
+				new TextDocumentFilter { Pattern = "**/*.csc" },
+				new TextDocumentFilter { Pattern = "**/*.gsh" }
+			));
 		})
 		.OnInitialize(async (server, request, ct) =>
 		{
 			try
 			{
-				// Configure logging level based on serverLogLevel setting from initialization options
-				string logLevelValue = "off";
+				// Publish the DI-managed CompletionOptions as the live instance so all layers
+				// (parser, handlers, server) share the exact same object.
+				var opts = server.Services.GetRequiredService<CompletionOptions>();
+				CompletionOptions.SetCurrent(opts);
 
-				if (request.InitializationOptions is JToken initOptions)
-				{
-					var gscodeSection = initOptions.SelectToken("gscode");
-					if (gscodeSection is not null)
-					{
-						var logLevelSetting = gscodeSection.SelectToken("serverLogLevel");
-						if (logLevelSetting is not null)
-						{
-							logLevelValue = logLevelSetting.Value<string>()?.ToLowerInvariant() ?? "off";
-						}
-					}
-				}
+				JToken? initOptions = request.InitializationOptions as JToken;
 
-				var minimumLevel = logLevelValue switch
-				{
-					"off" => LogEventLevel.Warning,
-					"messages" => LogEventLevel.Information,
-					"verbose" => LogEventLevel.Debug,
-					_ => LogEventLevel.Information
-				};
+				// Configure logging level
+				loggingLevelSwitch.MinimumLevel = InitializationOptionsReader.ParseServerLogLevel(initOptions);
+				Log.Information("Server log level switch set to {MinimumLevel}", loggingLevelSwitch.MinimumLevel);
 
-				// Update the logging level switch dynamically
-				loggingLevelSwitch.MinimumLevel = minimumLevel;
+				// Configure workspace options from client initialization options
+				opts.WorkspaceIndexingMode = InitializationOptionsReader.ParseWorkspaceIndexingMode(initOptions);
+				opts.CustomRawPath         = InitializationOptionsReader.ParseCustomRawPath(initOptions);
+				opts.AllowRawFolderWrites  = InitializationOptionsReader.ParseAllowRawFolderWrites(initOptions);
 
-				Log.Information("Server log level set to: {LogLevel} (mapped to {MinimumLevel})", logLevelValue, minimumLevel);
-
-				// Check workspace indexing mode via InitializationOptions
-				var indexingMode = IndexingMode.Off;
-
-				if (request.InitializationOptions is JToken initOptions2)
-				{
-					var gscodeSection = initOptions2.SelectToken("gscode");
-					if (gscodeSection is not null)
-					{
-						var indexingSetting = gscodeSection.SelectToken("workspaceIndexingMode");
-						if (indexingSetting is not null)
-						{
-							var modeValue = indexingSetting.Value<string>()?.ToLowerInvariant();
-							indexingMode = modeValue switch
-							{
-								"off" => IndexingMode.Off,
-								"partial" => IndexingMode.Partial,
-								"full" => IndexingMode.Full,
-								_ => IndexingMode.Off
-							};
-						}
-
-						// Read customRawPath from initialization options
-						var customRawPathSetting = gscodeSection.SelectToken("customRawPath");
-						if (customRawPathSetting is not null)
-						{
-							var customPath = customRawPathSetting.Value<string>();
-							if (!string.IsNullOrWhiteSpace(customPath))
-							{
-								CompletionConfiguration.CustomRawPath = customPath;
-								Log.Information("CustomRawPath set from initialization options: {Path}", customPath);
-							}
-						}
-
-						// Read allowRawFolderWrites from initialization options
-						var allowRawWritesSetting = gscodeSection.SelectToken("allowRawFolderWrites");
-						if (allowRawWritesSetting is not null)
-						{
-							var allowWrites = allowRawWritesSetting.Value<bool>();
-							CompletionConfiguration.AllowRawFolderWrites = allowWrites;
-							Log.Information("AllowRawFolderWrites set from initialization options: {Value}", allowWrites);
-						}
-					}
-				}
-
-				// Set the configuration
-				CompletionConfiguration.WorkspaceIndexingMode = indexingMode;
-
-				if (indexingMode == IndexingMode.Off)
-				{
-					Log.Information("Workspace indexing is disabled");
-					return;
-				}
-
-				Log.Information("Workspace indexing is enabled: {Mode} mode", indexingMode);
-
-				var sm = server.Services.GetRequiredService<ScriptManager>();
-
-				// Use a long-lived CTS for indexing; do not tie to Initialize request token
-				var indexingCts = new CancellationTokenSource();
-				options.RegisterForDisposal(indexingCts);
-				var indexingToken = indexingCts.Token;
+				Log.Information("Workspace indexing mode: {Mode}", opts.WorkspaceIndexingMode);
+				if (opts.CustomRawPath is not null)
+					Log.Information("CustomRawPath set from initialization options: {Path}", opts.CustomRawPath);
+				Log.Information("AllowRawFolderWrites: {Value}", opts.AllowRawFolderWrites);
 
 				// Defer actual indexing to OnInitialized to ensure server is fully ready
 				await Task.CompletedTask;
@@ -194,31 +127,12 @@ LanguageServer server = await LanguageServer.From(options =>
 		{
 			try
 			{
-				// Check workspace indexing mode via InitializationOptions
-				var indexingMode = IndexingMode.Off;
+				// Read the already-configured options (set during OnInitialize)
+				var opts = server.Services.GetRequiredService<CompletionOptions>();
+				var indexingMode = opts.WorkspaceIndexingMode;
 
-				if (request.InitializationOptions is JToken initOptions)
-				{
-					var gscodeSection = initOptions.SelectToken("gscode");
-					if (gscodeSection is not null)
-					{
-						var indexingSetting = gscodeSection.SelectToken("workspaceIndexingMode");
-						if (indexingSetting is not null)
-						{
-							var modeValue = indexingSetting.Value<string>()?.ToLowerInvariant();
-							indexingMode = modeValue switch
-							{
-								"off" => IndexingMode.Off,
-								"partial" => IndexingMode.Partial,
-								"full" => IndexingMode.Full,
-								_ => IndexingMode.Off
-							};
-						}
-					}
-				}
-
-				// Re-apply configuration to ensure it's set correctly
-				CompletionConfiguration.WorkspaceIndexingMode = indexingMode;
+				// Re-apply to ensure consistency
+				opts.WorkspaceIndexingMode = indexingMode;
 
 				if (indexingMode == IndexingMode.Off)
 				{
@@ -235,19 +149,19 @@ LanguageServer server = await LanguageServer.From(options =>
 				var indexingToken = indexingCts.Token;
 
 				// If CustomRawPath is set, index that instead of workspace folders
-				if (!string.IsNullOrWhiteSpace(CompletionConfiguration.CustomRawPath))
-				{
-					string customPath = CompletionConfiguration.CustomRawPath;
-					if (Directory.Exists(customPath))
+					if (!string.IsNullOrWhiteSpace(opts.CustomRawPath))
 					{
-						Log.Information("Starting workspace indexing for CustomRawPath: {Root}", customPath);
-						_ = Task.Run(() => sm.IndexWorkspaceAsync(customPath, indexingToken), indexingToken);
+						string customPath = opts.CustomRawPath;
+						if (Directory.Exists(customPath))
+						{
+							Log.Information("Starting workspace indexing for CustomRawPath: {Root}", customPath);
+							_ = Task.Run(() => sm.IndexWorkspaceAsync(customPath, indexingToken), indexingToken);
+						}
+						else
+						{
+							Log.Warning("CustomRawPath is set but directory does not exist: {Path}", customPath);
+						}
 					}
-					else
-					{
-						Log.Warning("CustomRawPath is set but directory does not exist: {Path}", customPath);
-					}
-				}
 				else if (request.WorkspaceFolders is not null && request.WorkspaceFolders.Any())
 				{
 					foreach (var wf in request.WorkspaceFolders)

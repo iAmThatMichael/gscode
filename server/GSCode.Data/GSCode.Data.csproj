@@ -10,8 +10,4 @@
     <Folder Include="Library\" />
   </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="OmniSharp.Extensions.LanguageProtocol" Version="0.19.9" />
-  </ItemGroup>
-
 </Project>

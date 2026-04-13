@@ -1,16 +1,15 @@
 ﻿using GSCode.Data.Models.Interfaces;
-using Newtonsoft.Json;
+using System.Text.Json.Serialization;
 
 namespace GSCode.Data.Models;
 
 public partial record class ScrFunction : IExportedSymbol
 {
     /// <summary>The name of the function.</summary>
-    [JsonRequired]
-    public required string Name { get; set; }
+    public required string Name { get; init; }
 
     /// <summary>The description for this function.</summary>
-    public string? Description { get; set; }
+    public string? Description { get; init; }
 
     /// <summary>An example of this function's usage.</summary>
     public string? Example { get; set; }
@@ -33,7 +32,7 @@ public partial record class ScrFunction : IExportedSymbol
     /// <summary>The namespace of this function.</summary>
     public string Namespace { get; set; } = "sys";
 
-    public ExportedSymbolType Type { get; set; } = ExportedSymbolType.Function;
+    public ExportedSymbolType Type { get; init; } = ExportedSymbolType.Function;
 
     /// <summary>
     /// Whether this function's namespace can be omitted at call-sites.

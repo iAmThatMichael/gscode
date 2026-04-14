@@ -1,8 +1,8 @@
+﻿using Serilog;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
-using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
 using System.Diagnostics;
 using System.IO;
@@ -15,9 +15,12 @@ public partial class ScriptManager
     {
         try
         {
+            // Normalise to backslashes so Windows IO APIs are happy
+            rootDirectory = Path.GetFullPath(rootDirectory);
+
             if (string.IsNullOrWhiteSpace(rootDirectory) || !Directory.Exists(rootDirectory))
             {
-                _logger.LogWarning("IndexWorkspace skipped: directory not found: {Root}", rootDirectory);
+                Log.Warning("IndexWorkspace skipped: directory not found: {Root}", rootDirectory);
                 return;
             }
 
@@ -27,11 +30,9 @@ public partial class ScriptManager
                             p.EndsWith(".csc", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-#if DEBUG
-            _logger.LogInformation("Indexing workspace under {Root}", rootDirectory);
-            _logger.LogInformation("Indexing started: {Count} files", filesList.Count);
+            Log.Information("Indexing workspace under {Root}", rootDirectory);
+            Log.Information("Indexing started: {Count} files", filesList.Count);
             var swAll = Stopwatch.StartNew();
-#endif
 
             int maxDegree = Math.Max(1, Environment.ProcessorCount - 1);
             using SemaphoreSlim gate = new(maxDegree, maxDegree);
@@ -57,18 +58,18 @@ public partial class ScriptManager
                     try
                     {
 #if DEBUG
-                        _logger.LogInformation("Indexing {File}", rel);
+                        Log.Information("Indexing {File}", rel);
 #endif
                         await IndexFileAsync(file, cancellationToken);
 #if DEBUG
                         fileSw.Stop();
-                        _logger.LogInformation("Indexed {File} in {ElapsedMs} ms", rel, fileSw.ElapsedMilliseconds);
+                        Log.Information("Indexed {File} in {ElapsedMs} ms", rel, fileSw.ElapsedMilliseconds);
 #endif
                     }
                     catch (OperationCanceledException) { }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Failed to index {File}", file);
+                        Log.Error(ex, "Failed to index {File}", file);
                     }
                     finally
                     {
@@ -79,16 +80,16 @@ public partial class ScriptManager
 
             await Task.WhenAll(tasks);
 
-#if DEBUG
             swAll.Stop();
-            _logger.LogInformation("Indexing completed in {ElapsedMs} ms for {Count} files", swAll.ElapsedMilliseconds, filesList.Count);
-#endif
+            Log.Information("Indexing completed in {ElapsedMs} ms for {Count} files", swAll.ElapsedMilliseconds, filesList.Count);
         }
         catch (OperationCanceledException)
         {
-#if DEBUG
-            _logger.LogInformation("Indexing cancelled");
-#endif
+            Log.Information("Indexing cancelled");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Indexing failed for {Root}", rootDirectory);
         }
     }
 
@@ -134,7 +135,7 @@ public partial class ScriptManager
 
         if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Off)
         {
-            _logger.LogWarning("IndexFileAsync called with Off mode for {File} - this should not happen", Path.GetFileName(filePath));
+            Log.Warning("IndexFileAsync called with Off mode for {File} - this should not happen", Path.GetFileName(filePath));
             return;
         }
 
@@ -187,3 +188,4 @@ public partial class ScriptManager
         }
     }
 }
+

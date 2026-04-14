@@ -1,4 +1,4 @@
-using GSCode.Data.Models.Interfaces;
+﻿using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
@@ -57,7 +57,7 @@ public partial class ScriptManager
         Uri documentUri = document.Uri;
 
         // Remove symbols from global registry when file is closed
-        string filePath = documentUri.LocalPath;
+        string filePath = UriHelper.GetLocalPath(documentUri);
         _symbolRegistry.RemoveSymbolsFromFile(filePath);
 
         // Clean up cached macro definitions for this file
@@ -129,7 +129,7 @@ public partial class ScriptManager
 
     private async Task<IEnumerable<Diagnostic>> ProcessEditorAsync(Uri documentUri, Script script, string content, CancellationToken cancellationToken = default)
     {
-        string filePath = documentUri.LocalPath;
+        string filePath = UriHelper.GetLocalPath(documentUri);
         int contentHash = content.GetHashCode();
 
         // Update cached script metadata
@@ -225,3 +225,4 @@ public partial class ScriptManager
         return cached.Script;
     }
 }
+

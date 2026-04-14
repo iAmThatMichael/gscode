@@ -1,4 +1,4 @@
-using GSCode.Data.Models.Interfaces;
+﻿using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Data;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
@@ -28,7 +28,7 @@ public partial class ScriptManager
             await EnsureParsedAsync(uri, cached.Script, languageId, CancellationToken.None);
 
             // Populate global symbol registry with dependency's definitions
-            string filePath = uri.LocalPath;
+            string filePath = UriHelper.GetLocalPath(uri);
             bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
 
             cached.ExportedSymbolsChanged = symbolsChanged;
@@ -132,3 +132,4 @@ public partial class ScriptManager
         return (mergeFuncLocs, mergeClassLocs);
     }
 }
+

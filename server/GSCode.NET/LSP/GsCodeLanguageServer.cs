@@ -1,9 +1,9 @@
-﻿using GSCode.Parser;
+﻿using Serilog;
+using GSCode.Parser;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using GSCode.Parser.Util;
-using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
 using Newtonsoft.Json.Linq;
 using StreamJsonRpc;
@@ -21,7 +21,6 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
 {
     private readonly JsonRpc _rpc;
     private readonly ScriptManager _scriptManager;
-    private readonly ILogger<GsCodeLanguageServer> _logger;
     private readonly SemanticTokensLegend _semanticTokensLegend;
 
     // Workspace folders captured during Initialize for use in Initialized
@@ -32,21 +31,46 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     // Construction
     // -------------------------------------------------------------------------
 
-    public GsCodeLanguageServer(Stream input, Stream output, ILogger<GsCodeLanguageServer> logger)
+    public GsCodeLanguageServer(Stream input, Stream output)
     {
-        _logger = logger;
         // ScriptManager is injected with 'this' as the ILspNotifier so it can
         // push diagnostics back through the same JsonRpc channel.
-        _scriptManager = new ScriptManager(
-            Microsoft.Extensions.Logging.LoggerFactory.Create(_ => { })
-                     .CreateLogger<ScriptManager>(),
-            this);
+        _scriptManager = new ScriptManager(this);
 
         _semanticTokensLegend = BuildLegend();
 
-        var handler = new HeaderDelimitedMessageHandler(input, output, new JsonMessageFormatter());
+        var formatter = new JsonMessageFormatter();
+        // The MS LSP SDK types use Newtonsoft.Json [JsonConverter] attributes for
+        // union types (SumType, etc.).  Ensure enum serialisation matches the LSP
+        // spec which sends string values, not integers.
+        formatter.JsonSerializer.Converters.Add(
+            new Newtonsoft.Json.Converters.StringEnumConverter());
+
+        HeaderDelimitedMessageHandler handler;
+        if (ReferenceEquals(input, output))
+        {
+            // Single bidirectional stream (e.g. named pipe)
+            handler = new HeaderDelimitedMessageHandler(input, formatter);
+        }
+        else
+        {
+            // Separate streams (e.g. stdio: output = send, input = receive)
+            handler = new HeaderDelimitedMessageHandler(output, input, formatter);
+        }
+
         _rpc = new JsonRpc(handler, this);
         _rpc.ExceptionStrategy = ExceptionProcessing.CommonErrorData;
+        _rpc.Disconnected += OnDisconnected;
+
+        // Enable verbose tracing to see incoming/outgoing messages
+        _rpc.TraceSource = new System.Diagnostics.TraceSource("LSP", System.Diagnostics.SourceLevels.Verbose);
+        _rpc.TraceSource.Listeners.Add(new SerilogTraceListener());
+    }
+
+    private void OnDisconnected(object? sender, JsonRpcDisconnectedEventArgs e)
+    {
+        Log.Warning("JsonRpc disconnected: {Reason} | LastMessage={LastMessage} | Exception={Exception}",
+            e.Reason, e.LastMessage, e.Exception?.Message);
     }
 
     public void Start() => _rpc.StartListening();
@@ -72,7 +96,7 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to publish diagnostics for {Uri}", uri.LocalPath);
+            Log.Warning(ex, "Failed to publish diagnostics for {Uri}", uri.LocalPath);
             return Task.CompletedTask;
         }
     }
@@ -84,6 +108,7 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.InitializeName, UseSingleObjectParameterDeserialization = true)]
     public InitializeResult Initialize(InitializeParams @params)
     {
+        Log.Information(">>> Initialize received! RootUri={RootUri}", @params.RootUri);
         // Parse initialization options (may be null when client sends none)
         JToken? opts = @params.InitializationOptions as JToken;
         if (opts is not null)
@@ -105,7 +130,7 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
 
         // Collect workspace folders for use in Initialized
         if (@params.RootUri is not null)
-            _workspaceFolders = [@params.RootUri.LocalPath];
+            _workspaceFolders = [UriHelper.GetLocalPath(@params.RootUri)];
 
         return new InitializeResult
         {
@@ -147,6 +172,9 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.InitializedName, UseSingleObjectParameterDeserialization = true)]
     public void Initialized(InitializedParams @params)
     {
+        Log.Information(">>> Initialized received. Workspace folders: [{Folders}]",
+            string.Join(", ", _workspaceFolders));
+
         // Start workspace indexing on a background thread per folder
         if (_workspaceFolders.Length > 0)
         {
@@ -156,8 +184,12 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
                 string root = folder;
                 if (Directory.Exists(root))
                 {
-                    _logger.LogInformation("Starting workspace indexing: {Root}", root);
+                    Log.Information("Starting workspace indexing: {Root}", root);
                     _ = Task.Run(() => _scriptManager.IndexWorkspaceAsync(root, cts.Token), cts.Token);
+                }
+                else
+                {
+                    Log.Warning("Workspace folder does not exist: {Root}", root);
                 }
             }
         }
@@ -205,7 +237,7 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     {
         if (!GSCode.Parser.Configuration.CompletionConfiguration.AllowRawFolderWrites)
         {
-            string path = @params.TextDocument.Uri.LocalPath;
+            string path = UriHelper.GetLocalPath(@params.TextDocument.Uri);
             if (IsInProtectedRawFolder(path))
             {
                 _ = _rpc.NotifyAsync(Methods.WindowShowMessageName, new ShowMessageParams
@@ -339,7 +371,7 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
         if (script is null || script.DefinitionsTable is null) return [];
         ct.ThrowIfCancellationRequested();
 
-        string currentPath = ScriptFileResolver.NormalizeFilePathForUri(@params.TextDocument.Uri.LocalPath);
+        string currentPath = ScriptFileResolver.NormalizeFilePathForUri(UriHelper.GetLocalPath(@params.TextDocument.Uri));
 
         static string BuildFunctionLabel(string name, string? ns, string[]? parameters, string[]? flags)
         {
@@ -494,7 +526,7 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to process configuration change");
+            Log.Error(ex, "Failed to process configuration change");
         }
     }
 
@@ -505,10 +537,10 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.WorkspaceDidChangeWatchedFilesName, UseSingleObjectParameterDeserialization = true)]
     public async Task DidChangeWatchedFilesAsync(DidChangeWatchedFilesParams @params, CancellationToken ct)
     {
-        bool hasScriptChange = @params.Changes.Any(c => IsScriptFile(c.Uri.LocalPath));
+        bool hasScriptChange = @params.Changes.Any(c => IsScriptFile(UriHelper.GetLocalPath(c.Uri)));
         if (hasScriptChange)
         {
-            _logger.LogInformation("Watched script file changed; re-parsing all open editors");
+            Log.Information("Watched script file changed; re-parsing all open editors");
             await _scriptManager.ReparseAllOpenEditorsAsync(ct);
         }
     }
@@ -603,4 +635,15 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
         return false;
     }
 }
+
+/// <summary>
+/// Routes <see cref="System.Diagnostics.TraceSource"/> output to Serilog
+/// so JsonRpc wire-level tracing appears in the same log stream.
+/// </summary>
+file sealed class SerilogTraceListener : System.Diagnostics.TraceListener
+{
+    public override void Write(string? message) => Serilog.Log.Verbose("[LSP] {Message}", message);
+    public override void WriteLine(string? message) => Serilog.Log.Verbose("[LSP] {Message}", message);
+}
+
 

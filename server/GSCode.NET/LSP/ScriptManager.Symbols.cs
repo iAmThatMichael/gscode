@@ -1,4 +1,4 @@
-using GSCode.Data.Models;
+﻿using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.SA;
@@ -131,7 +131,7 @@ public partial class ScriptManager
 
         foreach (var kvp in Scripts)
         {
-            string filePath = kvp.Key.LocalPath;
+            string filePath = UriHelper.GetLocalPath(kvp.Key);
             if (filePath.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase))
                 gscCount++;
             else if (filePath.EndsWith(".csc", StringComparison.OrdinalIgnoreCase))
@@ -147,3 +147,4 @@ public partial class ScriptManager
             yield return new LoadedScript(kv.Key, kv.Value.Script);
     }
 }
+

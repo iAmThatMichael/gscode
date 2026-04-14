@@ -1,13 +1,10 @@
 ﻿using GSCode.NET;
 using GSCode.NET.LSP;
 using GSCode.Parser.SPA;
-using GSCode.Parser.Configuration;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
 using CommandLine;
-using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 using System.Reflection;
 
 // Create a logging level switch that can be changed dynamically
@@ -46,16 +43,15 @@ await Task.WhenAll(
 ServerOptions serverOptions = new();
 Parser.Default.ParseArguments<ServerOptions>(args).WithParsed(o => serverOptions = o);
 
+Log.Information("Server args: {Args}", string.Join(" ", args));
+Log.Information("Transport: pipe={Pipe} socket={Socket} stdio={Stdio}",
+	serverOptions.Pipe, serverOptions.Socket, serverOptions.Stdio);
+
 (Stream input, Stream output, IDisposable? disposable) = await StreamResolver.ResolveAsync(serverOptions, CancellationToken.None);
 
-using var loggerFactory = LoggerFactory.Create(builder =>
-{
-	builder.AddSerilog(Log.Logger);
-	builder.SetMinimumLevel(LogLevel.Debug);
-});
+Log.Information("Transport stream resolved. Input={Input} Output={Output}", input.GetType().Name, output.GetType().Name);
 
-var serverLogger = loggerFactory.CreateLogger<GsCodeLanguageServer>();
-using var server = new GsCodeLanguageServer(input, output, serverLogger);
+using var server = new GsCodeLanguageServer(input, output);
 
 server.Start();
 Log.Information("Language server connected successfully!");

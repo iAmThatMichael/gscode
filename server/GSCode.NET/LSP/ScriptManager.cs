@@ -1,5 +1,5 @@
+﻿using Serilog;
 using GSCode.Parser;
-using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
 using System.Collections.Concurrent;
 using System.IO;
@@ -9,7 +9,6 @@ namespace GSCode.NET.LSP;
 public partial class ScriptManager
 {
     private readonly ScriptCache _cache;
-    private readonly ILogger<ScriptManager> _logger;
     private readonly ILspNotifier? _notifier;
 
     private ConcurrentDictionary<Uri, CachedScript> Scripts { get; } = new(UriComparer.OrdinalIgnoreCase);
@@ -38,10 +37,9 @@ public partial class ScriptManager
     // Editor priority gate: held during editor operations to pause the indexer dispatch loop
     private readonly SemaphoreSlim _editorPriority = new(1, 1);
 
-    public ScriptManager(ILogger<ScriptManager> logger, ILspNotifier? notifier = null)
+    public ScriptManager(ILspNotifier? notifier = null)
     {
         _cache = new();
-        _logger = logger;
         _notifier = notifier;
     }
 
@@ -53,7 +51,7 @@ public partial class ScriptManager
         {
             if (!script.Parsed)
             {
-                string path = docUri.LocalPath;
+                string path = UriHelper.GetLocalPath(docUri);
                 string content = await File.ReadAllTextAsync(path, cancellationToken);
                 await script.ParseAsync(content);
             }
@@ -96,7 +94,9 @@ public partial class ScriptManager
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to publish diagnostics for {Uri}", uri.LocalPath);
+            Log.Error(ex, "Failed to publish diagnostics for {Uri}", uri.LocalPath);
         }
     }
 }
+
+

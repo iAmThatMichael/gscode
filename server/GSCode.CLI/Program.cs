@@ -30,7 +30,7 @@ class Program
         await CommandLine.Parser.Default.ParseArguments<Options>(args)
                .WithParsedAsync<Options>(async o =>
                {
-                   ScriptManager scriptManager = new ScriptManager(new NullLogger<ScriptManager>());
+                   ScriptManager scriptManager = new ScriptManager();
 
                    if (o.Index != null)
                    {

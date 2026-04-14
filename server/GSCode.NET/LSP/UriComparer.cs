@@ -33,4 +33,19 @@ internal static class UriHelper
     /// </summary>
     public static Uri FromFilePath(string filePath)
         => new Uri(Path.GetFullPath(filePath));
+
+    /// <summary>
+    /// Extracts a valid local file-system path from a <c>file://</c> URI.
+    /// <see cref="Uri.LocalPath"/> returns <c>/C:/foo</c> on Windows which
+    /// is not recognised by most IO APIs. This helper strips the leading
+    /// slash when a Windows drive letter follows.
+    /// </summary>
+    public static string GetLocalPath(Uri uri)
+    {
+        string path = uri.LocalPath;
+        // Uri.LocalPath for "file:///C:/foo" → "/C:/foo" on Windows
+        if (path.Length >= 3 && path[0] == '/' && char.IsLetter(path[1]) && path[2] == ':')
+            path = path[1..];
+        return path;
+    }
 }

@@ -1,4 +1,4 @@
-using GSCode.Data;
+﻿using GSCode.Data;
 using GSCode.Parser;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
 using System.IO;
@@ -747,7 +747,7 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         }
 
         // Derive the file extension from the current document (.gsc / .csc / .gsh)
-        string currentFilePath = document.Uri.LocalPath;
+        string currentFilePath = UriHelper.GetLocalPath(document.Uri);
         string extension = Path.GetExtension(currentFilePath).ToLowerInvariant();
         if (string.IsNullOrEmpty(extension))
         {
@@ -958,6 +958,7 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         return sb.ToString();
     }
 }
+
 
 
 

@@ -1,7 +1,7 @@
 using GSCode.Data;
 using GSCode.Parser.AST;
 using GSCode.Parser.Lexical;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 
 namespace GSCode.Parser.Util;
 
@@ -283,3 +283,4 @@ internal static class AstTraversal
         return false;
     }
 }
+

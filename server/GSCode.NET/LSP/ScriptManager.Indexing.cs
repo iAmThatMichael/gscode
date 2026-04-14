@@ -3,7 +3,7 @@ using GSCode.Parser;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using Microsoft.Extensions.Logging;
-using OmniSharp.Extensions.LanguageServer.Protocol;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using System.Diagnostics;
 using System.IO;
 
@@ -97,7 +97,7 @@ public partial class ScriptManager
         string ext = Path.GetExtension(filePath);
         string languageId = string.Equals(ext, ".csc", StringComparison.OrdinalIgnoreCase) ? "csc" : "gsc";
 
-        DocumentUri docUri = DocumentUri.FromFileSystemPath(filePath);
+        Uri docUri = new Uri(filePath);
 
         bool isNewFile = false;
         var cached = Scripts.GetOrAdd(docUri, key =>
@@ -127,7 +127,7 @@ public partial class ScriptManager
         // Parse and register dependencies
         foreach (Uri dep in dependencies)
         {
-            await AddDependencyAsync(docUri.ToUri(), dep, languageId);
+            await AddDependencyAsync(docUri, dep, languageId);
         }
 
         var indexingMode = GSCode.Parser.Configuration.CompletionConfiguration.WorkspaceIndexingMode;
@@ -173,8 +173,7 @@ public partial class ScriptManager
             List<IExportedSymbol> exportedSymbols = new();
             foreach (Uri dep in dependencies)
             {
-                var depDoc = DocumentUri.From(dep);
-                if (Scripts.TryGetValue(depDoc, out CachedScript? depScript))
+                if (Scripts.TryGetValue(dep, out CachedScript? depScript))
                     exportedSymbols.AddRange(await depScript.Script.IssueExportedSymbolsAsync(cancellationToken));
             }
 

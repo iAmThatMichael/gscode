@@ -8,9 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using OmniSharp.Extensions.LanguageServer.Protocol;
-using OmniSharp.Extensions.LanguageServer.Protocol.Document;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using GSCode.Parser.SA;
 using GSCode.Parser.Misc;
 using System.IO;
@@ -25,7 +23,7 @@ namespace GSCode.Parser;
 
 using SymbolKindSA = GSCode.Parser.SA.SymbolKind;
 
-public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationProvider? globalSymbolProvider = null, ScriptMode mode = ScriptMode.Editor)
+public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationProvider? globalSymbolProvider = null, ScriptMode mode = ScriptMode.Editor)
 {
     public bool Failed { get; private set; } = false;
     public bool Parsed { get; private set; } = false;
@@ -65,7 +63,7 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
 
     // Cached/interned strings for deduplication
     private string? _scriptFileName;
-    private string ScriptFileName => _scriptFileName ??= Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath);
+    private string ScriptFileName => _scriptFileName ??= Path.GetFileNameWithoutExtension(ScriptUri.LocalPath);
 
     // Common markdown format strings (interned for memory efficiency)
     private static readonly string s_gscCodeBlockStart = string.Intern("```gsc\n");
@@ -219,7 +217,7 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
             return Task.CompletedTask;
         }
 
-        string fileName = System.IO.Path.GetFileName(ScriptUri.ToUri().LocalPath);
+        string fileName = System.IO.Path.GetFileName(ScriptUri.LocalPath);
 
         // Get a comprehensive list of symbols available in this context.
         Dictionary<string, IExportedSymbol> allSymbols = new(DefinitionsTable.InternalSymbols, StringComparer.OrdinalIgnoreCase);
@@ -301,17 +299,12 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
         return Sense.Diagnostics;
     }
 
-    public async Task PushSemanticTokensAsync(SemanticTokensBuilder builder, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ISemanticToken>> GetSemanticTokensAsync(CancellationToken cancellationToken)
     {
-        if (!Sense.IsEditorMode) return;
+        if (!Sense.IsEditorMode) return [];
         await WaitUntilAnalysedAsync(cancellationToken);
-
-        int count = 0;
-        foreach (ISemanticToken token in Sense.SemanticTokens)
-        {
-            builder.Push(token.Range, token.SemanticTokenType, token.SemanticTokenModifiers);
-            count++;
-        }
+        // SemanticTokens are already sorted by FinalizeSemanticTokens (called after analysis).
+        return Sense.SemanticTokens;
     }
 
     public async Task<CompletionList?> GetCompletionAsync(Position position, CancellationToken cancellationToken)

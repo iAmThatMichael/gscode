@@ -2,8 +2,7 @@ using GSCode.Parser.Configuration;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using GSCode.Parser.SPA;
-using OmniSharp.Extensions.JsonRpc;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -56,10 +55,10 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         if (token is null)
         {
             Log.Warning("GetCompletionsFromPosition: No token found at position {Position}", position);
-            return new CompletionList(isIncomplete: false);
+            return new CompletionList { IsIncomplete = false, Items = [] };
         }
 
-        Log.Debug("GetCompletionsFromPosition: Found token '{Lexeme}' type={Type} at position {Position}", 
+        Log.Debug("GetCompletionsFromPosition: Found token '{Lexeme}' type={Type} at {Position}",
             token.Lexeme, token.Type, position);
 
         // Log previous tokens for context
@@ -181,10 +180,10 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         if (!isInsideFunctionBlock && !isDirectiveContext)
         {
             Log.Debug("Returning empty completions (not in function and not directive context)");
-            return new CompletionList(isIncomplete: false);
+            return new CompletionList { IsIncomplete = false, Items = [] };
         }
 
-        // For the moment, we'll just support Identifier completions.
+        // For the moment
         CompletionContext context = new()
         {
             Type = namespaceQualifier != null ? CompletionContextType.FunctionCall : CompletionContextType.GlobalScope,
@@ -203,7 +202,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         {
             Log.Debug("Showing directive path completions for {DirectiveType}", directivePathContext.DirectiveType);
             // Set isIncomplete=true to hint that completions should be re-requested on any change
-            return new CompletionList(GetDirectivePathCompletions(directivePathContext), isIncomplete: true);
+            return new CompletionList { IsIncomplete = true, Items = GetDirectivePathCompletions(directivePathContext).ToArray() };
         }
 
         // If in directive context, ONLY show directives
@@ -212,7 +211,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             Log.Debug("Showing directive completions only");
             HashSet<string> seenIdentifiers = new(StringComparer.OrdinalIgnoreCase);
             completions.AddRange(GetDirectiveCompletions(seenIdentifiers, token));
-            return new CompletionList(completions, isIncomplete: false);
+            return new CompletionList { IsIncomplete = false, Items = completions.ToArray() };
         }
 
         // Otherwise, show normal completions (only when inside a function block)
@@ -243,7 +242,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
         Log.Debug("Returning total of {Count} completions", completions.Count);
         // return token.SenseDefinition?.GetCompletions();
-        return new CompletionList(completions, isIncomplete: false);
+        return new CompletionList { IsIncomplete = false, Items = completions.ToArray() };
     }
 
     private bool IsInsideFunctionBlock(Token token)
@@ -626,26 +625,15 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             documentation += $"\n\n{macroDef.Documentation}";
         }
 
-        // Build labelDetails to show source file (like namespace badge for functions)
-        CompletionItemLabelDetails? labelDetails = null;
-        if (!string.IsNullOrEmpty(sourceDisplay))
-        {
-            labelDetails = new CompletionItemLabelDetails
-            {
-                Description = sourceDisplay  // Shows like "shared/shared.gsh" on the right
-            };
-        }
-
         return new CompletionItem()
         {
             Label = macroName,
-            LabelDetails = labelDetails,
-            Detail = detail,
-            Documentation = new StringOrMarkupContent(new MarkupContent()
+            Detail = sourceDisplay != null ? $"{detail} — {sourceDisplay}" : detail,
+            Documentation = new MarkupContent()
             {
                 Kind = MarkupKind.Markdown,
                 Value = documentation
-            }),
+            },
             InsertText = insertText,
             InsertTextFormat = InsertTextFormat.Snippet,
             Kind = CompletionItemKind.Constant,
@@ -709,11 +697,10 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             insertText += "($0)";
         }
 
-        // Build detail and labelDetails for better differentiation
+        // Build detail for better differentiation
         string label;
         string detail;
         string? filterText = null;
-        CompletionItemLabelDetails? labelDetails = null;
         CompletionItemKind kind;
         string sortPrefix;
 
@@ -721,12 +708,8 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         {
             // Functions from other namespaces - show namespace::function in label and "function foo()" in detail
             label = $"{function.Namespace}::{function.Name}";
-            detail = $"function {function.Name}()";
+            detail = $"function {function.Name}() — {function.Namespace}";
             filterText = function.Name;  // Filter only on function name, not the namespace prefix
-            labelDetails = new CompletionItemLabelDetails
-            {
-                Description = function.Namespace  // Shows on right side like "util"
-            };
             kind = CompletionItemKind.Method;  // Different icon than local functions
             sortPrefix = "2_";  // Sort after local/API functions
         }
@@ -766,14 +749,13 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         return new CompletionItem()
         {
             Label = label,
-            LabelDetails = labelDetails,
             Detail = detail,
             FilterText = filterText,  // Set FilterText to control VS Code's fuzzy matching
-            Documentation = new StringOrMarkupContent(new MarkupContent()
+            Documentation = new MarkupContent()
             {
                 Kind = MarkupKind.Markdown,
                 Value = function.Documentation
-            }),
+            },
             InsertText = insertText,
             InsertTextFormat = InsertTextFormat.Snippet,
             Kind = CompletionItemKind.Function,
@@ -1165,14 +1147,13 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                     Kind = CompletionItemKind.Keyword,
                     InsertText = insertText,
                     InsertTextFormat = InsertTextFormat.Snippet,
-                    InsertTextMode = InsertTextMode.AdjustIndentation,
                     FilterText = directive.Label.TrimStart('#'),
                     Detail = directive.Detail,
-                    Documentation = new StringOrMarkupContent(new MarkupContent()
+                    Documentation = new MarkupContent()
                     {
                         Kind = MarkupKind.Markdown,
                         Value = directive.Documentation
-                    }),
+                    },
                     SortText = directive.Label
                 });
                 seenIdentifiers.Add(directive.Label);

@@ -5,7 +5,7 @@ using GSCode.Parser.Lexical;
 using GSCode.Parser.Misc;
 using GSCode.Parser.SA;
 using GSCode.Parser.Util;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using System.IO;
 
 namespace GSCode.Parser.SPA;
@@ -204,3 +204,4 @@ internal ref struct ScriptDiagnosticsAnalyser(
         return false;
     }
 }
+

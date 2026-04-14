@@ -1,8 +1,7 @@
 using GSCode.Data;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.Util;
-using OmniSharp.Extensions.LanguageServer.Protocol;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -59,7 +58,7 @@ internal sealed class ParserIntelliSense
     /// <summary>
     /// List of dependencies to request from the Language Server.
     /// </summary>
-    public List<DocumentUri> Dependencies { get; } = new();
+    public List<Uri> Dependencies { get; } = new();
 
     /// <summary>
     /// List of diagnostics to push to the editor.
@@ -105,17 +104,17 @@ internal sealed class ParserIntelliSense
     /// </summary>
     public DocumentCompletionsLibrary? Completions { get; }
 
-    public ParserIntelliSense(int endLine, DocumentUri scriptUri, string languageId, ScriptMode mode = ScriptMode.Editor)
+    public ParserIntelliSense(int endLine, Uri scriptUri, string languageId, ScriptMode mode = ScriptMode.Editor)
     {
         Mode = mode;
-        _scriptPath = scriptUri.Path;
-        ScriptUri = scriptUri.Path;
+        _scriptPath = scriptUri.LocalPath;
+        ScriptUri = scriptUri.LocalPath;
         _languageId = languageId;
 
         if (mode == ScriptMode.Editor)
         {
             HoverLibrary = new(endLine + 1);
-            Completions = new(Tokens, languageId, scriptUri.Path);
+            Completions = new(Tokens, languageId, scriptUri.LocalPath);
         }
     }
 
@@ -207,7 +206,7 @@ internal sealed class ParserIntelliSense
 
     public void AddDependency(string scriptPath)
     {
-        Dependencies.Add(new Uri(scriptPath));
+        Dependencies.Add(new Uri(new Uri("file:///"), scriptPath.Replace('\\', '/')));
     }
 
     public string? GetDependencyPath(string dependencyPath, Range sourceRange)

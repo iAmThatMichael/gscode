@@ -2,8 +2,7 @@ using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.SA;
-using OmniSharp.Extensions.LanguageServer.Protocol;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using System.IO;
 
 namespace GSCode.NET.LSP;
@@ -77,7 +76,7 @@ public partial class ScriptManager
         }
 
         // Fallback to per-script lookup for symbols not yet in the registry
-        foreach (KeyValuePair<DocumentUri, CachedScript> kvp in Scripts)
+        foreach (KeyValuePair<Uri, CachedScript> kvp in Scripts)
         {
             CachedScript cached = kvp.Value;
             if (cached.Script.DefinitionsTable is null) continue;
@@ -132,7 +131,7 @@ public partial class ScriptManager
 
         foreach (var kvp in Scripts)
         {
-            string filePath = kvp.Key.GetFileSystemPath() ?? kvp.Key.Path ?? string.Empty;
+            string filePath = kvp.Key.LocalPath;
             if (filePath.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase))
                 gscCount++;
             else if (filePath.EndsWith(".csc", StringComparison.OrdinalIgnoreCase))

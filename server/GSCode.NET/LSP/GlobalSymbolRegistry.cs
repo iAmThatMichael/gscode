@@ -3,7 +3,7 @@ using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 
 // NOTE: This class uses QualifiedSymbolKey as its dictionary key — the same
 // normalized, interned key struct used by DefinitionsTable — so that symbol

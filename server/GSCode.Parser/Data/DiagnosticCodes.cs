@@ -1,4 +1,4 @@
-﻿using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+﻿using Microsoft.VisualStudio.LanguageServer.Protocol;
 
 // Namespace kept as GSCode.Data so all existing call-sites continue to compile
 // without changes. The types physically live in GSCode.Parser because they depend

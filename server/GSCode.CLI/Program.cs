@@ -5,7 +5,7 @@ using GSCode.Parser;
 using GSCode.Parser.SPA;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using Serilog;
 using System.Diagnostics;
 

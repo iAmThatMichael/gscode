@@ -2,7 +2,7 @@ using GSCode.Data;
 using GSCode.Parser.Lexical;
 using System.Diagnostics.CodeAnalysis;
 using GSCode.Parser.DFA;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 
 namespace GSCode.Parser.AST;
 

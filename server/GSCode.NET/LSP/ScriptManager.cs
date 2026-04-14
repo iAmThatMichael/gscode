@@ -1,9 +1,6 @@
 using GSCode.Parser;
 using Microsoft.Extensions.Logging;
-using OmniSharp.Extensions.LanguageServer.Protocol;
-using OmniSharp.Extensions.LanguageServer.Protocol.Document;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
-using OmniSharp.Extensions.LanguageServer.Protocol.Server;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using System.Collections.Concurrent;
 using System.IO;
 
@@ -13,9 +10,9 @@ public partial class ScriptManager
 {
     private readonly ScriptCache _cache;
     private readonly ILogger<ScriptManager> _logger;
-    private readonly ILanguageServerFacade? _facade;
+    private readonly ILspNotifier? _notifier;
 
-    private ConcurrentDictionary<DocumentUri, CachedScript> Scripts { get; } = new();
+    private ConcurrentDictionary<Uri, CachedScript> Scripts { get; } = new(UriComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Global symbol registry for workspace-wide symbol deduplication and O(1) lookup.
@@ -34,21 +31,21 @@ public partial class ScriptManager
     public string? CustomRawPath { get; set; }
 
     // Ensure only one parse per script at a time
-    private readonly ConcurrentDictionary<DocumentUri, SemaphoreSlim> _parseLocks = new();
+    private readonly ConcurrentDictionary<Uri, SemaphoreSlim> _parseLocks = new(UriComparer.OrdinalIgnoreCase);
     // Ensure only one analysis/merge per script at a time
-    private readonly ConcurrentDictionary<DocumentUri, SemaphoreSlim> _analysisLocks = new();
+    private readonly ConcurrentDictionary<Uri, SemaphoreSlim> _analysisLocks = new(UriComparer.OrdinalIgnoreCase);
 
     // Editor priority gate: held during editor operations to pause the indexer dispatch loop
     private readonly SemaphoreSlim _editorPriority = new(1, 1);
 
-    public ScriptManager(ILogger<ScriptManager> logger, ILanguageServerFacade? facade = null)
+    public ScriptManager(ILogger<ScriptManager> logger, ILspNotifier? notifier = null)
     {
         _cache = new();
         _logger = logger;
-        _facade = facade;
+        _notifier = notifier;
     }
 
-    private async Task EnsureParsedAsync(DocumentUri docUri, Script script, string? languageId, CancellationToken cancellationToken)
+    private async Task EnsureParsedAsync(Uri docUri, Script script, string? languageId, CancellationToken cancellationToken)
     {
         var gate = _parseLocks.GetOrAdd(docUri, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken);
@@ -56,7 +53,7 @@ public partial class ScriptManager
         {
             if (!script.Parsed)
             {
-                string path = docUri.ToUri().LocalPath;
+                string path = docUri.LocalPath;
                 string content = await File.ReadAllTextAsync(path, cancellationToken);
                 await script.ParseAsync(content);
             }
@@ -67,7 +64,7 @@ public partial class ScriptManager
         }
     }
 
-    private async Task WithAnalysisLockAsync(DocumentUri docUri, Func<Task> action, CancellationToken cancellationToken = default)
+    private async Task WithAnalysisLockAsync(Uri docUri, Func<Task> action, CancellationToken cancellationToken = default)
     {
         var gate = _analysisLocks.GetOrAdd(docUri, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken);
@@ -81,7 +78,7 @@ public partial class ScriptManager
         }
     }
 
-    private void CleanupLocksForUri(DocumentUri uri)
+    private void CleanupLocksForUri(Uri uri)
     {
         if (_parseLocks.TryRemove(uri, out var parseLock))
             parseLock.Dispose();
@@ -89,22 +86,17 @@ public partial class ScriptManager
             analysisLock.Dispose();
     }
 
-    private async Task PublishDiagnosticsAsync(DocumentUri uri, Script script, int? version = null, CancellationToken cancellationToken = default)
+    private async Task PublishDiagnosticsAsync(Uri uri, Script script, CancellationToken cancellationToken = default)
     {
-        if (_facade is null) return;
+        if (_notifier is null) return;
         try
         {
             var diags = await script.GetDiagnosticsAsync(cancellationToken);
-            _facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
-            {
-                Uri = uri,
-                Version = version,
-                Diagnostics = new Container<Diagnostic>(diags)
-            });
+            await _notifier.PublishDiagnosticsAsync(uri, diags, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to publish diagnostics for {Uri}", uri.GetFileSystemPath());
+            _logger.LogError(ex, "Failed to publish diagnostics for {Uri}", uri.LocalPath);
         }
     }
 }

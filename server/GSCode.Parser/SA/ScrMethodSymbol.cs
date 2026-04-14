@@ -1,6 +1,6 @@
-using GSCode.Parser.Lexical;
+﻿using GSCode.Parser.Lexical;
 using GSCode.Parser.SPA;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 
 namespace GSCode.Parser.SA;
 
@@ -14,10 +14,12 @@ internal record ScrMethodSymbol(Token NameToken, ScrFunction Source, ScrClass Cl
     public override Hover GetHover() => new()
     {
         Range = Range,
-        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+        Contents = new MarkupContent()
         {
             Kind = MarkupKind.Markdown,
             Value = Source.Documentation
-        })
+        }
     };
 }
+
+

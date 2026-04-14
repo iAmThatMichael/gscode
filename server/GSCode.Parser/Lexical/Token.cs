@@ -47,7 +47,7 @@ internal record class Token(TokenType Type, TokenRange TokenRange)
     public virtual string Lexeme => TokenTypeLexemes.Get(Type)!;
 
     /// <summary>
-    /// Creates an OmniSharp Range on demand. For hot paths, prefer accessing TokenRange directly.
+    /// Creates an LSP <see cref="Range"/> on demand. For hot paths, prefer accessing TokenRange directly.
     /// </summary>
     public Range Range => TokenRange.ToRange();
 

@@ -1,5 +1,4 @@
 using GSCode.Parser;
-using OmniSharp.Extensions.LanguageServer.Protocol;
 using System.Collections.Concurrent;
 
 namespace GSCode.NET.LSP;
@@ -14,7 +13,7 @@ public class CachedScript
 {
     public CachedScriptType Type { get; init; }
     // Thread-safe set of dependents
-    public ConcurrentDictionary<DocumentUri, byte> Dependents { get; } = new();
+    public ConcurrentDictionary<Uri, byte> Dependents { get; } = new(UriComparer.OrdinalIgnoreCase);
     public required Script Script { get; init; }
 
     /// <summary>
@@ -38,4 +37,4 @@ public class CachedScript
     public bool ExportedSymbolsChanged { get; set; } = true;
 }
 
-public readonly record struct LoadedScript(DocumentUri Uri, Script Script);
+public readonly record struct LoadedScript(Uri Uri, Script Script);

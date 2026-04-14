@@ -1,5 +1,5 @@
-using GSCode.Parser.Data;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+﻿using GSCode.Parser.Data;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 
 namespace GSCode.Parser.SA;
 
@@ -11,10 +11,12 @@ internal record ScrDependencySymbol(Range Range, string Path, string RawPath) : 
     public Hover GetHover() => new()
     {
         Range = Range,
-        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+        Contents = new MarkupContent()
         {
             Kind = MarkupKind.Markdown,
             Value = $"```gsc\n#using {RawPath}\n/* (script) \"{Path}\" */\n```"
-        })
+        }
     };
 }
+
+

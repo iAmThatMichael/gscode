@@ -1,1 +1,1 @@
-﻿global using Range = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
+﻿global using Range = Microsoft.VisualStudio.LanguageServer.Protocol.Range;

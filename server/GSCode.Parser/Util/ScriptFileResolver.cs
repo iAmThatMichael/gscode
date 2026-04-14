@@ -1,4 +1,4 @@
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using System.IO;
 using Serilog;
 
@@ -119,3 +119,4 @@ public static class ScriptFileResolver
         }
     }
 }
+

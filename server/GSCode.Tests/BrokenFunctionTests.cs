@@ -1,10 +1,10 @@
-using GSCode.Data;
+﻿using GSCode.Data;
 using GSCode.Data.Models;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SPA;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using Xunit;
-using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
+using LspRange = Microsoft.VisualStudio.LanguageServer.Protocol.Range;
 
 namespace GSCode.Tests;
 
@@ -41,3 +41,4 @@ public class BrokenFunctionTests
         Assert.Contains("deprecated", symbol.SemanticTokenModifiers);
     }
 }
+

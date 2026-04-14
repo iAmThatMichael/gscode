@@ -4,7 +4,7 @@ using GSCode.Parser.Lexical;
 using GSCode.Parser.Util;
 using System;
 using System.Collections.Generic;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 
 namespace GSCode.Parser.Pre;
 
@@ -54,11 +54,11 @@ internal class MacroDefinition : ISenseDefinition
     public Hover GetHover() => new()
     {
         Range = Range,
-        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+        Contents = new MarkupContent
         {
             Kind = MarkupKind.Markdown,
             Value = $"```gsc\n{DefineSnippet}\n```\n{GetFormattedDocumentation()}"
-        })
+        }
     };
 
     private string GetFormattedDocumentation() =>
@@ -102,7 +102,7 @@ internal class ScriptMacro : ISenseDefinition
     /// </summary>
     public string ExpansionSnippet { get; }
 
-    public string SemanticTokenType { get; } = OmniSharp.Extensions.LanguageServer.Protocol.Models.SemanticTokenType.Macro;
+    public string SemanticTokenType { get; } = "macro";
     public string[] SemanticTokenModifiers { get; } = [];
 
     public ScriptMacro(Token source, MacroDefinition defineSource, TokenList expansionTokens)
@@ -117,11 +117,11 @@ internal class ScriptMacro : ISenseDefinition
     public Hover GetHover() => new()
     {
         Range = Source.Range,
-        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+        Contents = new MarkupContent
         {
             Kind = MarkupKind.Markdown,
             Value = $"```gsc\n{DefineSource.DefineSnippet}\n```\n{GetFormattedDocumentation()}\n\n---\nExpands to:\n```gsc\n{ExpansionSnippet}\n```"
-        })
+        }
     };
 
     private string GetFormattedDocumentation() =>
@@ -140,11 +140,11 @@ internal sealed record InsertDirectiveHover(string RawPath, Range Range) : IHove
         return new Hover
         {
             Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+            Contents = new MarkupContent
             {
                 Kind = MarkupKind.Markdown,
                 Value = $"#insert {RawPath}"
-            })
+            }
         };
     }
 }

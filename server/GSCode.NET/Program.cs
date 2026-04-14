@@ -1,25 +1,14 @@
 ﻿using GSCode.NET;
+using GSCode.NET.LSP;
 using GSCode.Parser.SPA;
 using GSCode.Parser.Configuration;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
-using StreamJsonRpc;
-using System.IO.Pipes;
-using System.Text;
 using CommandLine;
-using GSCode.NET.LSP;
-using GSCode.NET.LSP.Handlers;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using OmniSharp.Extensions.LanguageServer.Server;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using System.Reflection;
 using System.Diagnostics;
-using OmniSharp.Extensions.LanguageServer.Protocol.Server;
-
+using System.Reflection;
 
 // Create a logging level switch that can be changed dynamically
 var loggingLevelSwitch = new LoggingLevelSwitch(LogEventLevel.Information);
@@ -59,150 +48,16 @@ Parser.Default.ParseArguments<ServerOptions>(args).WithParsed(o => serverOptions
 
 (Stream input, Stream output, IDisposable? disposable) = await StreamResolver.ResolveAsync(serverOptions, CancellationToken.None);
 
-LanguageServer server = await LanguageServer.From(options =>
+using var loggerFactory = LoggerFactory.Create(builder =>
 {
-	options
-		.WithInput(input)
-		.WithOutput(output)
-		.WithConfigurationSection("gscode")
-		.ConfigureLogging(
-			x => x
-				.AddSerilog(Log.Logger)
-				.AddLanguageProtocolLogging()
-				.SetMinimumLevel(LogLevel.Debug)
-		)
-		.WithServices(x => x.AddLogging(b => b.SetMinimumLevel(LogLevel.Debug)))
-		.WithServices(services =>
-		{
-			// Register CompletionOptions as singleton so ConfigurationHandler can inject
-			// and mutate it; parser-layer code reads the same instance via CompletionOptions.Current.
-			services.AddSingleton<CompletionOptions>();
-			// Inject ScriptManager with ILanguageServerFacade so it can publish diagnostics during indexing
-			services.AddSingleton<ScriptManager>(sp =>
-			{
-				var logger = sp.GetRequiredService<ILogger<ScriptManager>>();
-				var facade = sp.GetRequiredService<ILanguageServerFacade>();
-				return new ScriptManager(logger, facade);
-			});
-			services.AddSingleton(new TextDocumentSelector(
-				new TextDocumentFilter { Pattern = "**/*.gsc" },
-				new TextDocumentFilter { Pattern = "**/*.csc" },
-				new TextDocumentFilter { Pattern = "**/*.gsh" }
-			));
-		})
-		.OnInitialize(async (server, request, ct) =>
-		{
-			try
-			{
-				// Publish the DI-managed CompletionOptions as the live instance so all layers
-				// (parser, handlers, server) share the exact same object.
-				var opts = server.Services.GetRequiredService<CompletionOptions>();
-				CompletionOptions.SetCurrent(opts);
+	builder.AddSerilog(Log.Logger);
+	builder.SetMinimumLevel(LogLevel.Debug);
+});
 
-				JToken? initOptions = request.InitializationOptions as JToken;
+var serverLogger = loggerFactory.CreateLogger<GsCodeLanguageServer>();
+using var server = new GsCodeLanguageServer(input, output, serverLogger);
 
-				// Configure logging level
-				loggingLevelSwitch.MinimumLevel = InitializationOptionsReader.ParseServerLogLevel(initOptions);
-				Log.Information("Server log level switch set to {MinimumLevel}", loggingLevelSwitch.MinimumLevel);
-
-				// Configure workspace options from client initialization options
-				opts.WorkspaceIndexingMode = InitializationOptionsReader.ParseWorkspaceIndexingMode(initOptions);
-				opts.CustomRawPath         = InitializationOptionsReader.ParseCustomRawPath(initOptions);
-				opts.AllowRawFolderWrites  = InitializationOptionsReader.ParseAllowRawFolderWrites(initOptions);
-
-				Log.Information("Workspace indexing mode: {Mode}", opts.WorkspaceIndexingMode);
-				if (opts.CustomRawPath is not null)
-					Log.Information("CustomRawPath set from initialization options: {Path}", opts.CustomRawPath);
-				Log.Information("AllowRawFolderWrites: {Value}", opts.AllowRawFolderWrites);
-
-				// Defer actual indexing to OnInitialized to ensure server is fully ready
-				await Task.CompletedTask;
-			}
-			catch (Exception ex)
-			{
-				Log.Error(ex, "Failed to process initialization options");
-			}
-		})
-		.OnInitialized(async (server, request, response, ct) =>
-		{
-			try
-			{
-				// Read the already-configured options (set during OnInitialize)
-				var opts = server.Services.GetRequiredService<CompletionOptions>();
-				var indexingMode = opts.WorkspaceIndexingMode;
-
-				// Re-apply to ensure consistency
-				opts.WorkspaceIndexingMode = indexingMode;
-
-				if (indexingMode == IndexingMode.Off)
-				{
-					Log.Information("Workspace indexing disabled in OnInitialized");
-					return;
-				}
-
-				Log.Information("Starting workspace indexing in {Mode} mode", indexingMode);
-
-				var sm = server.Services.GetRequiredService<ScriptManager>();
-
-				var indexingCts = new CancellationTokenSource();
-				options.RegisterForDisposal(indexingCts);
-				var indexingToken = indexingCts.Token;
-
-				// If CustomRawPath is set, index that instead of workspace folders
-					if (!string.IsNullOrWhiteSpace(opts.CustomRawPath))
-					{
-						string customPath = opts.CustomRawPath;
-						if (Directory.Exists(customPath))
-						{
-							Log.Information("Starting workspace indexing for CustomRawPath: {Root}", customPath);
-							_ = Task.Run(() => sm.IndexWorkspaceAsync(customPath, indexingToken), indexingToken);
-						}
-						else
-						{
-							Log.Warning("CustomRawPath is set but directory does not exist: {Path}", customPath);
-						}
-					}
-				else if (request.WorkspaceFolders is not null && request.WorkspaceFolders.Any())
-				{
-					foreach (var wf in request.WorkspaceFolders)
-					{
-						string root = wf.Uri.ToUri().LocalPath;
-						Log.Information("Starting workspace indexing for: {Root}", root);
-						_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), indexingToken);
-					}
-				}
-				else if (request.RootUri is not null)
-				{
-					string root = request.RootUri.ToUri().LocalPath;
-					Log.Information("Starting workspace indexing for: {Root}", root);
-					_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), indexingToken);
-				}
-			}
-			catch (Exception ex)
-			{
-				Log.Error(ex, "Failed to start workspace indexing");
-			}
-		})
-		.AddHandler<TextDocumentSyncHandler>()
-		.AddHandler<SemanticTokensHandler>()
-		.AddHandler<HoverHandler>()
-		.AddHandler<CompletionHandler>()
-		.AddHandler<FoldingRangeHandler>()
-		.AddHandler<DefinitionHandler>()
-		.AddHandler<DocumentSymbolHandler>()
-		.AddHandler<SignatureHelpHandler>()
-		.AddHandler<ReferencesHandler>()
-		.AddHandler<ConfigurationHandler>()
-		.AddHandler<DidChangeWatchedFilesHandler>()
-		.AddHandler<CodeActionHandler>();
-	// Allow disposal of the stream if required.
-	if (disposable is not null)
-	{
-		options.RegisterForDisposal(disposable);
-	}
-}).ConfigureAwait(false);
-
-
+server.Start();
 Log.Information("Language server connected successfully!");
 
 #if FLAG_MEMORY_DEBUG
@@ -212,7 +67,6 @@ _ = Task.Run(async () =>
 {
 	// Cache the process handle once — Process.GetCurrentProcess() re-enumerates all system processes on each call
 	var process = Process.GetCurrentProcess();
-	var scriptManager = server.Services.GetService<ScriptManager>();
 
 	while (!memoryMonitorCts.Token.IsCancellationRequested)
 	{
@@ -222,29 +76,8 @@ _ = Task.Run(async () =>
 			var memoryMB = process.WorkingSet64 / 1024.0 / 1024.0;
 			var privateMemoryMB = process.PrivateMemorySize64 / 1024.0 / 1024.0;
 
-			int functionCount = 0;
-			int classCount = 0;
-			int gscCount = 0;
-			int cscCount = 0;
-			int macroCount = 0;
-			int gshFilesCount = 0;
-
-			if (scriptManager != null)
-			{
-				var symbolCounts = scriptManager.SymbolRegistry.GetCountsByType();
-				functionCount = symbolCounts.Functions;
-				classCount = symbolCounts.Classes;
-				var scriptCounts = scriptManager.GetScriptCountsByType();
-				gscCount = scriptCounts.GscFiles;
-				cscCount = scriptCounts.CscFiles;
-			}
-
-			var macroStats = GSCode.Parser.Pre.MacroDefinitionCache.Instance.GetDetailedStatistics();
-			macroCount = macroStats.TotalMacros;
-			gshFilesCount = macroStats.GshFiles;
-
-			Log.Information("Memory Usage - Working Set: {WorkingSet:F2} MB, Private: {Private:F2} MB | Functions: {Functions}, Classes: {Classes}, Files: GSC={Gsc} CSC={Csc} GSH={Gsh}, Macros: {Macros}", 
-				memoryMB, privateMemoryMB, functionCount, classCount, gscCount, cscCount, gshFilesCount, macroCount);
+			Log.Information("Memory Usage - Working Set: {WorkingSet:F2} MB, Private: {Private:F2} MB",
+				memoryMB, privateMemoryMB);
 
 			await Task.Delay(1000, memoryMonitorCts.Token);
 		}
@@ -260,8 +93,11 @@ _ = Task.Run(async () =>
 }, memoryMonitorCts.Token);
 #endif
 
-await server.WaitForExit;
+await server.WaitForExitAsync();
 
 #if FLAG_MEMORY_DEBUG
 memoryMonitorCts.Cancel();
 #endif
+
+// Clean up stream disposable
+disposable?.Dispose();

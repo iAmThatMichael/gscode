@@ -6,7 +6,7 @@ using GSCode.Parser.Pre;
 using GSCode.Parser.SA;
 using GSCode.Parser.Util;
 using System.Linq;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using GSCode.Parser.Misc;
 using System.IO;
 using GSCode.Parser.SPA;
@@ -79,7 +79,7 @@ public partial class Script
             {
                 Log.Debug("AdjustPositionForSelectionEnd: cursor at start of '{Tok}' ({Type}), stepping back to identifier '{Id}'",
                     token.Lexeme, token.Type, prev.Lexeme);
-                return new Position(prev.TokenRange.StartLine, prev.TokenRange.StartChar);
+                return new Position { Line = prev.TokenRange.StartLine, Character = prev.TokenRange.StartChar };
             }
         }
 
@@ -167,7 +167,7 @@ public partial class Script
         var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(tokenIdx);
         if (IsBuiltinFunction(name)) return null;
 
-        string currentScriptPath = ScriptUri.ToUri().LocalPath;
+        string currentScriptPath = ScriptUri.LocalPath;
         string ns = GetEffectiveNamespace();
 
         // When the call site carries an explicit namespace qualifier (e.g. util::init),
@@ -231,16 +231,16 @@ public partial class Script
         if (signatures.Count == 0)
             return null;
 
-        int activeSignature = signatures.FindIndex(s => s.Parameters?.Count() > activeParam);
+        int activeSignature = signatures.FindIndex(s => s.Parameters?.Length > activeParam);
         if (activeSignature < 0) activeSignature = 0;
 
-        int paramCount = signatures[activeSignature].Parameters?.Count() ?? 1;
+        int paramCount = signatures[activeSignature].Parameters?.Length ?? 1;
 
         return new SignatureHelp
         {
             ActiveSignature = activeSignature,
             ActiveParameter = Math.Max(0, Math.Min(activeParam, paramCount - 1)),
-            Signatures = new Container<SignatureInformation>(signatures)
+            Signatures = signatures.ToArray()
         };
     }
 
@@ -248,9 +248,9 @@ public partial class Script
     {
         List<SignatureInformation> signatures = [];
 
-        MarkupContent? funcDoc = string.IsNullOrWhiteSpace(function.Description)
+        SumType<string, MarkupContent>? funcDoc = string.IsNullOrWhiteSpace(function.Description)
             ? null
-            : new MarkupContent { Kind = MarkupKind.Markdown, Value = function.Description };
+            : (SumType<string, MarkupContent>?)new MarkupContent { Kind = MarkupKind.Markdown, Value = function.Description };
 
         foreach (var overload in function.Overloads)
         {
@@ -271,7 +271,7 @@ public partial class Script
                     Label = pName,
                     Documentation = string.IsNullOrWhiteSpace(pDoc)
                         ? null
-                        : new MarkupContent { Kind = MarkupKind.Markdown, Value = pDoc }
+                        : (SumType<string, MarkupContent>?)new MarkupContent { Kind = MarkupKind.Markdown, Value = pDoc }
                 };
             });
 
@@ -279,7 +279,7 @@ public partial class Script
             {
                 Label = label,
                 Documentation = funcDoc,
-                Parameters = new Container<ParameterInformation>(paramInfos)
+                Parameters = paramInfos.ToArray()
             });
         }
 
@@ -335,7 +335,7 @@ public partial class Script
 
     private Location MakeLocalLocation(Range range)
     {
-        string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
+        string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.LocalPath);
         return new Location { Uri = new Uri(normalized), Range = range };
     }
 

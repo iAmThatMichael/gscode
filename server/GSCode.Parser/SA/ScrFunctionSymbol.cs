@@ -1,7 +1,7 @@
-using GSCode.Parser.Data;
+﻿using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SPA;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 
 namespace GSCode.Parser.SA;
 
@@ -15,10 +15,12 @@ internal record ScrFunctionSymbol(Token NameToken, ScrFunction Source) : ISenseD
     public virtual Hover GetHover() => new()
     {
         Range = Range,
-        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+        Contents = new MarkupContent()
         {
             Kind = MarkupKind.Markdown,
             Value = Source.Documentation
-        })
+        }
     };
 }
+
+

@@ -1,7 +1,7 @@
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Data;
-using OmniSharp.Extensions.LanguageServer.Protocol;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using System.Collections.Concurrent;
 
 namespace GSCode.NET.LSP;
@@ -10,10 +10,9 @@ public partial class ScriptManager
 {
     private async Task<Script> AddDependencyAsync(Uri dependentUri, Uri uri, string languageId)
     {
-        var docUri = DocumentUri.From(uri);
         bool isNewDependency = false;
 
-        var cached = Scripts.GetOrAdd(docUri, key =>
+        var cached = Scripts.GetOrAdd(uri, key =>
         {
             isNewDependency = true;
             return new CachedScript
@@ -26,7 +25,7 @@ public partial class ScriptManager
         // Only parse if new dependency or not yet parsed
         if (isNewDependency || !cached.Script.Parsed)
         {
-            await EnsureParsedAsync(docUri, cached.Script, languageId, CancellationToken.None);
+            await EnsureParsedAsync(uri, cached.Script, languageId, CancellationToken.None);
 
             // Populate global symbol registry with dependency's definitions
             string filePath = uri.LocalPath;
@@ -36,14 +35,14 @@ public partial class ScriptManager
             cached.LastParsedAt = DateTime.UtcNow;
         }
 
-        cached.Dependents.TryAdd(DocumentUri.From(dependentUri), 0);
+        cached.Dependents.TryAdd(dependentUri, 0);
 
         return cached.Script;
     }
 
-    private void RemoveDependent(DocumentUri dependentUri)
+    private void RemoveDependent(Uri dependentUri)
     {
-        foreach (KeyValuePair<DocumentUri, CachedScript> script in Scripts)
+        foreach (KeyValuePair<Uri, CachedScript> script in Scripts)
         {
             var dependents = script.Value.Dependents;
             if (dependents.TryRemove(dependentUri, out _))
@@ -77,10 +76,9 @@ public partial class ScriptManager
 
         foreach (Uri dependency in dependencies)
         {
-            var depDoc = DocumentUri.From(dependency);
-            if (!Scripts.TryGetValue(depDoc, out CachedScript? depScript)) continue;
+            if (!Scripts.TryGetValue(dependency, out CachedScript? depScript)) continue;
 
-            await WithAnalysisLockAsync(depDoc, async () =>
+            await WithAnalysisLockAsync(dependency, async () =>
             {
                 var depTable = depScript.Script.DefinitionsTable;
                 if (depTable is null) return;

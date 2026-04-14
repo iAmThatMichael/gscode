@@ -1,5 +1,4 @@
-using OmniSharp.Extensions.LanguageServer.Protocol;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using Serilog;
 using System.Collections.Concurrent;
 using System.Text;
@@ -8,19 +7,19 @@ namespace GSCode.NET.LSP;
 
 public class ScriptCache
 {
-    private ConcurrentDictionary<DocumentUri, StringBuilder> Scripts { get; } = new();
+    private ConcurrentDictionary<Uri, StringBuilder> Scripts { get; } = new(UriComparer.OrdinalIgnoreCase);
 
     public string AddToCache(TextDocumentItem document)
     {
-        DocumentUri documentUri = document.Uri;
+        Uri documentUri = document.Uri;
         Scripts[documentUri] = new(document.Text);
 
         return document.Text;
     }
 
-    public string UpdateCache(TextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes)
+    public string UpdateCache(VersionedTextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes)
     {
-        DocumentUri documentUri = document.Uri;
+        Uri documentUri = document.Uri;
         StringBuilder cachedVersion = Scripts[documentUri];
 
         foreach (TextDocumentContentChangeEvent change in changes)
@@ -121,7 +120,7 @@ public class ScriptCache
 
     public void RemoveFromCache(TextDocumentIdentifier document)
     {
-        DocumentUri documentUri = document.Uri;
+        Uri documentUri = document.Uri;
         Scripts.Remove(documentUri, out StringBuilder? _);
     }
 
@@ -129,7 +128,7 @@ public class ScriptCache
     /// Retrieves the current cached content for the given document URI.
     /// Returns false if the document is not in the cache.
     /// </summary>
-    public bool TryGetContent(DocumentUri uri, out string content)
+    public bool TryGetContent(Uri uri, out string content)
     {
         if (Scripts.TryGetValue(uri, out StringBuilder? sb))
         {

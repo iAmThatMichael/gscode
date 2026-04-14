@@ -1,7 +1,7 @@
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SPA;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 
 namespace GSCode.Parser.SA;
 
@@ -15,11 +15,11 @@ internal record ScrClassSymbol(Token NameToken, ScrClass Source) : ISenseDefinit
     public Hover GetHover() => new()
     {
         Range = Range,
-        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+        Contents = new MarkupContent
         {
             Kind = MarkupKind.Markdown,
             Value = $"```gsc\nclass {Source.Name}\n```"
-        })
+        }
     };
 }
 
@@ -33,10 +33,10 @@ internal record ScrClassReferenceSymbol(Token NameToken, string ClassName) : ISe
     public Hover GetHover() => new()
     {
         Range = Range,
-        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+        Contents = new MarkupContent
         {
             Kind = MarkupKind.Markdown,
             Value = $"```gsc\nclass {ClassName}\n```"
-        })
+        }
     };
 }

@@ -1,7 +1,7 @@
-using GSCode.Data;
+﻿using GSCode.Data;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using Serilog;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
@@ -58,7 +58,6 @@ internal ref partial struct UserRegionsAnalyser(LinkedToken startNode, ParserInt
                     EndLine = endToken.Range.End.Line,
                     EndCharacter = endToken.Range.Start.Character,
 
-                    CollapsedText = name,
                     Kind = FoldingRangeKind.Region
                 };
             }
@@ -91,13 +90,13 @@ internal ref partial struct UserRegionsAnalyser(LinkedToken startNode, ParserInt
         int regionStartCharOffset = match.Groups[1].Index;
         int regionEndCharOffset = regionStartCharOffset + match.Groups[1].Length;
 
-        Sense.SemanticTokens.Add(new SemanticTokenDefinition(new Range(line, regionStartCharOffset + baseChar, line, regionEndCharOffset + baseChar), "keyword", []));
+        Sense.SemanticTokens.Add(new SemanticTokenDefinition(new Range { Start = new Position { Line = line, Character = regionStartCharOffset + baseChar }, End = new Position { Line = line, Character = regionEndCharOffset + baseChar } }, "keyword", []));
 
         // and the region's name
         int nameStartCharOffset = match.Groups[2].Index;
         int nameEndCharOffset = nameStartCharOffset + match.Groups[2].Length;
 
-        Sense.SemanticTokens.Add(new SemanticTokenDefinition(new Range(line, nameStartCharOffset + baseChar, line, nameEndCharOffset + baseChar), "variable", []));
+        Sense.SemanticTokens.Add(new SemanticTokenDefinition(new Range { Start = new Position { Line = line, Character = nameStartCharOffset + baseChar }, End = new Position { Line = line, Character = nameEndCharOffset + baseChar } }, "variable", []));
     }
 
     private readonly void EmitRegionEndSemanticTokens(Token token, Match match)
@@ -108,7 +107,7 @@ internal ref partial struct UserRegionsAnalyser(LinkedToken startNode, ParserInt
         int endregionStartCharOffset = match.Groups[1].Index;
         int endregionEndCharOffset = endregionStartCharOffset + match.Groups[1].Length;
 
-        Sense.SemanticTokens.Add(new SemanticTokenDefinition(new Range(line, endregionStartCharOffset + baseChar, line, endregionEndCharOffset + baseChar), "keyword", []));
+        Sense.SemanticTokens.Add(new SemanticTokenDefinition(new Range { Start = new Position { Line = line, Character = endregionStartCharOffset + baseChar }, End = new Position { Line = line, Character = endregionEndCharOffset + baseChar } }, "keyword", []));
     }
 
     [GeneratedRegex(@"^\s*/\*\s*(region)\s+([^*]+?)\s*\*/\s*$", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
@@ -154,3 +153,4 @@ internal ref partial struct UserRegionsAnalyser(LinkedToken startNode, ParserInt
         return false;
     }
 }
+

@@ -2,9 +2,7 @@ using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
-using OmniSharp.Extensions.LanguageServer.Protocol;
-using OmniSharp.Extensions.LanguageServer.Protocol.Document;
-using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using Microsoft.VisualStudio.LanguageServer.Protocol;
 using System.Linq;
 
 namespace GSCode.NET.LSP;
@@ -19,7 +17,7 @@ public partial class ScriptManager
             string content = _cache.AddToCache(document);
             Script script = GetEditor(document);
 
-            return await ProcessEditorAsync(document.Uri.ToUri(), script, content, cancellationToken);
+            return await ProcessEditorAsync(document.Uri, script, content, cancellationToken);
         }
         finally
         {
@@ -27,7 +25,7 @@ public partial class ScriptManager
         }
     }
 
-    public async Task<IEnumerable<Diagnostic>> UpdateEditorAsync(OptionalVersionedTextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<Diagnostic>> UpdateEditorAsync(VersionedTextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes, CancellationToken cancellationToken = default)
     {
         await _editorPriority.WaitAsync(cancellationToken);
         try
@@ -46,7 +44,7 @@ public partial class ScriptManager
 
             Script script = GetEditor(document);
 
-            return await ProcessEditorAsync(document.Uri.ToUri(), script, updatedContent, cancellationToken);
+            return await ProcessEditorAsync(document.Uri, script, updatedContent, cancellationToken);
         }
         finally
         {
@@ -56,10 +54,10 @@ public partial class ScriptManager
 
     public void RemoveEditor(TextDocumentIdentifier document)
     {
-        DocumentUri documentUri = document.Uri;
+        Uri documentUri = document.Uri;
 
         // Remove symbols from global registry when file is closed
-        string filePath = documentUri.ToUri().LocalPath;
+        string filePath = documentUri.LocalPath;
         _symbolRegistry.RemoveSymbolsFromFile(filePath);
 
         // Clean up cached macro definitions for this file
@@ -71,10 +69,11 @@ public partial class ScriptManager
         RemoveDependent(documentUri);
     }
 
+    public Script? GetParsedEditor(Uri uri)
+        => Scripts.TryGetValue(uri, out var script) ? script.Script : null;
+
     public Script? GetParsedEditor(TextDocumentIdentifier document)
-    {
-        return Scripts.TryGetValue(document.Uri, out var script) ? script.Script : null;
-    }
+        => GetParsedEditor(document.Uri);
 
     /// <summary>
     /// Re-parses every document that is currently open in the editor and republishes
@@ -90,7 +89,7 @@ public partial class ScriptManager
             .Select(kv => kv.Key)
             .ToList();
 
-        foreach (DocumentUri docUri in editorUris)
+        foreach (Uri docUri in editorUris)
         {
             // Skip if the document was closed while we were iterating
             if (!_cache.TryGetContent(docUri, out string content))
@@ -107,13 +106,12 @@ public partial class ScriptManager
                 }
 
                 IEnumerable<Diagnostic> diags =
-                    await ProcessEditorAsync(docUri.ToUri(), cached.Script, content, cancellationToken);
+                    await ProcessEditorAsync(docUri, cached.Script, content, cancellationToken);
 
-                _facade?.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
+                if (_notifier is not null)
                 {
-                    Uri = docUri,
-                    Diagnostics = new Container<Diagnostic>(diags.ToArray())
-                });
+                    _ = _notifier.PublishDiagnosticsAsync(docUri, diags, cancellationToken);
+                }
             }
             finally
             {
@@ -126,17 +124,16 @@ public partial class ScriptManager
     /// Retrieves the current cached source text for the given document.
     /// Returns false if the document is not open in the editor cache.
     /// </summary>
-    public bool TryGetCachedContent(DocumentUri uri, out string content)
+    public bool TryGetCachedContent(Uri uri, out string content)
         => _cache.TryGetContent(uri, out content);
 
     private async Task<IEnumerable<Diagnostic>> ProcessEditorAsync(Uri documentUri, Script script, string content, CancellationToken cancellationToken = default)
     {
         string filePath = documentUri.LocalPath;
-        var docUri = DocumentUri.From(documentUri);
         int contentHash = content.GetHashCode();
 
         // Update cached script metadata
-        if (Scripts.TryGetValue(docUri, out var cached))
+        if (Scripts.TryGetValue(documentUri, out var cached))
         {
             cached.LastContentHash = contentHash;
             cached.LastParsedAt = DateTime.UtcNow;
@@ -168,10 +165,9 @@ public partial class ScriptManager
         List<IExportedSymbol> exportedSymbols = new();
         foreach (Uri dependency in dependencies)
         {
-            var depDoc = DocumentUri.From(dependency);
-            if (Scripts.TryGetValue(depDoc, out CachedScript? cachedScript))
+            if (Scripts.TryGetValue(dependency, out CachedScript? cachedScript))
             {
-                await EnsureParsedAsync(depDoc, cachedScript.Script, script.LanguageId, cancellationToken);
+                await EnsureParsedAsync(dependency, cachedScript.Script, script.LanguageId, cancellationToken);
                 exportedSymbols.AddRange(await cachedScript.Script.IssueExportedSymbolsAsync(cancellationToken));
             }
         }
@@ -180,8 +176,7 @@ public partial class ScriptManager
         var (mergeFuncLocs, mergeClassLocs) = await MergeDependencySymbolsAsync(dependencies, filePath, cancellationToken);
 
         // Merge + analyse under this script's analysis lock
-        var thisDoc = DocumentUri.From(documentUri);
-        await WithAnalysisLockAsync(thisDoc, async () =>
+        await WithAnalysisLockAsync(documentUri, async () =>
         {
             if (script.DefinitionsTable is not null)
             {
@@ -208,7 +203,7 @@ public partial class ScriptManager
 
     private Script GetEditor(TextDocumentItem document) => GetEditorByUri(document.Uri, document.LanguageId);
 
-    private Script GetEditorByUri(DocumentUri uri, string? languageId = null)
+    private Script GetEditorByUri(Uri uri, string? languageId = null)
     {
         var cached = Scripts.GetOrAdd(uri, key => new CachedScript()
         {

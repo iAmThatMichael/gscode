@@ -147,6 +147,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
         // Now check if there's a namespace qualifier before the identifier
         // (only if we didn't already detect it in Case 2)
+        bool isDotAccess = false;
         if (identifierToken != null && namespaceQualifier == null)
         {
             Token? beforeIdent = identifierToken.PreviousNonWhitespace();
@@ -162,6 +163,18 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                         namespaceQualifier, identifierToken.Lexeme);
                 }
             }
+            else if (beforeIdent?.Type == TokenType.Dot)
+            {
+                isDotAccess = true;
+                Log.Information("Detected dot-access context for identifier: {Identifier}", identifierToken.Lexeme);
+            }
+        }
+        // Case: cursor is right after a dot with no identifier yet (e.g., "level.|")
+        else if (identifierToken == null && namespaceQualifier == null && prev?.Type == TokenType.Dot)
+        {
+            isDotAccess = true;
+            filter = "";
+            Log.Information("Detected dot-access context (no identifier yet)");
         }
 
         // Handle directive filter prefix
@@ -184,9 +197,15 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         }
 
         // For the moment
+        CompletionContextType contextType = isDotAccess
+            ? CompletionContextType.MemberAccess
+            : namespaceQualifier != null
+                ? CompletionContextType.FunctionCall
+                : CompletionContextType.GlobalScope;
+
         CompletionContext context = new()
         {
-            Type = namespaceQualifier != null ? CompletionContextType.FunctionCall : CompletionContextType.GlobalScope,
+            Type = contextType,
             Filter = filter,
             Namespace = namespaceQualifier,
             IsDirectiveContext = isDirectiveContext,
@@ -227,6 +246,11 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                 completions = GetNamespacedFunctionCompletions(context);
                 Log.Debug("After GetNamespacedFunctionCompletions: {Count} completions", completions.Count);
                 break;
+            case CompletionContextType.MemberAccess:
+                // Dot-access (e.g., level.foo) — only field/property completions, no functions/macros/directives
+                completions = GetDotAccessCompletions(context);
+                Log.Debug("After GetDotAccessCompletions: {Count} completions", completions.Count);
+                return new CompletionList { IsIncomplete = false, Items = completions.ToArray() };
         }
 
         // Get the completions from the definition.
@@ -582,6 +606,64 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         Log.Debug("GetFileScopeCompletions: Macros found={MacroCount}, Skipped: API={SkipApi}, Preprocessor={SkipPreproc}, Functions={SkipFunc}, Total completions={Total}",
             macroCount, skippedApiCount, skippedPreprocCount, skippedFunctionCount, completions.Count);
 
+        return completions;
+    }
+
+    /// <summary>
+    /// Returns only field/property completions for dot-access contexts (e.g., <c>level.foo</c>).
+    /// Functions, macros, directives, and keywords are excluded — they cannot be accessed via dot notation.
+    /// </summary>
+    private List<CompletionItem> GetDotAccessCompletions(CompletionContext context)
+    {
+        List<CompletionItem> completions = new();
+        HashSet<string> seenIdentifiers = new(StringComparer.OrdinalIgnoreCase);
+
+        // Collect every identifier that appears immediately after a dot in the token stream.
+        // These are the field names that have been used in this file and are the only
+        // meaningful completions in a dot-access position.
+        foreach (Token token in Tokens.GetAll())
+        {
+            if (token.Type != TokenType.Identifier)
+            {
+                continue;
+            }
+
+            Token? before = token.PreviousNonWhitespace();
+            if (before?.Type != TokenType.Dot)
+            {
+                continue;
+            }
+
+            string name = token.Lexeme;
+
+            if (seenIdentifiers.Contains(name))
+            {
+                continue;
+            }
+
+            // Skip identifiers that are API functions — they are callable, not fields
+            if (_scriptAnalyserData?.GetApiFunction(name) is not null)
+            {
+                continue;
+            }
+
+            // Skip macro names — macros cannot be dot-accessed
+            if (MacroDefinitions is not null && MacroDefinitions.ContainsKey(name))
+            {
+                continue;
+            }
+
+            completions.Add(new CompletionItem()
+            {
+                Kind = CompletionItemKind.Field,
+                Label = name,
+                InsertText = name,
+                SortText = "1_" + name.ToLowerInvariant()
+            });
+            seenIdentifiers.Add(name);
+        }
+
+        Log.Debug("GetDotAccessCompletions: Returning {Count} field completions", completions.Count);
         return completions;
     }
 

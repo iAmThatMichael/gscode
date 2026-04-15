@@ -27,7 +27,7 @@ public partial class ScriptManager
         // Only parse if new dependency or not yet parsed
         if (isNewDependency || !cached.Script.Parsed)
         {
-            Log.Information("DEPENDENCY_RESOLVE: {DependencyPath} (new={IsNew}, requested by {DependentUri})",
+            Log.Debug("DEPENDENCY_RESOLVE: {DependencyPath} (new={IsNew}, requested by {DependentUri})",
                 depPath, isNewDependency, UriHelper.GetLocalPath(dependentUri));
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -41,7 +41,7 @@ public partial class ScriptManager
             cached.LastParsedAt = DateTime.UtcNow;
             sw.Stop();
 
-            Log.Information("DEPENDENCY_RESOLVE: {DependencyPath} completed in {ElapsedMs} ms (symbolsChanged={Changed})",
+            Log.Debug("DEPENDENCY_RESOLVE: {DependencyPath} completed in {ElapsedMs} ms (symbolsChanged={Changed})",
                 depPath, sw.ElapsedMilliseconds, symbolsChanged);
         }
         else

@@ -124,8 +124,12 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
             {
                 completionOpts.CustomRawPath = customRawPath;
                 completionOpts.AllowRawFolderWrites = allowWrites;
+                completionOpts.WorkspaceIndexingMode = indexingMode;
             }
             _scriptManager.CustomRawPath = customRawPath;
+
+            Log.Information("Settings: LogLevel={LogLevel}, IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}",
+                logLevel, indexingMode, allowWrites, customRawPath ?? "(none)");
         }
 
         // Collect workspace folders for use in Initialized

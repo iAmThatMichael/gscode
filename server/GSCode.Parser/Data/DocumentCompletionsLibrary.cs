@@ -715,9 +715,12 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         }
         else if (namespaceAlreadyTyped)
         {
-            // User already typed namespace::, so just show the function name
+            // User already typed namespace::, so just show the function name.
+            // Use Description (API functions) when available, otherwise a generic prototype.
             label = function.Name;
-            detail = $"function {function.Name}()";
+            detail = !string.IsNullOrEmpty(function.Description)
+                ? function.Description
+                : $"function {function.Name}()";
             filterText = function.Name;  // Filter on function name only
             kind = CompletionItemKind.Function;
             sortPrefix = "0_";  // Sort first
@@ -758,9 +761,9 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             },
             InsertText = insertText,
             InsertTextFormat = InsertTextFormat.Snippet,
-            Kind = CompletionItemKind.Function,
+            Kind = kind,
             // Add sorting information to keep API functions organized
-            SortText = function.Name.ToLowerInvariant(),
+            SortText = $"{sortPrefix}{function.Name.ToLowerInvariant()}",
             // Add commit characters to automatically complete when typing these
             //CommitCharacters = new Container<string>(new[] { "(", ")", ";" })
         };

@@ -40,11 +40,11 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
         _semanticTokensLegend = BuildLegend();
 
         var formatter = new JsonMessageFormatter();
-        // The MS LSP SDK types use Newtonsoft.Json [JsonConverter] attributes for
-        // union types (SumType, etc.).  Ensure enum serialisation matches the LSP
-        // spec which sends string values, not integers.
-        formatter.JsonSerializer.Converters.Add(
-            new Newtonsoft.Json.Converters.StringEnumConverter());
+        // The MS LSP SDK types use Newtonsoft.Json [JsonConverter] attributes on
+        // individual properties for union types (SumType, etc.) and on enums that
+        // need string serialisation.  Do NOT register a global StringEnumConverter
+        // here — LSP enums like DiagnosticSeverity must be serialised as integers
+        // per the LSP specification.
 
         HeaderDelimitedMessageHandler handler;
         if (ReferenceEquals(input, output))
@@ -212,13 +212,21 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.TextDocumentDidOpenName, UseSingleObjectParameterDeserialization = true)]
     public async Task DidOpenAsync(DidOpenTextDocumentParams @params, CancellationToken ct)
     {
+        Log.Information("Document opened");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var diags = await _scriptManager.AddEditorAsync(@params.TextDocument, ct);
         await PublishDiagnosticsAsync(@params.TextDocument.Uri, diags, ct);
+        sw.Stop();
+        Log.Information("Document open processed in {ElapsedMs} ms with {DiagCount} diagnostics", sw.ElapsedMilliseconds, diags.Count());
     }
 
     [JsonRpcMethod(Methods.TextDocumentDidChangeName, UseSingleObjectParameterDeserialization = true)]
     public async Task DidChangeAsync(DidChangeTextDocumentParams @params, CancellationToken ct)
     {
+        var changeType = @params.ContentChanges.Any(c => c.Range == null) ? "Full" : "Incremental";
+        var changeCount = @params.ContentChanges.Length;
+        Log.Information("Document changed ({ChangeType}, {ChangeCount} change(s))", changeType, changeCount);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var versionedId = new VersionedTextDocumentIdentifier
         {
             Uri = @params.TextDocument.Uri,
@@ -226,11 +234,19 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
         };
         var diags = await _scriptManager.UpdateEditorAsync(versionedId, @params.ContentChanges, ct);
         await PublishDiagnosticsAsync(@params.TextDocument.Uri, diags, ct);
+        sw.Stop();
+        Log.Information("Document change processed in {ElapsedMs} ms with {DiagCount} diagnostics", sw.ElapsedMilliseconds, diags.Count());
     }
 
     [JsonRpcMethod(Methods.TextDocumentDidCloseName, UseSingleObjectParameterDeserialization = true)]
     public void DidClose(DidCloseTextDocumentParams @params)
-        => _scriptManager.RemoveEditor(@params.TextDocument);
+    {
+        Log.Information("Document closed");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _scriptManager.RemoveEditor(@params.TextDocument);
+        sw.Stop();
+        Log.Information("Document close processed in {ElapsedMs} ms", sw.ElapsedMilliseconds);
+    }
 
     [JsonRpcMethod(Methods.TextDocumentDidSaveName, UseSingleObjectParameterDeserialization = true)]
     public void DidSave(DidSaveTextDocumentParams @params)
@@ -240,6 +256,7 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
             string path = UriHelper.GetLocalPath(@params.TextDocument.Uri);
             if (IsInProtectedRawFolder(path))
             {
+                Log.Warning("File saved in protected raw folder: {Path}. Consider setting gscode.allowRawFolderWrites to false or working in a separate mod directory.", path);
                 _ = _rpc.NotifyAsync(Methods.WindowShowMessageName, new ShowMessageParams
                 {
                     MessageType = MessageType.Error,
@@ -256,9 +273,14 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.TextDocumentHoverName, UseSingleObjectParameterDeserialization = true)]
     public async Task<Hover?> HoverAsync(TextDocumentPositionParams @params, CancellationToken ct)
     {
+        Log.Information("Hover request received, processing...");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         Script? script = _scriptManager.GetParsedEditor(@params.TextDocument.Uri);
-        if (script is null) return null;
-        return await script.GetHoverAsync(@params.Position, ct);
+        if (script is null) { sw.Stop(); return null; }
+        var result = await script.GetHoverAsync(@params.Position, ct);
+        sw.Stop();
+        Log.Information("Hover processed in {ElapsedMs} ms. Has result: {Has}", sw.ElapsedMilliseconds, result != null);
+        return result;
     }
 
     // -------------------------------------------------------------------------
@@ -268,10 +290,20 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.TextDocumentCompletionName, UseSingleObjectParameterDeserialization = true)]
     public async Task<CompletionList> CompletionAsync(CompletionParams @params, CancellationToken ct)
     {
+        Log.Information("Completion request for {Uri} at {Line}:{Char}",
+            @params.TextDocument.Uri, @params.Position.Line, @params.Position.Character);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         Script? script = _scriptManager.GetParsedEditor(@params.TextDocument.Uri);
-        if (script is null) return new CompletionList { IsIncomplete = false, Items = [] };
-        return await script.GetCompletionAsync(@params.Position, ct)
+        if (script is null)
+        {
+            Log.Warning("Completion: script is NULL for {Uri}", @params.TextDocument.Uri);
+            return new CompletionList { IsIncomplete = false, Items = [] };
+        }
+        var result = await script.GetCompletionAsync(@params.Position, ct)
             ?? new CompletionList { IsIncomplete = false, Items = [] };
+        sw.Stop();
+        Log.Information("Completion processed in {ElapsedMs} ms. Items: {Count}", sw.ElapsedMilliseconds, result.Items?.Length ?? 0);
+        return result;
     }
 
     [JsonRpcMethod("completionItem/resolve", UseSingleObjectParameterDeserialization = true)]
@@ -285,10 +317,13 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.TextDocumentSemanticTokensFullName, UseSingleObjectParameterDeserialization = true)]
     public async Task<SemanticTokens?> SemanticTokensFullAsync(SemanticTokensParams @params, CancellationToken ct)
     {
+        Log.Information("Tokenization request received, processing...");
         Script? script = _scriptManager.GetParsedEditor(@params.TextDocument.Uri);
         if (script is null) return null;
         var tokens = await script.GetSemanticTokensAsync(ct);
-        return EncodeSemanticTokens(tokens, _semanticTokensLegend);
+        var result = EncodeSemanticTokens(tokens, _semanticTokensLegend);
+        Log.Information("Tokenization is complete!");
+        return result;
     }
 
     // -------------------------------------------------------------------------
@@ -298,9 +333,23 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.TextDocumentDefinitionName, UseSingleObjectParameterDeserialization = true)]
     public async Task<Location?> DefinitionAsync(TextDocumentPositionParams @params, CancellationToken ct)
     {
+        string docPath = UriHelper.GetLocalPath(@params.TextDocument.Uri);
+        Log.Information("Definition request from {DocumentPath} at position {Position}", docPath, @params.Position);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         Script? script = _scriptManager.GetParsedEditor(@params.TextDocument.Uri);
-        if (script is null) return null;
-        return await script.GetDefinitionAsync(@params.Position, ct);
+        if (script is null)
+        {
+            sw.Stop();
+            Log.Information("Definition finished in {ElapsedMs} ms: no script for {DocumentPath}", sw.ElapsedMilliseconds, docPath);
+            return null;
+        }
+        var result = await script.GetDefinitionAsync(@params.Position, ct);
+        sw.Stop();
+        if (result is not null)
+            Log.Information("Definition resolved in {ElapsedMs} ms from {DocumentPath}: {Uri}:{Range}", sw.ElapsedMilliseconds, docPath, result.Uri, result.Range);
+        else
+            Log.Information("Definition finished in {ElapsedMs} ms from {DocumentPath}: not found", sw.ElapsedMilliseconds, docPath);
+        return result;
     }
 
     // -------------------------------------------------------------------------
@@ -367,8 +416,15 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.TextDocumentDocumentSymbolName, UseSingleObjectParameterDeserialization = true)]
     public async Task<DocumentSymbol[]> DocumentSymbolAsync(DocumentSymbolParams @params, CancellationToken ct)
     {
+        Log.Information("DocumentSymbol (outline) request received");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         Script? script = _scriptManager.GetParsedEditor(@params.TextDocument.Uri);
-        if (script is null || script.DefinitionsTable is null) return [];
+        if (script is null || script.DefinitionsTable is null)
+        {
+            sw.Stop();
+            Log.Information("DocumentSymbol finished in {ElapsedMs} ms: no script or no definitions", sw.ElapsedMilliseconds);
+            return [];
+        }
         ct.ThrowIfCancellationRequested();
 
         string currentPath = ScriptFileResolver.NormalizeFilePathForUri(UriHelper.GetLocalPath(@params.TextDocument.Uri));
@@ -444,7 +500,11 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
             root.Add(new DocumentSymbol { Name = "Macros", Kind = Microsoft.VisualStudio.LanguageServer.Protocol.SymbolKind.Namespace, Range = AnchorAt(2), SelectionRange = AnchorAt(2), Children = macroNodes.ToArray() });
         }
 
-        return root.ToArray();
+        var symbols = root.ToArray();
+        sw.Stop();
+        int totalSymbols = symbols.Sum(s => s.Children?.Length ?? 0);
+        Log.Information("DocumentSymbol finished in {ElapsedMs} ms: {Count} symbols", sw.ElapsedMilliseconds, totalSymbols);
+        return symbols;
     }
 
     // -------------------------------------------------------------------------
@@ -454,9 +514,19 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.TextDocumentSignatureHelpName, UseSingleObjectParameterDeserialization = true)]
     public async Task<SignatureHelp?> SignatureHelpAsync(TextDocumentPositionParams @params, CancellationToken ct)
     {
+        Log.Information("SignatureHelp request received, processing...");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         Script? script = _scriptManager.GetParsedEditor(@params.TextDocument.Uri);
-        if (script is null) return null;
-        return await script.GetSignatureHelpAsync(@params.Position, ct);
+        if (script is null)
+        {
+            sw.Stop();
+            Log.Information("SignatureHelp finished in {ElapsedMs} ms: no script", sw.ElapsedMilliseconds);
+            return null;
+        }
+        var help = await script.GetSignatureHelpAsync(@params.Position, ct);
+        sw.Stop();
+        Log.Information("SignatureHelp finished in {ElapsedMs} ms. Has result: {Has}", sw.ElapsedMilliseconds, help != null);
+        return help;
     }
 
     // -------------------------------------------------------------------------
@@ -466,10 +536,13 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.TextDocumentFoldingRangeName, UseSingleObjectParameterDeserialization = true)]
     public async Task<FoldingRange[]> FoldingRangeAsync(FoldingRangeParams @params, CancellationToken ct)
     {
+        Log.Information("Folding range request received, processing...");
         Script? script = _scriptManager.GetParsedEditor(@params.TextDocument.Uri);
         if (script is null) return [];
         var ranges = await script.GetFoldingRangesAsync(ct);
-        return ranges.ToArray();
+        var result = ranges.ToArray();
+        Log.Information("Folding range request processed. FoldingRanges: {Count}", result.Length);
+        return result;
     }
 
     // -------------------------------------------------------------------------
@@ -537,6 +610,19 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     [JsonRpcMethod(Methods.WorkspaceDidChangeWatchedFilesName, UseSingleObjectParameterDeserialization = true)]
     public async Task DidChangeWatchedFilesAsync(DidChangeWatchedFilesParams @params, CancellationToken ct)
     {
+        foreach (var change in @params.Changes)
+        {
+            var path = UriHelper.GetLocalPath(change.Uri);
+            if (IsScriptFile(path))
+            {
+                switch (change.FileChangeType)
+                {
+                    case FileChangeType.Created: Log.Information("Script file created: {Path}", path); break;
+                    case FileChangeType.Changed: Log.Information("Script file modified externally: {Path}", path); break;
+                    case FileChangeType.Deleted: Log.Information("Script file deleted: {Path}", path); break;
+                }
+            }
+        }
         bool hasScriptChange = @params.Changes.Any(c => IsScriptFile(UriHelper.GetLocalPath(c.Uri)));
         if (hasScriptChange)
         {

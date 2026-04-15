@@ -1,4 +1,5 @@
-﻿using GSCode.Data.Models.Interfaces;
+﻿using Serilog;
+using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Data;
 using Microsoft.VisualStudio.LanguageServer.Protocol;
@@ -11,6 +12,7 @@ public partial class ScriptManager
     private async Task<Script> AddDependencyAsync(Uri dependentUri, Uri uri, string languageId)
     {
         bool isNewDependency = false;
+        string depPath = UriHelper.GetLocalPath(uri);
 
         var cached = Scripts.GetOrAdd(uri, key =>
         {
@@ -25,6 +27,10 @@ public partial class ScriptManager
         // Only parse if new dependency or not yet parsed
         if (isNewDependency || !cached.Script.Parsed)
         {
+            Log.Information("DEPENDENCY_RESOLVE: {DependencyPath} (new={IsNew}, requested by {DependentUri})",
+                depPath, isNewDependency, UriHelper.GetLocalPath(dependentUri));
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             await EnsureParsedAsync(uri, cached.Script, languageId, CancellationToken.None);
 
             // Populate global symbol registry with dependency's definitions
@@ -33,6 +39,14 @@ public partial class ScriptManager
 
             cached.ExportedSymbolsChanged = symbolsChanged;
             cached.LastParsedAt = DateTime.UtcNow;
+            sw.Stop();
+
+            Log.Information("DEPENDENCY_RESOLVE: {DependencyPath} completed in {ElapsedMs} ms (symbolsChanged={Changed})",
+                depPath, sw.ElapsedMilliseconds, symbolsChanged);
+        }
+        else
+        {
+            Log.Debug("DEPENDENCY_RESOLVE: {DependencyPath} already parsed, skipping", depPath);
         }
 
         cached.Dependents.TryAdd(dependentUri, 0);

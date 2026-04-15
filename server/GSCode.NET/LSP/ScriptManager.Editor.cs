@@ -12,26 +12,34 @@ public partial class ScriptManager
 {
     public async Task<IEnumerable<Diagnostic>> AddEditorAsync(TextDocumentItem document, CancellationToken cancellationToken = default)
     {
+        string content;
+        Script script;
+
+        // Hold the editor priority only for the brief cache + lookup, then release
+        // so the indexer dispatch loop is not blocked during the full parse.
         await _editorPriority.WaitAsync(cancellationToken);
         try
         {
-            string content = _cache.AddToCache(document);
-            Script script = GetEditor(document);
-
-            return await ProcessEditorAsync(document.Uri, script, content, cancellationToken);
+            content = _cache.AddToCache(document);
+            script = GetEditor(document);
         }
         finally
         {
             _editorPriority.Release();
         }
+
+        return await ProcessEditorAsync(document.Uri, script, content, cancellationToken);
     }
 
     public async Task<IEnumerable<Diagnostic>> UpdateEditorAsync(VersionedTextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes, CancellationToken cancellationToken = default)
     {
+        string updatedContent;
+        Script script;
+
         await _editorPriority.WaitAsync(cancellationToken);
         try
         {
-            string updatedContent = _cache.UpdateCache(document, changes);
+            updatedContent = _cache.UpdateCache(document, changes);
 
             // Check if content actually changed using hash comparison
             var docUri = document.Uri;
@@ -43,14 +51,14 @@ public partial class ScriptManager
                 return await cached.Script.GetDiagnosticsAsync(cancellationToken);
             }
 
-            Script script = GetEditor(document);
-
-            return await ProcessEditorAsync(document.Uri, script, updatedContent, cancellationToken);
+            script = GetEditor(document);
         }
         finally
         {
             _editorPriority.Release();
         }
+
+        return await ProcessEditorAsync(document.Uri, script, updatedContent, cancellationToken);
     }
 
     public void RemoveEditor(TextDocumentIdentifier document)

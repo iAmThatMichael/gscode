@@ -94,7 +94,7 @@ public partial class ScriptManager
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Failed to publish diagnostics for {Uri}", uri.LocalPath);
+            Log.Error(ex, "Failed to publish diagnostics for {Uri}", UriHelper.GetLocalPath(uri));
         }
     }
 }

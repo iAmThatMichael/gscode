@@ -23,6 +23,11 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     private readonly ScriptManager _scriptManager;
     private readonly SemanticTokensLegend _semanticTokensLegend;
 
+    /// <summary>
+    /// Exposes the script manager for diagnostics and monitoring (e.g., memory debug stats).
+    /// </summary>
+    public ScriptManager ScriptManager => _scriptManager;
+
     // Workspace folders captured during Initialize for use in Initialized
     private string[] _workspaceFolders = [];
     private bool _shuttingDown;

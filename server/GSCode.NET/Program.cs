@@ -73,8 +73,22 @@ _ = Task.Run(async () =>
 			var memoryMB = process.WorkingSet64 / 1024.0 / 1024.0;
 			var privateMemoryMB = process.PrivateMemorySize64 / 1024.0 / 1024.0;
 
-			Log.Information("Memory Usage - Working Set: {WorkingSet:F2} MB, Private: {Private:F2} MB",
-				memoryMB, privateMemoryMB);
+			// Get workspace stats from ScriptManager
+			var scriptManager = server.ScriptManager;
+			var symbolCounts = scriptManager.SymbolRegistry.GetCountsByType();
+			var scriptCounts = scriptManager.GetScriptCountsByType();
+
+			// Macro and GSH file stats
+			var macroStats = GSCode.Parser.Pre.MacroDefinitionCache.Instance.GetDetailedStatistics();
+
+			Log.Information(
+				"Memory Usage - Working Set: {WorkingSet:F2} MB, Private: {Private:F2} MB | " +
+				"Functions: {Functions}, Classes: {Classes}, " +
+				"Files: GSC={Gsc} CSC={Csc} GSH={Gsh}, Macros: {Macros}",
+				memoryMB, privateMemoryMB,
+				symbolCounts.Functions, symbolCounts.Classes,
+				scriptCounts.GscFiles, scriptCounts.CscFiles, macroStats.GshFiles,
+				macroStats.TotalMacros);
 
 			await Task.Delay(1000, memoryMonitorCts.Token);
 		}

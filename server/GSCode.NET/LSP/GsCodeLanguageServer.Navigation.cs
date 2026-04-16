@@ -115,9 +115,12 @@ public sealed partial class GsCodeLanguageServer
     // -------------------------------------------------------------------------
 
     [JsonRpcMethod(Methods.TextDocumentDocumentHighlightName, UseSingleObjectParameterDeserialization = true)]
-    public Task<DocumentHighlight[]> DocumentHighlightAsync(TextDocumentPositionParams @params, CancellationToken ct)
+    public async Task<DocumentHighlight[]> DocumentHighlightAsync(TextDocumentPositionParams @params, CancellationToken ct)
     {
-        // DocumentHighlight is not yet implemented in the parser layer.
-        return Task.FromResult(Array.Empty<DocumentHighlight>());
+        Script? script = _scriptManager.GetParsedEditor(@params.TextDocument.Uri);
+        if (script is null) return [];
+
+        var ranges = await script.GetLocalVariableReferencesAsync(@params.Position, includeDeclaration: true, ct);
+        return ranges.Select(r => new DocumentHighlight { Range = r, Kind = DocumentHighlightKind.Text }).ToArray();
     }
 }

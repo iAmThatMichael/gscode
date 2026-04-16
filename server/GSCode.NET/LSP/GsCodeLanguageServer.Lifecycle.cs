@@ -67,7 +67,7 @@ public sealed partial class GsCodeLanguageServer
                 },
                 DefinitionProvider = true,
                 ReferencesProvider = true,
-                // DocumentHighlightProvider not yet implemented — don't advertise
+                DocumentHighlightProvider = true,
                 DocumentSymbolProvider = true,
                 CodeActionProvider = new CodeActionOptions { ResolveProvider = true },
                 FoldingRangeProvider = true,

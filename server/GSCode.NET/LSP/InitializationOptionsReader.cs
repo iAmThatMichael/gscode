@@ -2,7 +2,7 @@
 using Newtonsoft.Json.Linq;
 using Serilog.Events;
 
-namespace GSCode.NET;
+namespace GSCode.NET.LSP;
 
 /// <summary>
 /// Reads typed values from LSP initialization options.

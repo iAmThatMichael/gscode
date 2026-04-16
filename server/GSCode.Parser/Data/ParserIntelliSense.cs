@@ -145,6 +145,15 @@ internal sealed class ParserIntelliSense
     }
 
     /// <summary>
+    /// Sets the global field provider for cross-file field completions on global objects.
+    /// </summary>
+    public void SetGlobalFieldProvider(IGlobalFieldProvider? provider)
+    {
+        if (Completions is null) return;
+        Completions.GlobalFieldProvider = provider;
+    }
+
+    /// <summary>
     /// Sparse store for token → ISenseDefinition mappings.
     /// (identifiers with hovers/highlighting) are stored here, avoiding an 8-byte pointer on every token.
     /// </summary>

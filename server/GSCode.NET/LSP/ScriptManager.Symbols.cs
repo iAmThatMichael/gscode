@@ -62,6 +62,27 @@ public partial class ScriptManager
     }
 
     /// <summary>
+    /// Extracts global field accesses (level.x, world.y, game.z) from a parsed script
+    /// and updates the global field registry. Call after parsing.
+    /// </summary>
+    private void PopulateFieldRegistry(string filePath, Script script)
+    {
+        var fieldAccesses = script.ExtractGlobalFieldAccesses();
+
+        var entries = new List<(FieldOwner Owner, string FieldName)>();
+        foreach (var (ownerName, fieldName) in fieldAccesses)
+        {
+            var owner = GlobalFieldRegistry.IdentifierToOwner(ownerName);
+            if (owner.HasValue)
+            {
+                entries.Add((owner.Value, fieldName));
+            }
+        }
+
+        _fieldRegistry.UpdateFieldsForFile(filePath, entries);
+    }
+
+    /// <summary>
     /// Finds a symbol (function or class) by optional namespace and name.
     /// Tries the global registry first (O(1)), falls back to per-script lookup.
     /// </summary>

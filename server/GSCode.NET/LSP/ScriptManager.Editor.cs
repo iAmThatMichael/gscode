@@ -69,6 +69,9 @@ public partial class ScriptManager
         string filePath = UriHelper.GetLocalPath(documentUri);
         _symbolRegistry.RemoveSymbolsFromFile(filePath);
 
+        // Remove fields from global field registry when file is closed
+        _fieldRegistry.RemoveFieldsFromFile(filePath);
+
         // Clean up cached macro definitions for this file
         GSCode.Parser.Pre.MacroDefinitionCache.Instance.RemoveFileMacros(filePath);
 
@@ -153,6 +156,9 @@ public partial class ScriptManager
         // Populate global symbol registry with this script's definitions (returns true if changed)
         bool symbolsChanged = PopulateSymbolRegistry(filePath, script);
 
+        // Populate global field registry (level.x, world.y, game.z across files)
+        PopulateFieldRegistry(filePath, script);
+
         // Track if exported symbols changed for dependency invalidation
         if (cached is not null)
         {
@@ -218,7 +224,7 @@ public partial class ScriptManager
         var cached = Scripts.GetOrAdd(uri, key => new CachedScript()
         {
             Type = CachedScriptType.Editor,
-            Script = new Script(key, languageId ?? "gsc", _symbolRegistry)
+            Script = new Script(key, languageId ?? "gsc", _symbolRegistry, globalFieldProvider: _fieldRegistry)
         });
 
         // If it was a dependency, upgrade to editor
@@ -227,7 +233,7 @@ public partial class ScriptManager
             var newCached = new CachedScript()
             {
                 Type = CachedScriptType.Editor,
-                Script = new Script(uri, languageId ?? "gsc", _symbolRegistry)
+                Script = new Script(uri, languageId ?? "gsc", _symbolRegistry, globalFieldProvider: _fieldRegistry)
             };
             cached = Scripts.AddOrUpdate(uri, newCached, (_, _) => newCached);
         }

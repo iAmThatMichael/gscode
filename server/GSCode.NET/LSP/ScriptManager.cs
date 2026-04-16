@@ -24,6 +24,16 @@ public partial class ScriptManager
     public GlobalSymbolRegistry SymbolRegistry => _symbolRegistry;
 
     /// <summary>
+    /// Global field registry for cross-file tracking of fields on global objects (level, world, game).
+    /// </summary>
+    private readonly GlobalFieldRegistry _fieldRegistry = new();
+
+    /// <summary>
+    /// Provides read-only access to the global field registry for other components.
+    /// </summary>
+    public GlobalFieldRegistry FieldRegistry => _fieldRegistry;
+
+    /// <summary>
     /// Optional user-configured custom path to the "raw" folder for path completions.
     /// This can be set via LSP configuration and overrides automatic detection.
     /// </summary>

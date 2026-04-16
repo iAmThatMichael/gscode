@@ -20,7 +20,7 @@ public partial class ScriptManager
             return new CachedScript
             {
                 Type = CachedScriptType.Dependency,
-                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index)
+                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry)
             };
         });
 

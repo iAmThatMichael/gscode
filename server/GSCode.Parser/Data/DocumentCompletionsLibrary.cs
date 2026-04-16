@@ -33,6 +33,12 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
     public DefinitionsTable? DefinitionsTable { get; set; }
 
     /// <summary>
+    /// Provider for cross-file field names on global objects (level, world, game).
+    /// Set by the host project after workspace indexing is wired up.
+    /// </summary>
+    public IGlobalFieldProvider? GlobalFieldProvider { get; set; }
+
+    /// <summary>
     /// Macro definitions for completions.
     /// </summary>
     internal Dictionary<string, (Pre.MacroDefinition Definition, string? SourceDisplay)>? MacroDefinitions { get; set; }
@@ -148,6 +154,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         // Now check if there's a namespace qualifier before the identifier
         // (only if we didn't already detect it in Case 2)
         bool isDotAccess = false;
+        string? dotAccessObject = null;
         if (identifierToken != null && namespaceQualifier == null)
         {
             Token? beforeIdent = identifierToken.PreviousNonWhitespace();
@@ -166,7 +173,14 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             else if (beforeIdent?.Type == TokenType.Dot)
             {
                 isDotAccess = true;
-                Log.Information("Detected dot-access context for identifier: {Identifier}", identifierToken.Lexeme);
+                // Capture the object before the dot (e.g., "level" in "level.foo")
+                Token? objectToken = beforeIdent.PreviousNonWhitespace();
+                if (objectToken?.Type == TokenType.Identifier)
+                {
+                    dotAccessObject = objectToken.Lexeme;
+                }
+                Log.Information("Detected dot-access context for identifier: {Identifier}, object: {Object}", 
+                    identifierToken.Lexeme, dotAccessObject ?? "(unknown)");
             }
         }
         // Case: cursor is right after a dot with no identifier yet (e.g., "level.|")
@@ -174,7 +188,14 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         {
             isDotAccess = true;
             filter = "";
-            Log.Information("Detected dot-access context (no identifier yet)");
+            // Capture the object before the dot
+            Token? objectToken = prev.PreviousNonWhitespace();
+            if (objectToken?.Type == TokenType.Identifier)
+            {
+                dotAccessObject = objectToken.Lexeme;
+            }
+            Log.Information("Detected dot-access context (no identifier yet), object: {Object}", 
+                dotAccessObject ?? "(unknown)");
         }
 
         // Handle directive filter prefix
@@ -208,6 +229,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             Type = contextType,
             Filter = filter,
             Namespace = namespaceQualifier,
+            ObjectType = dotAccessObject,
             IsDirectiveContext = isDirectiveContext,
             IsInsideFunctionBlock = isInsideFunctionBlock
         };
@@ -612,15 +634,44 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
     /// <summary>
     /// Returns only field/property completions for dot-access contexts (e.g., <c>level.foo</c>).
     /// Functions, macros, directives, and keywords are excluded — they cannot be accessed via dot notation.
+    /// For tracked global objects (level, world, game), cross-file fields from the workspace are merged in.
     /// </summary>
     private List<CompletionItem> GetDotAccessCompletions(CompletionContext context)
     {
         List<CompletionItem> completions = new();
         HashSet<string> seenIdentifiers = new(StringComparer.OrdinalIgnoreCase);
 
-        // Collect every identifier that appears immediately after a dot in the token stream.
-        // These are the field names that have been used in this file and are the only
-        // meaningful completions in a dot-access position.
+        // 1. If the object is a tracked global (level/world/game), merge cross-file fields first.
+        //    These get priority sorting so they appear at the top.
+        bool isTrackedGlobal = context.ObjectType is not null
+            && GlobalFieldProvider is not null
+            && GlobalFieldProvider.IsTrackedOwner(context.ObjectType);
+
+        if (isTrackedGlobal)
+        {
+            var globalFields = GlobalFieldProvider!.GetFieldNames(context.ObjectType!);
+            Log.Debug("GetDotAccessCompletions: Merging {Count} global fields for '{Owner}'", globalFields.Count, context.ObjectType);
+
+            foreach (string fieldName in globalFields)
+            {
+                if (seenIdentifiers.Contains(fieldName))
+                    continue;
+
+                completions.Add(new CompletionItem()
+                {
+                    Kind = CompletionItemKind.Field,
+                    Label = fieldName,
+                    InsertText = fieldName,
+                    Detail = $"{context.ObjectType} field",
+                    SortText = "1_" + fieldName.ToLowerInvariant()
+                });
+                seenIdentifiers.Add(fieldName);
+            }
+        }
+
+        // 2. Collect every identifier that appears immediately after a dot in the current file's token stream.
+        //    For non-global objects (self, structs, etc.) this is the only source.
+        //    For globals, this adds any fields not yet seen from the workspace scan.
         foreach (Token token in Tokens.GetAll())
         {
             if (token.Type != TokenType.Identifier)
@@ -663,7 +714,8 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             seenIdentifiers.Add(name);
         }
 
-        Log.Debug("GetDotAccessCompletions: Returning {Count} field completions", completions.Count);
+        Log.Debug("GetDotAccessCompletions: Returning {Count} field completions (global={IsGlobal}, object={Object})", 
+            completions.Count, isTrackedGlobal, context.ObjectType ?? "(none)");
         return completions;
     }
 

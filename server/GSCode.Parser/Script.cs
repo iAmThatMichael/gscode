@@ -23,7 +23,7 @@ namespace GSCode.Parser;
 
 using SymbolKindSA = GSCode.Parser.SA.SymbolKind;
 
-public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationProvider? globalSymbolProvider = null, ScriptMode mode = ScriptMode.Editor)
+public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationProvider? globalSymbolProvider = null, ScriptMode mode = ScriptMode.Editor, IGlobalFieldProvider? globalFieldProvider = null)
 {
     public bool Failed { get; private set; } = false;
     public bool Parsed { get; private set; } = false;
@@ -178,6 +178,7 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         if (sense.IsEditorMode)
         {
             sense.SetDefinitionsTable(DefinitionsTable);
+            sense.SetGlobalFieldProvider(globalFieldProvider);
         }
 
         SignatureAnalyser signatureAnalyser = new(RootNode!, DefinitionsTable, Sense);
@@ -357,5 +358,55 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         var functions = DefinitionsTable.ExportedFunctions ?? [];
         var classes = DefinitionsTable.ExportedClasses ?? [];
         return functions.Cast<IExportedSymbol>().Concat(classes);
+    }
+
+    /// <summary>
+    /// Set of identifier lexemes (lowered) that are tracked as global field owners.
+    /// Extend this set to track additional globals (e.g., <c>self</c> in the future).
+    /// </summary>
+    private static readonly HashSet<string> s_trackedOwners = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "level",
+        "world",
+        "game"
+    };
+
+    /// <summary>
+    /// Extracts global-object field accesses from the token stream.
+    /// Scans for patterns like <c>level.fieldName</c>, <c>world.foo</c>, <c>game["key"]</c> is NOT tracked (array access).
+    /// Only dot-access patterns (<c>Identifier → Dot → Identifier</c>) are extracted.
+    /// </summary>
+    /// <returns>
+    /// A list of (ownerName, fieldName) pairs found in this script.
+    /// <c>ownerName</c> is the lowered identifier (e.g., "level"), <c>fieldName</c> is the original casing.
+    /// </returns>
+    public List<(string OwnerName, string FieldName)> ExtractGlobalFieldAccesses()
+    {
+        var results = new List<(string, string)>();
+        if (!Parsed) return results;
+
+        foreach (Token token in Sense.Tokens.GetAll())
+        {
+            // We're looking for the dot in:  Identifier("level") → Dot → Identifier("fieldName")
+            if (token.Type != TokenType.Dot)
+                continue;
+
+            // Look back to see if the token before the dot is a tracked global identifier
+            Token? ownerToken = token.PreviousNonWhitespace();
+            if (ownerToken is null || ownerToken.Type != TokenType.Identifier)
+                continue;
+
+            if (!s_trackedOwners.Contains(ownerToken.Lexeme))
+                continue;
+
+            // Look forward to get the field name
+            Token? fieldToken = token.NextNonWhitespace();
+            if (fieldToken is null || fieldToken.Type != TokenType.Identifier)
+                continue;
+
+            results.Add((ownerToken.Lexeme.ToLowerInvariant(), fieldToken.Lexeme));
+        }
+
+        return results;
     }
 }

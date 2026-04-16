@@ -107,7 +107,7 @@ public partial class ScriptManager
             return new CachedScript
             {
                 Type = CachedScriptType.Dependency,
-                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index)
+                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry)
             };
         });
 
@@ -121,6 +121,9 @@ public partial class ScriptManager
         bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
         cached.ExportedSymbolsChanged = symbolsChanged;
         cached.LastParsedAt = DateTime.UtcNow;
+
+        // Populate global field registry (level.x, world.y, game.z across files)
+        PopulateFieldRegistry(filePath, cached.Script);
 
         // Snapshot dependencies to avoid collection modification during enumeration
         var dependencies = cached.Script.Dependencies.ToList();

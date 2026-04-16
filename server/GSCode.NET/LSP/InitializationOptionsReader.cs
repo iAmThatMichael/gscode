@@ -6,11 +6,7 @@ namespace GSCode.NET.LSP;
 
 /// <summary>
 /// Reads typed values from LSP initialization options.
-/// <para>
-/// OmniSharp delivers <c>InitializationOptions</c> as a Newtonsoft.Json <see cref="JToken"/>,
-/// so this helper centralises all Newtonsoft.Json usage that cannot be replaced with
-/// System.Text.Json until OmniSharp is migrated away from Newtonsoft (see Phase 5 #21).
-/// </para>
+/// StreamJsonRpc delivers <c>InitializationOptions</c> as a Newtonsoft.Json <see cref="JToken"/>.
 /// </summary>
 internal static class InitializationOptionsReader
 {

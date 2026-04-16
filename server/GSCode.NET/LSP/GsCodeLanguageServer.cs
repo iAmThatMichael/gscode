@@ -62,15 +62,17 @@ public sealed partial class GsCodeLanguageServer : ILspNotifier, IDisposable
         _rpc.ExceptionStrategy = ExceptionProcessing.CommonErrorData;
         _rpc.Disconnected += OnDisconnected;
 
-        // Enable verbose tracing to see incoming/outgoing messages
+#if DEBUG
+        // Enable verbose tracing to see incoming/outgoing messages (debug builds only)
         _rpc.TraceSource = new System.Diagnostics.TraceSource("LSP", System.Diagnostics.SourceLevels.Verbose);
         _rpc.TraceSource.Listeners.Add(new SerilogTraceListener());
+#endif
     }
 
     private void OnDisconnected(object? sender, JsonRpcDisconnectedEventArgs e)
     {
-        Log.Warning("JsonRpc disconnected: {Reason} | LastMessage={LastMessage} | Exception={Exception}",
-            e.Reason, e.LastMessage, e.Exception?.Message);
+        Log.Warning("JsonRpc disconnected: {Reason} | Description={Description} | Exception={Exception}",
+            e.Reason, e.Description, e.Exception?.Message);
     }
 
     public void Start() => _rpc.StartListening();
@@ -96,7 +98,7 @@ public sealed partial class GsCodeLanguageServer : ILspNotifier, IDisposable
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "Failed to publish diagnostics for {Uri}", uri.LocalPath);
+            Log.Warning(ex, "Failed to publish diagnostics for {Uri}", UriHelper.GetLocalPath(uri));
             return Task.CompletedTask;
         }
     }

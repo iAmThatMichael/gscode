@@ -92,7 +92,7 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
     {
         try
         {
-            return _rpc.NotifyAsync(Methods.TextDocumentPublishDiagnosticsName,
+            return _rpc.NotifyWithParameterObjectAsync(Methods.TextDocumentPublishDiagnosticsName,
                 new PublishDiagnosticParams
                 {
                     Uri = uri,
@@ -266,7 +266,7 @@ public sealed class GsCodeLanguageServer : ILspNotifier, IDisposable
             if (IsInProtectedRawFolder(path))
             {
                 Log.Warning("File saved in protected raw folder: {Path}. Consider setting gscode.allowRawFolderWrites to false or working in a separate mod directory.", path);
-                _ = _rpc.NotifyAsync(Methods.WindowShowMessageName, new ShowMessageParams
+                _ = _rpc.NotifyWithParameterObjectAsync(Methods.WindowShowMessageName, new ShowMessageParams
                 {
                     MessageType = MessageType.Error,
                     Message = "You are editing a file in a protected raw folder. Consider working in a separate mod directory to avoid modifying vanilla game files."

@@ -6,6 +6,7 @@ using Serilog.Core;
 using Serilog.Events;
 using CommandLine;
 using System.Reflection;
+using System.Diagnostics;
 
 // Create a logging level switch that can be changed dynamically
 var loggingLevelSwitch = new LoggingLevelSwitch(LogEventLevel.Information);

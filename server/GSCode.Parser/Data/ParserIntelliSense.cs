@@ -1,7 +1,7 @@
 using GSCode.Data;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.Util;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;

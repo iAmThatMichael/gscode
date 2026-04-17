@@ -4,7 +4,7 @@ using GSCode.Parser.Lexical;
 using GSCode.Parser.Util;
 using System.Runtime.CompilerServices;
 using System.Text;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 
 namespace GSCode.Parser;
 

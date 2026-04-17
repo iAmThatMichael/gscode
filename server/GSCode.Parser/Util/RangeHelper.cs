@@ -1,5 +1,5 @@
-﻿using GSCode.Data;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using GSCode.Data;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 
 // Namespace matches the original GSCode.Data location so all call-sites
 // (which use 'using GSCode.Data;') continue to resolve without changes.

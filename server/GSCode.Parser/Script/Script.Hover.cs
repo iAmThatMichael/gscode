@@ -2,7 +2,7 @@ using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using GSCode.Parser.SPA;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using Serilog;
 
 namespace GSCode.Parser;
@@ -96,10 +96,10 @@ public partial class Script
     private static Hover MakeHover(Range range, string markdown) => new()
     {
         Range = range,
-        Contents = new MarkupContent
+        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
         {
             Kind = MarkupKind.Markdown,
             Value = markdown
-        }
+        })
     };
 }

@@ -1,6 +1,6 @@
-﻿using Serilog;
+using Serilog;
 using GSCode.Parser;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using System.Collections.Concurrent;
 using System.IO;
 

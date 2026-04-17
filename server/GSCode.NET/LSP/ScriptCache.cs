@@ -1,4 +1,5 @@
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using Serilog;
 using System.Collections.Concurrent;
 using System.Text;
@@ -11,15 +12,15 @@ public class ScriptCache
 
     public string AddToCache(TextDocumentItem document)
     {
-        Uri documentUri = document.Uri;
+        Uri documentUri = document.Uri.ToUri();
         Scripts[documentUri] = new(document.Text);
 
         return document.Text;
     }
 
-    public string UpdateCache(VersionedTextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes)
+    public string UpdateCache(OptionalVersionedTextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes)
     {
-        Uri documentUri = document.Uri;
+        Uri documentUri = document.Uri.ToUri();
         StringBuilder cachedVersion = Scripts[documentUri];
 
         foreach (TextDocumentContentChangeEvent change in changes)
@@ -120,7 +121,7 @@ public class ScriptCache
 
     public void RemoveFromCache(TextDocumentIdentifier document)
     {
-        Uri documentUri = document.Uri;
+        Uri documentUri = document.Uri.ToUri();
         Scripts.Remove(documentUri, out StringBuilder? _);
     }
 

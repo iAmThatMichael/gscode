@@ -1,8 +1,8 @@
-﻿using GSCode.Data.Models;
+using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.SA;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using System.IO;
 
 namespace GSCode.NET.LSP;

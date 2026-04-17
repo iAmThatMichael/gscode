@@ -4,7 +4,7 @@ using GSCode.Parser.Lexical;
 using GSCode.Parser.Util;
 using System;
 using System.Collections.Generic;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 
 namespace GSCode.Parser.Pre;
 
@@ -54,11 +54,11 @@ internal class MacroDefinition : ISenseDefinition
     public Hover GetHover() => new()
     {
         Range = Range,
-        Contents = new MarkupContent
+        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
         {
             Kind = MarkupKind.Markdown,
             Value = $"```gsc\n{DefineSnippet}\n```\n{GetFormattedDocumentation()}"
-        }
+        })
     };
 
     private string GetFormattedDocumentation() =>
@@ -117,11 +117,11 @@ internal class ScriptMacro : ISenseDefinition
     public Hover GetHover() => new()
     {
         Range = Source.Range,
-        Contents = new MarkupContent
+        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
         {
             Kind = MarkupKind.Markdown,
             Value = $"```gsc\n{DefineSource.DefineSnippet}\n```\n{GetFormattedDocumentation()}\n\n---\nExpands to:\n```gsc\n{ExpansionSnippet}\n```"
-        }
+        })
     };
 
     private string GetFormattedDocumentation() =>
@@ -140,11 +140,11 @@ internal sealed record InsertDirectiveHover(string RawPath, Range Range) : IHove
         return new Hover
         {
             Range = Range,
-            Contents = new MarkupContent
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent
             {
                 Kind = MarkupKind.Markdown,
                 Value = $"#insert {RawPath}"
-            }
+            })
         };
     }
 }

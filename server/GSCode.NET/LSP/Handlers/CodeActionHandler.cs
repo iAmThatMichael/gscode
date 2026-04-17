@@ -1,40 +1,58 @@
-﻿using GSCode.Data;
+using GSCode.Data;
 using GSCode.Parser;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
+using OmniSharp.Extensions.LanguageServer.Protocol.Document;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using OmniSharp.Extensions.LanguageServer.Protocol.Server;
 using System.IO;
 using System.Linq;
 using System.Text;
 
 namespace GSCode.NET.LSP.Handlers;
 
-internal sealed class CodeActionHandler(ScriptManager scriptManager)
+internal sealed class CodeActionHandler(
+    ScriptManager scriptManager,
+    TextDocumentSelector documentSelector) : CodeActionHandlerBase
 {
     private readonly ScriptManager _scriptManager = scriptManager;
+    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
-    public async Task<CodeAction[]> GetCodeActionsAsync(
+    protected override CodeActionRegistrationOptions CreateRegistrationOptions(
+        CodeActionCapability capability, ClientCapabilities clientCapabilities)
+        => new()
+        {
+            DocumentSelector = _documentSelector,
+            ResolveProvider = true,
+            CodeActionKinds = new Container<CodeActionKind>(
+                CodeActionKind.QuickFix,
+                CodeActionKind.SourceOrganizeImports)
+        };
+
+    public override Task<CodeAction> Handle(CodeAction request, CancellationToken cancellationToken)
+        => Task.FromResult(request);
+
+    public override async Task<CommandOrCodeActionContainer?> Handle(
+        CodeActionParams request, CancellationToken cancellationToken)
+    {
+        var actions = await GetCodeActionsAsync(request, cancellationToken);
+        return new CommandOrCodeActionContainer(actions.Select(a => new CommandOrCodeAction(a)));
+    }
+
+    private async Task<CodeAction[]> GetCodeActionsAsync(
         CodeActionParams request, CancellationToken cancellationToken)
     {
         var actions = new List<CodeAction>();
 
         // Pre-fetch cached document text once — only needed by a subset of fixes
-        _scriptManager.TryGetCachedContent(request.TextDocument.Uri, out string content);
+        _scriptManager.TryGetCachedContent(request.TextDocument.Uri.ToUri(), out string content);
 
         foreach (Diagnostic diagnostic in request.Context.Diagnostics)
         {
-            if (diagnostic.Code is null)
-            {
-                continue;
-            }
-
-            int codeInt;
-            if (diagnostic.Code.Value.TryGetFirst(out int intCode))
-                codeInt = intCode;
-            else if (diagnostic.Code.Value.TryGetSecond(out string? strCode) && int.TryParse(strCode, out int parsedCode))
-                codeInt = parsedCode;
-            else
+            if (!diagnostic.Code.HasValue || !diagnostic.Code.Value.IsLong)
                 continue;
 
-            GSCErrorCodes errorCode = (GSCErrorCodes)codeInt;
+            GSCErrorCodes errorCode = (GSCErrorCodes)(int)diagnostic.Code.Value.Long;
 
             CodeAction? action = errorCode switch
             {
@@ -195,12 +213,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         {
             Title = title,
             Kind = CodeActionKind.QuickFix,
-            Diagnostics = [diagnostic],
+            Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [document.Uri.AbsoluteUri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -225,12 +241,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         {
             Title = title,
             Kind = CodeActionKind.QuickFix,
-            Diagnostics = [diagnostic],
+            Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [document.Uri.AbsoluteUri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -255,12 +269,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         {
             Title = title,
             Kind = CodeActionKind.QuickFix,
-            Diagnostics = [diagnostic],
+            Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [document.Uri.AbsoluteUri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -297,12 +309,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         {
             Title = $"Replace with '{replacement}'",
             Kind = CodeActionKind.QuickFix,
-            Diagnostics = [diagnostic],
+            Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [document.Uri.AbsoluteUri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -341,12 +351,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         {
             Title = "Replace with 'array()' initialiser",
             Kind = CodeActionKind.QuickFix,
-            Diagnostics = [diagnostic],
+            Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [document.Uri.AbsoluteUri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -382,12 +390,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         {
             Title = "Add matching '/* endregion */'",
             Kind = CodeActionKind.QuickFix,
-            Diagnostics = [diagnostic],
+            Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [document.Uri.AbsoluteUri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -419,8 +425,8 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
 
         List<Diagnostic> unusedUsings = allDiagnostics
             .Where(d => d.Code is not null
-                && d.Code.Value.TryGetFirst(out int code)
-                && (GSCErrorCodes)code == GSCErrorCodes.UnusedUsing)
+                && d.Code.HasValue && d.Code.Value.IsLong
+                && (GSCErrorCodes)(int)d.Code.Value.Long == GSCErrorCodes.UnusedUsing)
             .ToList();
 
         if (unusedUsings.Count < 2)
@@ -449,9 +455,7 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
             Diagnostics = unusedUsings.ToArray(),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [document.Uri.AbsoluteUri] = edits
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] = edits
                 }
             }
         };
@@ -500,12 +504,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         {
             Title = "Remove 'thread' from call",
             Kind = CodeActionKind.QuickFix,
-            Diagnostics = [diagnostic],
+            Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [document.Uri.AbsoluteUri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -557,12 +559,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         {
             Title = $"Create function '{functionName}'",
             Kind = CodeActionKind.QuickFix,
-            Diagnostics = [diagnostic],
+            Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [document.Uri.AbsoluteUri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -630,12 +630,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
             {
                 Title = $"Add '#using {usingPath}'",
                 Kind = CodeActionKind.QuickFix,
-                Diagnostics = [diagnostic],
+                Diagnostics = new Container<Diagnostic>(diagnostic),
                 Edit = new WorkspaceEdit
                 {
-                    Changes = new Dictionary<string, TextEdit[]>
-                    {
-                        [document.Uri.AbsoluteUri] =
+                    Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                         [
                             new TextEdit
                             {
@@ -747,7 +745,7 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         }
 
         // Derive the file extension from the current document (.gsc / .csc / .gsh)
-        string currentFilePath = UriHelper.GetLocalPath(document.Uri);
+        string currentFilePath = document.Uri.ToUri().LocalPath;
         string extension = Path.GetExtension(currentFilePath).ToLowerInvariant();
         if (string.IsNullOrEmpty(extension))
         {
@@ -776,12 +774,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         {
             Title = $"Create file '{fileName}'",
             Kind = CodeActionKind.QuickFix,
-            Diagnostics = [diagnostic],
+            Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [newFileUri.AbsoluteUri] = [new TextEdit { Range = new Range { Start = new Position { Line = 0, Character = 0 }, End = new Position { Line = 0, Character = 0 } }, NewText = "" }]
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [DocumentUri.From(newFileUri)] = [new TextEdit { Range = new Range { Start = new Position { Line = 0, Character = 0 }, End = new Position { Line = 0, Character = 0 } }, NewText = "" }]
                 }
             }
         };
@@ -844,12 +840,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         {
             Title = $"Add missing '{lineText}'",
             Kind = CodeActionKind.QuickFix,
-            Diagnostics = [diagnostic],
+            Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [document.Uri.AbsoluteUri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -890,12 +884,10 @@ internal sealed class CodeActionHandler(ScriptManager scriptManager)
         {
             Title = "Move #using to top of file",
             Kind = CodeActionKind.QuickFix,
-            Diagnostics = [diagnostic],
+            Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<string, TextEdit[]>
-                {
-                    [document.Uri.AbsoluteUri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         // 1. Delete the misplaced line (including its newline)
                         new TextEdit

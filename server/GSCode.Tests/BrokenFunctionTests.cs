@@ -1,10 +1,10 @@
-﻿using GSCode.Data;
+using GSCode.Data;
 using GSCode.Data.Models;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SPA;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using Xunit;
-using LspRange = Microsoft.VisualStudio.LanguageServer.Protocol.Range;
+using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 
 namespace GSCode.Tests;
 

@@ -1,33 +1,37 @@
-using Serilog;
 using GSCode.Parser;
 using GSCode.Parser.Util;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
-using StreamJsonRpc;
+using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
+using OmniSharp.Extensions.LanguageServer.Protocol.Document;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using OmniSharp.Extensions.LanguageServer.Protocol.Server;
+using Serilog;
+using System.Diagnostics;
 using System.Linq;
 
-namespace GSCode.NET.LSP;
+namespace GSCode.NET.LSP.Handlers;
 
-public sealed partial class GsCodeLanguageServer
+internal class DocumentSymbolHandler(
+    ScriptManager scriptManager,
+    TextDocumentSelector documentSelector) : DocumentSymbolHandlerBase
 {
-    // -------------------------------------------------------------------------
-    // textDocument/documentSymbol
-    // -------------------------------------------------------------------------
+    private readonly ScriptManager _scriptManager = scriptManager;
+    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
-    [JsonRpcMethod(Methods.TextDocumentDocumentSymbolName, UseSingleObjectParameterDeserialization = true)]
-    public async Task<DocumentSymbol[]> DocumentSymbolAsync(DocumentSymbolParams @params, CancellationToken ct)
+    public override async Task<SymbolInformationOrDocumentSymbolContainer?> Handle(
+        DocumentSymbolParams request, CancellationToken cancellationToken)
     {
         Log.Information("DocumentSymbol (outline) request received");
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        Script? script = _scriptManager.GetParsedEditor(@params.TextDocument.Uri);
+        var sw = Stopwatch.StartNew();
+        Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null || script.DefinitionsTable is null)
         {
             sw.Stop();
             Log.Information("DocumentSymbol finished in {ElapsedMs} ms: no script or no definitions", sw.ElapsedMilliseconds);
-            return [];
+            return new SymbolInformationOrDocumentSymbolContainer();
         }
-        ct.ThrowIfCancellationRequested();
+        cancellationToken.ThrowIfCancellationRequested();
 
-        string currentPath = ScriptFileResolver.NormalizeFilePathForUri(UriHelper.GetLocalPath(@params.TextDocument.Uri));
+        string currentPath = ScriptFileResolver.NormalizeFilePathForUri(request.TextDocument.Uri.ToUri().LocalPath);
 
         static string BuildFunctionLabel(string name, string? ns, string[]? parameters, string[]? flags)
         {
@@ -39,22 +43,22 @@ public sealed partial class GsCodeLanguageServer
         var classNodes = new List<DocumentSymbol>();
         foreach (var kv in script.DefinitionsTable.GetAllClassLocations())
         {
-            ct.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             string fp = ScriptFileResolver.NormalizeFilePathForUri(kv.Value.FilePath ?? "");
             if (!string.Equals(fp, currentPath, StringComparison.OrdinalIgnoreCase)) continue;
             classNodes.Add(new DocumentSymbol
             {
                 Name = kv.Key.SymbolName, Detail = kv.Key.Qualifier,
-                Kind = Microsoft.VisualStudio.LanguageServer.Protocol.SymbolKind.Class,
+                Kind = SymbolKind.Class,
                 Range = kv.Value.Range.ToRange(), SelectionRange = kv.Value.Range.ToRange(),
-                Children = []
+                Children = new Container<DocumentSymbol>()
             });
         }
 
         var functionNodes = new List<DocumentSymbol>();
         foreach (var kv in script.DefinitionsTable.GetAllFunctionLocations())
         {
-            ct.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             string fp = ScriptFileResolver.NormalizeFilePathForUri(kv.Value.FilePath ?? "");
             if (!string.Equals(fp, currentPath, StringComparison.OrdinalIgnoreCase)) continue;
             string[]? parameters = script.DefinitionsTable.GetFunctionParameters(kv.Key.Qualifier, kv.Key.SymbolName);
@@ -63,7 +67,7 @@ public sealed partial class GsCodeLanguageServer
             {
                 Name = BuildFunctionLabel(kv.Key.SymbolName, kv.Key.Qualifier, parameters, flags),
                 Detail = kv.Key.Qualifier,
-                Kind = Microsoft.VisualStudio.LanguageServer.Protocol.SymbolKind.Function,
+                Kind = SymbolKind.Function,
                 Range = kv.Value.Range.ToRange(), SelectionRange = kv.Value.Range.ToRange()
             });
         }
@@ -71,12 +75,12 @@ public sealed partial class GsCodeLanguageServer
         var macroNodes = new List<DocumentSymbol>();
         foreach (var m in script.MacroOutlines)
         {
-            ct.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             macroNodes.Add(new DocumentSymbol
             {
                 Name = m.Name,
                 Detail = string.IsNullOrEmpty(m.SourceDisplay) ? "#define" : m.SourceDisplay,
-                Kind = Microsoft.VisualStudio.LanguageServer.Protocol.SymbolKind.Constant,
+                Kind = SymbolKind.Constant,
                 Range = m.Range, SelectionRange = m.Range
             });
         }
@@ -87,23 +91,27 @@ public sealed partial class GsCodeLanguageServer
         if (classNodes.Count > 0)
         {
             classNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            root.Add(new DocumentSymbol { Name = "Classes", Kind = Microsoft.VisualStudio.LanguageServer.Protocol.SymbolKind.Namespace, Range = AnchorAt(0), SelectionRange = AnchorAt(0), Children = classNodes.ToArray() });
+            root.Add(new DocumentSymbol { Name = "Classes", Kind = SymbolKind.Namespace, Range = AnchorAt(0), SelectionRange = AnchorAt(0), Children = new Container<DocumentSymbol>(classNodes) });
         }
         if (functionNodes.Count > 0)
         {
             functionNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            root.Add(new DocumentSymbol { Name = "Functions", Kind = Microsoft.VisualStudio.LanguageServer.Protocol.SymbolKind.Namespace, Range = AnchorAt(1), SelectionRange = AnchorAt(1), Children = functionNodes.ToArray() });
+            root.Add(new DocumentSymbol { Name = "Functions", Kind = SymbolKind.Namespace, Range = AnchorAt(1), SelectionRange = AnchorAt(1), Children = new Container<DocumentSymbol>(functionNodes) });
         }
         if (macroNodes.Count > 0)
         {
             macroNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            root.Add(new DocumentSymbol { Name = "Macros", Kind = Microsoft.VisualStudio.LanguageServer.Protocol.SymbolKind.Namespace, Range = AnchorAt(2), SelectionRange = AnchorAt(2), Children = macroNodes.ToArray() });
+            root.Add(new DocumentSymbol { Name = "Macros", Kind = SymbolKind.Namespace, Range = AnchorAt(2), SelectionRange = AnchorAt(2), Children = new Container<DocumentSymbol>(macroNodes) });
         }
 
-        var symbols = root.ToArray();
         sw.Stop();
-        int totalSymbols = symbols.Sum(s => s.Children?.Length ?? 0);
+        int totalSymbols = root.Sum(s => s.Children?.Count() ?? 0);
         Log.Information("DocumentSymbol finished in {ElapsedMs} ms: {Count} symbols", sw.ElapsedMilliseconds, totalSymbols);
-        return symbols;
+        return new SymbolInformationOrDocumentSymbolContainer(
+            root.Select(s => new SymbolInformationOrDocumentSymbol(s)));
     }
+
+    protected override DocumentSymbolRegistrationOptions CreateRegistrationOptions(
+        DocumentSymbolCapability capability, ClientCapabilities clientCapabilities)
+        => new() { DocumentSelector = _documentSelector };
 }

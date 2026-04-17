@@ -1,9 +1,10 @@
-﻿using Serilog;
+using Serilog;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using System.Linq;
 
 namespace GSCode.NET.LSP;
@@ -28,10 +29,10 @@ public partial class ScriptManager
             _editorPriority.Release();
         }
 
-        return await ProcessEditorAsync(document.Uri, script, content, cancellationToken);
+        return await ProcessEditorAsync(document.Uri.ToUri(), script, content, cancellationToken);
     }
 
-    public async Task<IEnumerable<Diagnostic>> UpdateEditorAsync(VersionedTextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<Diagnostic>> UpdateEditorAsync(OptionalVersionedTextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes, CancellationToken cancellationToken = default)
     {
         string updatedContent;
         Script script;
@@ -42,7 +43,7 @@ public partial class ScriptManager
             updatedContent = _cache.UpdateCache(document, changes);
 
             // Check if content actually changed using hash comparison
-            var docUri = document.Uri;
+            var docUri = document.Uri.ToUri();
             int contentHash = updatedContent.GetHashCode();
 
             if (Scripts.TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
@@ -58,12 +59,12 @@ public partial class ScriptManager
             _editorPriority.Release();
         }
 
-        return await ProcessEditorAsync(document.Uri, script, updatedContent, cancellationToken);
+        return await ProcessEditorAsync(document.Uri.ToUri(), script, updatedContent, cancellationToken);
     }
 
     public void RemoveEditor(TextDocumentIdentifier document)
     {
-        Uri documentUri = document.Uri;
+        Uri documentUri = document.Uri.ToUri();
 
         // Remove symbols from global registry when file is closed
         string filePath = UriHelper.GetLocalPath(documentUri);
@@ -85,7 +86,7 @@ public partial class ScriptManager
         => Scripts.TryGetValue(uri, out var script) ? script.Script : null;
 
     public Script? GetParsedEditor(TextDocumentIdentifier document)
-        => GetParsedEditor(document.Uri);
+        => GetParsedEditor(document.Uri.ToUri());
 
     /// <summary>
     /// Re-parses every document that is currently open in the editor and republishes
@@ -215,9 +216,9 @@ public partial class ScriptManager
         return await script.GetDiagnosticsAsync(cancellationToken);
     }
 
-    private Script GetEditor(TextDocumentIdentifier document) => GetEditorByUri(document.Uri);
+    private Script GetEditor(TextDocumentIdentifier document) => GetEditorByUri(document.Uri.ToUri());
 
-    private Script GetEditor(TextDocumentItem document) => GetEditorByUri(document.Uri, document.LanguageId);
+    private Script GetEditor(TextDocumentItem document) => GetEditorByUri(document.Uri.ToUri(), document.LanguageId);
 
     private Script GetEditorByUri(Uri uri, string? languageId = null)
     {

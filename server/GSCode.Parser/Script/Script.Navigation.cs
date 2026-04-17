@@ -6,7 +6,7 @@ using GSCode.Parser.Pre;
 using GSCode.Parser.SA;
 using GSCode.Parser.Util;
 using System.Linq;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using GSCode.Parser.Misc;
 using System.IO;
 using GSCode.Parser.SPA;
@@ -231,16 +231,16 @@ public partial class Script
         if (signatures.Count == 0)
             return null;
 
-        int activeSignature = signatures.FindIndex(s => s.Parameters?.Length > activeParam);
+        int activeSignature = signatures.FindIndex(s => s.Parameters?.Count() > activeParam);
         if (activeSignature < 0) activeSignature = 0;
 
-        int paramCount = signatures[activeSignature].Parameters?.Length ?? 1;
+        int paramCount = signatures[activeSignature].Parameters?.Count() ?? 1;
 
         return new SignatureHelp
         {
             ActiveSignature = activeSignature,
             ActiveParameter = Math.Max(0, Math.Min(activeParam, paramCount - 1)),
-            Signatures = signatures.ToArray()
+            Signatures = new Container<SignatureInformation>(signatures)
         };
     }
 
@@ -248,9 +248,9 @@ public partial class Script
     {
         List<SignatureInformation> signatures = [];
 
-        SumType<string, MarkupContent>? funcDoc = string.IsNullOrWhiteSpace(function.Description)
+        StringOrMarkupContent? funcDoc = string.IsNullOrWhiteSpace(function.Description)
             ? null
-            : (SumType<string, MarkupContent>?)new MarkupContent { Kind = MarkupKind.Markdown, Value = function.Description };
+            : new StringOrMarkupContent(new MarkupContent { Kind = MarkupKind.Markdown, Value = function.Description });
 
         foreach (var overload in function.Overloads)
         {
@@ -271,7 +271,7 @@ public partial class Script
                     Label = pName,
                     Documentation = string.IsNullOrWhiteSpace(pDoc)
                         ? null
-                        : (SumType<string, MarkupContent>?)new MarkupContent { Kind = MarkupKind.Markdown, Value = pDoc }
+                        : new StringOrMarkupContent(new MarkupContent { Kind = MarkupKind.Markdown, Value = pDoc })
                 };
             });
 
@@ -279,7 +279,7 @@ public partial class Script
             {
                 Label = label,
                 Documentation = funcDoc,
-                Parameters = paramInfos.ToArray()
+                Parameters = new Container<ParameterInformation>(paramInfos)
             });
         }
 

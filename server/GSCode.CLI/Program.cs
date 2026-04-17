@@ -5,7 +5,7 @@ using GSCode.Parser;
 using GSCode.Parser.SPA;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using Serilog;
 using System.Diagnostics;
 
@@ -34,7 +34,7 @@ class Program
 
                    if (o.Index != null)
                    {
-                       await RunIndexMode(scriptManager, o.Index);
+                       await RunIndexModeAsync(scriptManager, o.Index);
                        return;
                    }
 
@@ -68,12 +68,12 @@ class Program
                });
     }
 
-    static async Task RunIndexMode(ScriptManager scriptManager, string directory)
+    static async Task RunIndexModeAsync(ScriptManager scriptManager, string directory)
     {
         string fullPath = Path.GetFullPath(directory);
         if (!Directory.Exists(fullPath))
         {
-            Console.Error.WriteLine($"Directory not found: {fullPath}");
+            await Console.Error.WriteLineAsync($"Directory not found: {fullPath}");
             return;
         }
 

@@ -2,7 +2,7 @@ using GSCode.Parser.Configuration;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using GSCode.Parser.SPA;
-using Microsoft.VisualStudio.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -61,7 +61,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         if (token is null)
         {
             Log.Warning("GetCompletionsFromPosition: No token found at position {Position}", position);
-            return new CompletionList { IsIncomplete = false, Items = [] };
+            return new CompletionList();
         }
 
         Log.Debug("GetCompletionsFromPosition: Found token '{Lexeme}' type={Type} at {Position}",
@@ -214,7 +214,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         if (!isInsideFunctionBlock && !isDirectiveContext)
         {
             Log.Debug("Returning empty completions (not in function and not directive context)");
-            return new CompletionList { IsIncomplete = false, Items = [] };
+            return new CompletionList();
         }
 
         // For the moment
@@ -243,7 +243,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         {
             Log.Debug("Showing directive path completions for {DirectiveType}", directivePathContext.DirectiveType);
             // Set isIncomplete=true to hint that completions should be re-requested on any change
-            return new CompletionList { IsIncomplete = true, Items = GetDirectivePathCompletions(directivePathContext).ToArray() };
+            return new CompletionList(GetDirectivePathCompletions(directivePathContext), isIncomplete: true);
         }
 
         // If in directive context, ONLY show directives
@@ -252,7 +252,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             Log.Debug("Showing directive completions only");
             HashSet<string> seenIdentifiers = new(StringComparer.OrdinalIgnoreCase);
             completions.AddRange(GetDirectiveCompletions(seenIdentifiers, token));
-            return new CompletionList { IsIncomplete = false, Items = completions.ToArray() };
+            return new CompletionList(completions.ToArray());
         }
 
         // Otherwise, show normal completions (only when inside a function block)
@@ -272,7 +272,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                 // Dot-access (e.g., level.foo) — only field/property completions, no functions/macros/directives
                 completions = GetDotAccessCompletions(context);
                 Log.Debug("After GetDotAccessCompletions: {Count} completions", completions.Count);
-                return new CompletionList { IsIncomplete = false, Items = completions.ToArray() };
+                return new CompletionList(completions.ToArray());
         }
 
         // Get the completions from the definition.
@@ -288,7 +288,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
         Log.Debug("Returning total of {Count} completions", completions.Count);
         // return token.SenseDefinition?.GetCompletions();
-        return new CompletionList { IsIncomplete = false, Items = completions.ToArray() };
+        return new CompletionList(completions.ToArray());
     }
 
     private bool IsInsideFunctionBlock(Token token)

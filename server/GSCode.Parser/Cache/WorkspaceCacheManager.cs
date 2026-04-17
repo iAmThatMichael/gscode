@@ -11,6 +11,14 @@ namespace GSCode.Parser.Cache;
 /// </summary>
 public static class WorkspaceCacheManager
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = false,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new JsonStringEnumConverter(), new QualifiedSymbolKeyConverter() }
+    };
+
     /// <summary>
     /// Current format version of the cache schema.
     /// Increment this whenever the cache structure changes in a breaking way.
@@ -46,14 +54,7 @@ public static class WorkspaceCacheManager
             await using FileStream fileStream = File.OpenRead(cacheFilePath);
             await using GZipStream gzipStream = new(fileStream, CompressionMode.Decompress);
 
-            var options = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true,
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                Converters = { new JsonStringEnumConverter() }
-            };
-
-            WorkspaceCacheFile? cache = await JsonSerializer.DeserializeAsync<WorkspaceCacheFile>(gzipStream, options);
+            WorkspaceCacheFile? cache = await JsonSerializer.DeserializeAsync<WorkspaceCacheFile>(gzipStream, SerializerOptions);
 
             if (cache is null)
             {
@@ -100,14 +101,7 @@ public static class WorkspaceCacheManager
             await using (FileStream fileStream = File.Create(tempFilePath))
             await using (GZipStream gzipStream = new(fileStream, CompressionLevel.Optimal))
             {
-                var options = new JsonSerializerOptions
-                {
-                    WriteIndented = false,
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Converters = { new JsonStringEnumConverter() }
-                };
-
-                await JsonSerializer.SerializeAsync(gzipStream, data, options);
+                await JsonSerializer.SerializeAsync(gzipStream, data, SerializerOptions);
             }
 
             // Atomic replace

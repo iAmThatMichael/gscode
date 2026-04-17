@@ -210,14 +210,20 @@ _ = Task.Run(async () =>
 
 			var macroStats = GSCode.Parser.Pre.MacroDefinitionCache.Instance.GetDetailedStatistics();
 
+			// Only log GSH/Macro counts once indexing is complete — during the
+			// parallel indexing phase these are mid-flight snapshots and will
+			// vary by ±N depending on which files happened to finish first.
+			string macroSuffix = (scriptManager?.IsIndexingComplete ?? false)
+				? $"GSH={macroStats.GshFiles}, Macros: {macroStats.TotalMacros}"
+				: $"GSH=<indexing>, Macros: <indexing>";
+
 			Log.Information(
 				"Memory Usage - Working Set: {WorkingSet:F2} MB, Private: {Private:F2} MB | " +
 				"Functions: {Functions}, Classes: {Classes}, " +
-				"Files: GSC={Gsc} CSC={Csc} GSH={Gsh}, Macros: {Macros}",
+				"Files: GSC={Gsc} CSC={Csc} {MacroSuffix}",
 				memoryMB, privateMemoryMB,
 				functionCount, classCount,
-				gscCount, cscCount, macroStats.GshFiles,
-				macroStats.TotalMacros);
+				gscCount, cscCount, macroSuffix);
 
 			await Task.Delay(1000, memoryMonitorCts.Token);
 		}

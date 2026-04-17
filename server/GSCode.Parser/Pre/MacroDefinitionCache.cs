@@ -55,14 +55,16 @@ public sealed class MacroDefinitionCache
         // Get or add to cache
         MacroDefinition cached = _cache.GetOrAdd(key, definition);
 
-// Track which file uses this macro (for cleanup)
+        // Track which file owns this macro (for cleanup).
+        // Always lock the set before mutating — the same set instance is shared
+        // across concurrent GetOrAdd and RemoveFileMacros calls.
         if (sourceFilePath != null)
         {
-            _fileToMacros.AddOrUpdate(
-                cacheFilePath, // Use normalized path for tracking too
-                _ => new HashSet<MacroCacheKey> { key },
-                (_, set) => { lock (set) { set.Add(key); } return set; }
-            );
+            HashSet<MacroCacheKey> set = _fileToMacros.GetOrAdd(cacheFilePath, _ => []);
+            lock (set)
+            {
+                set.Add(key);
+            }
         }
 
         return cached;
@@ -75,7 +77,17 @@ public sealed class MacroDefinitionCache
     /// <param name="sourceFilePath">The file path to remove macros for</param>
     public void RemoveFileMacros(string sourceFilePath)
     {
-        if (_fileToMacros.TryRemove(sourceFilePath, out HashSet<MacroCacheKey>? keys))
+        // Normalize before lookup — keys were stored with NormalizeFilePathForUri in GetOrAdd.
+        // A mismatch here (e.g. different slashes or casing) causes TryRemove to miss the
+        // entry entirely, leaving orphaned macros in _cache and a stale GSH count.
+        string normalizedPath = ScriptFileResolver.NormalizeFilePathForUri(sourceFilePath);
+
+        if (!_fileToMacros.TryRemove(normalizedPath, out HashSet<MacroCacheKey>? keys))
+            return;
+
+        // Lock the set before iterating — a concurrent GetOrAdd may still hold
+        // the same set instance and be mid-write when TryRemove returns.
+        lock (keys)
         {
             foreach (var key in keys)
             {

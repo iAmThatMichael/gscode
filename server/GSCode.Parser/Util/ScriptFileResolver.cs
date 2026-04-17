@@ -111,7 +111,19 @@ public static class ScriptFileResolver
         // Return full path if possible
         try
         {
-            return Path.GetFullPath(filePath);
+            filePath = Path.GetFullPath(filePath);
+
+            // On Windows the file system is case-insensitive but Path.GetFullPath preserves
+            // whatever casing was given. Two callers resolving the same physical GSH file
+            // from different host .gsc paths can produce different casing (e.g. "C:\GameRoot"
+            // vs "C:\gameroot") which creates duplicate entries in MacroDefinitionCache.
+            // Lowercasing after GetFullPath gives a single canonical key on Windows.
+            if (OperatingSystem.IsWindows())
+            {
+                filePath = filePath.ToLowerInvariant();
+            }
+
+            return filePath;
         }
         catch
         {

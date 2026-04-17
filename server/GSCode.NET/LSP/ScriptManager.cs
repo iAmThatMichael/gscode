@@ -47,6 +47,13 @@ public partial class ScriptManager
     // Editor priority gate: held during editor operations to pause the indexer dispatch loop
     private readonly SemaphoreSlim _editorPriority = new(1, 1);
 
+    /// <summary>
+    /// Set to true once IndexWorkspaceAsync has fully completed (all files parsed and
+    /// all macros inserted into MacroDefinitionCache). Consumers that want a stable
+    /// snapshot of macro/GSH counts should wait for this flag before reading.
+    /// </summary>
+    public volatile bool IsIndexingComplete = false;
+
     public ScriptManager(ILspNotifier? notifier = null)
     {
         _cache = new();

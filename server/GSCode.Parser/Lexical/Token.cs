@@ -40,6 +40,14 @@ internal record class Token(TokenType Type, TokenRange TokenRange)
     public bool IsFromPreprocessor { get; set; }
 
     /// <summary>
+    /// For tokens that came from an #insert'd file, the resolved absolute path of that file.
+    /// Null for tokens that originate in the current script or from #define macro expansion.
+    /// Used by the macro attributor in Preprocessor.Defines to key the MacroDefinitionCache
+    /// correctly without relying on line-number comparisons across different coordinate spaces.
+    /// </summary>
+    public string? InsertSourcePath { get; set; }
+
+    /// <summary>
     /// The text content of this token. For tokens with fixed content (keywords, operators, punctuation),
     /// this is resolved from the TokenType without storing a string per-token.
     /// For tokens with dynamic content, this is overridden by LexemeToken.

@@ -82,6 +82,10 @@ public partial class ScriptManager
 
             swAll.Stop();
             Log.Information("Indexing completed in {ElapsedMs} ms for {Count} files", swAll.ElapsedMilliseconds, filesList.Count);
+
+            // Signal that all files (and their #insert'd GSH macros) are now in the cache.
+            // The memory monitor reads this before logging stable GSH/Macro counts.
+            IsIndexingComplete = true;
         }
         catch (OperationCanceledException)
         {

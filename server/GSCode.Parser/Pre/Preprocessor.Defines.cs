@@ -93,21 +93,15 @@ internal ref partial struct Preprocessor
             );
 
         // Determine source file path for caching
-        string? sourceFilePath = null;
+        string? sourceFilePath;
         string srcDisplay;
         if (nameToken.Token.IsFromPreprocessor)
         {
-            // This macro came from an insert, find which insert region it belongs to
-            foreach (var region in Sense.InsertRegions)
-            {
-                // Find the insert region that this macro line falls within
-                if (region.Range.Start.Line <= nameToken.Range.Start.Line &&
-                    region.ResolvedPath is not null)
-                {
-                    sourceFilePath = region.ResolvedPath;
-                    // Keep updating as we find later regions (use the most recent/closest one)
-                }
-            }
+            // The token was stamped with its origin path at insert-time — read it directly.
+            // The old approach compared host-file line numbers against GSH-file line numbers
+            // (different coordinate spaces), which produced wrong attributions when multiple
+            // #insert directives were present and caused non-deterministic macro counts.
+            sourceFilePath = nameToken.Token.InsertSourcePath;
             srcDisplay = GetRelativeDisplay(sourceFilePath ?? Sense.ScriptUri);
         }
         else

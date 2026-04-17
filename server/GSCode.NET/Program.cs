@@ -241,6 +241,21 @@ _ = Task.Run(async () =>
 
 await server.WaitForExit;
 
+// Save workspace cache on shutdown
+try
+{
+	var sm = server.Services.GetService<ScriptManager>();
+	if (sm is not null)
+	{
+		Log.Information("Saving workspace cache on shutdown...");
+		await sm.SaveWorkspaceCacheAsync();
+	}
+}
+catch (Exception ex)
+{
+	Log.Error(ex, "Failed to save workspace cache on shutdown");
+}
+
 #if FLAG_MEMORY_DEBUG
 memoryMonitorCts.Cancel();
 #endif

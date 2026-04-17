@@ -1,6 +1,7 @@
 using Serilog;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
+using GSCode.Parser.Cache;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -24,6 +25,10 @@ public partial class ScriptManager
                 return;
             }
 
+            // Load persistent cache from disk
+            string cacheFilePath = WorkspaceCacheManager.GetCacheFilePath();
+            _workspaceCache = await WorkspaceCacheManager.LoadAsync(cacheFilePath);
+
             var filesList = Directory
                 .EnumerateFiles(rootDirectory, "*.*", SearchOption.AllDirectories)
                 .Where(p => p.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase) ||
@@ -37,6 +42,7 @@ public partial class ScriptManager
             int maxDegree = Math.Max(1, Environment.ProcessorCount - 1);
             using SemaphoreSlim gate = new(maxDegree, maxDegree);
             List<Task> tasks = new();
+            int cacheHits = 0;
 
             int fileIndex = 0;
             foreach (string file in filesList)
@@ -60,10 +66,12 @@ public partial class ScriptManager
 #if DEBUG
                         Log.Information("Indexing {File}", rel);
 #endif
-                        await IndexFileAsync(file, cancellationToken);
+                        bool fromCache = await IndexFileAsync(file, cancellationToken);
+                        if (fromCache) Interlocked.Increment(ref cacheHits);
 #if DEBUG
                         fileSw.Stop();
-                        Log.Information("Indexed {File} in {ElapsedMs} ms", rel, fileSw.ElapsedMilliseconds);
+                        Log.Information("{Status} {File} in {ElapsedMs} ms",
+                            fromCache ? "Restored" : "Indexed", rel, fileSw.ElapsedMilliseconds);
 #endif
                     }
                     catch (OperationCanceledException) { }
@@ -81,11 +89,15 @@ public partial class ScriptManager
             await Task.WhenAll(tasks);
 
             swAll.Stop();
-            Log.Information("Indexing completed in {ElapsedMs} ms for {Count} files", swAll.ElapsedMilliseconds, filesList.Count);
+            Log.Information("Indexing completed in {ElapsedMs} ms for {Count} files ({CacheHits} from cache, {Parsed} parsed)",
+                swAll.ElapsedMilliseconds, filesList.Count, cacheHits, filesList.Count - cacheHits);
 
             // Signal that all files (and their #insert'd GSH macros) are now in the cache.
             // The memory monitor reads this before logging stable GSH/Macro counts.
             IsIndexingComplete = true;
+
+            // Save updated cache to disk
+            await SaveWorkspaceCacheAsync();
         }
         catch (OperationCanceledException)
         {
@@ -97,40 +109,106 @@ public partial class ScriptManager
         }
     }
 
-    private async Task IndexFileAsync(string filePath, CancellationToken cancellationToken)
+    /// <summary>
+    /// Indexes a single file. Returns true if the file was restored from cache, false if parsed from scratch.
+    /// </summary>
+    private async Task<bool> IndexFileAsync(string filePath, CancellationToken cancellationToken)
     {
         string ext = Path.GetExtension(filePath);
         string languageId = string.Equals(ext, ".csc", StringComparison.OrdinalIgnoreCase) ? "csc" : "gsc";
 
         Uri docUri = new Uri(filePath);
 
-        bool isNewFile = false;
-        var cached = Scripts.GetOrAdd(docUri, key =>
+        // Try to restore from persistent cache before parsing
+        bool restoredFromCache = false;
+        if (_workspaceCache is not null &&
+            _workspaceCache.Scripts.TryGetValue(filePath, out var cachedData))
         {
-            isNewFile = true;
-            return new CachedScript
+            try
             {
-                Type = CachedScriptType.Dependency,
-                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry)
-            };
-        });
+                // Read file content and compute hash
+                string content = await File.ReadAllTextAsync(filePath, cancellationToken);
+                int contentHash = content.GetHashCode();
 
-        // Skip if already parsed (unless it's a new file)
-        if (!isNewFile && cached.Script.Parsed)
-            return;
+                if (contentHash == cachedData.ContentHash)
+                {
+                    // Cache hit — restore without parsing
+                    var script = new Script(docUri, languageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry);
+                    script.RestoreFromCache(cachedData, ScriptMode.Index);
 
-        await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken);
+                    if (script.Parsed && !script.Failed)
+                    {
+                        var cached = Scripts.GetOrAdd(docUri, _ => new CachedScript
+                        {
+                            Type = CachedScriptType.Dependency,
+                            Script = script
+                        });
 
-        // Populate global symbol registry
-        bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
-        cached.ExportedSymbolsChanged = symbolsChanged;
-        cached.LastParsedAt = DateTime.UtcNow;
+                        // If already existed, skip
+                        if (cached.Script != script && cached.Script.Parsed)
+                            return true;
 
-        // Populate global field registry (level.x, world.y, game.z across files)
-        PopulateFieldRegistry(filePath, cached.Script);
+                        cached.LastContentHash = contentHash;
+                        cached.LastParsedAt = DateTime.UtcNow;
+
+                        // Populate global registries from restored data
+                        PopulateSymbolRegistry(filePath, script);
+                        PopulateFieldRegistry(filePath, script);
+
+                        restoredFromCache = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Cache restore failed for {File}, falling back to parse", filePath);
+                restoredFromCache = false;
+            }
+        }
+
+        if (!restoredFromCache)
+        {
+            // Normal parse path
+            bool isNewFile = false;
+            var cached = Scripts.GetOrAdd(docUri, key =>
+            {
+                isNewFile = true;
+                return new CachedScript
+                {
+                    Type = CachedScriptType.Dependency,
+                    Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry)
+                };
+            });
+
+            // Skip if already parsed (unless it's a new file)
+            if (!isNewFile && cached.Script.Parsed)
+                return false;
+
+            await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken);
+
+            // Compute and store content hash for future cache saves
+            try
+            {
+                string content = await File.ReadAllTextAsync(filePath, cancellationToken);
+                cached.LastContentHash = content.GetHashCode();
+            }
+            catch { /* Non-fatal — hash will remain 0 */ }
+
+            // Populate global symbol registry
+            bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
+            cached.ExportedSymbolsChanged = symbolsChanged;
+            cached.LastParsedAt = DateTime.UtcNow;
+
+            // Populate global field registry (level.x, world.y, game.z across files)
+            PopulateFieldRegistry(filePath, cached.Script);
+        }
+
+        // From here, both cache-restored and freshly-parsed files follow the same path
+        if (!Scripts.TryGetValue(docUri, out var entry) || entry.Script.DefinitionsTable is null)
+            return restoredFromCache;
 
         // Snapshot dependencies to avoid collection modification during enumeration
-        var dependencies = cached.Script.Dependencies.ToList();
+        var dependencies = entry.Script.Dependencies.ToList();
 
         // Parse and register dependencies
         foreach (Uri dep in dependencies)
@@ -143,7 +221,7 @@ public partial class ScriptManager
         if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Off)
         {
             Log.Warning("IndexFileAsync called with Off mode for {File} - this should not happen", Path.GetFileName(filePath));
-            return;
+            return restoredFromCache;
         }
 
         // Merge symbols from dependencies (filtering, deduplication, path conversion)
@@ -152,19 +230,19 @@ public partial class ScriptManager
         // Merge definition tables (needed for go-to-definition in both modes)
         await WithAnalysisLockAsync(docUri, async () =>
         {
-            if (cached.Script.DefinitionsTable is not null)
+            if (entry.Script.DefinitionsTable is not null)
             {
                 foreach (var kv in mergeFuncLocs)
                 {
                     var (ns, name) = kv.Key;
                     var (fp, range) = kv.Value;
-                    cached.Script.DefinitionsTable.AddFunctionLocation(ns, name, fp, TokenRange.FromRange(range));
+                    entry.Script.DefinitionsTable.AddFunctionLocation(ns, name, fp, TokenRange.FromRange(range));
                 }
                 foreach (var kv in mergeClassLocs)
                 {
                     var (ns, name) = kv.Key;
                     var (fp, range) = kv.Value;
-                    cached.Script.DefinitionsTable.AddClassLocation(ns, name, fp, TokenRange.FromRange(range));
+                    entry.Script.DefinitionsTable.AddClassLocation(ns, name, fp, TokenRange.FromRange(range));
                 }
             }
             await Task.CompletedTask;
@@ -187,12 +265,14 @@ public partial class ScriptManager
 
             await WithAnalysisLockAsync(docUri, async () =>
             {
-                await cached.Script.AnalyseAsync(exportedSymbols, cancellationToken);
+                await entry.Script.AnalyseAsync(exportedSymbols, cancellationToken);
             });
 
             // Publish diagnostics for indexed file (if LSP facade is available)
-            await PublishDiagnosticsAsync(docUri, cached.Script, cancellationToken: cancellationToken);
+            await PublishDiagnosticsAsync(docUri, entry.Script, cancellationToken: cancellationToken);
         }
+
+        return restoredFromCache;
     }
 }
 

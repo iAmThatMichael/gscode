@@ -44,7 +44,7 @@ public partial class ScriptManager
 
             // Check if content actually changed using hash comparison
             var docUri = document.Uri.ToUri();
-            int contentHash = updatedContent.GetHashCode();
+            int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(updatedContent);
 
             if (Scripts.TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
             {
@@ -143,7 +143,7 @@ public partial class ScriptManager
     private async Task<IEnumerable<Diagnostic>> ProcessEditorAsync(Uri documentUri, Script script, string content, CancellationToken cancellationToken = default)
     {
         string filePath = UriHelper.GetLocalPath(documentUri);
-        int contentHash = content.GetHashCode();
+        int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
 
         // Update cached script metadata
         if (Scripts.TryGetValue(documentUri, out var cached))

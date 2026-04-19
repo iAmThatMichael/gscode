@@ -128,7 +128,7 @@ public partial class ScriptManager
             {
                 // Read file content and compute hash
                 string content = await File.ReadAllTextAsync(filePath, cancellationToken);
-                int contentHash = content.GetHashCode();
+                int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
 
                 if (contentHash == cachedData.ContentHash)
                 {
@@ -190,7 +190,7 @@ public partial class ScriptManager
             try
             {
                 string content = await File.ReadAllTextAsync(filePath, cancellationToken);
-                cached.LastContentHash = content.GetHashCode();
+                cached.LastContentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
             }
             catch { /* Non-fatal — hash will remain 0 */ }
 

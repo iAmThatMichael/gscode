@@ -103,6 +103,10 @@ public partial class Script
             Parsed = true;
             Analysed = true;
 
+            // Set tasks to completed so WaitUntilParsedAsync/WaitUntilAnalysedAsync don't NPE
+            ParsingTask = Task.CompletedTask;
+            AnalysisTask = Task.CompletedTask;
+
             // Complete the TaskCompletionSources so any awaiting code can proceed
             _parseInitiated.TrySetResult();
             _analysisInitiated.TrySetResult();

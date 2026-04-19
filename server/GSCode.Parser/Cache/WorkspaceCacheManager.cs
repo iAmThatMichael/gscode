@@ -1,3 +1,4 @@
+using GSCode.Parser.SA;
 using Serilog;
 using System.IO.Compression;
 using System.Text.Json;
@@ -113,6 +114,23 @@ public static class WorkspaceCacheManager
         catch (Exception ex)
         {
             Log.Error(ex, "Failed to save cache to {Path}", cacheFilePath);
+        }
+    }
+
+    /// <summary>
+    /// Computes a deterministic hash for a string that is stable across process restarts.
+    /// Uses FNV-1a 32-bit hash. Unlike <see cref="string.GetHashCode"/>, this is not randomized.
+    /// </summary>
+    public static int GetDeterministicHashCode(string text)
+    {
+        unchecked
+        {
+            uint hash = 2166136261;
+            foreach (char c in text)
+            {
+                hash = (hash ^ c) * 16777619;
+            }
+            return (int)hash;
         }
     }
 }

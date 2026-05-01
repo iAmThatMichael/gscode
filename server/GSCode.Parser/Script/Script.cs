@@ -53,6 +53,32 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
     // Expose macro outlines for outliner without exposing Sense outside assembly
     public IReadOnlyList<MacroOutlineItem> MacroOutlines => Sense?.MacroOutlines ?? [];
 
+    // Preserved macro source paths from cache restore — used by GetMacroSourcePaths() when
+    // Sense.MacroDefinitions is unavailable (i.e. preprocessing was skipped on cache restore).
+    private IReadOnlyDictionary<string, string?>? _cachedMacroSourcePaths;
+
+    /// <summary>
+    /// Returns a snapshot of macro name -> source file path for all macros discovered during preprocessing.
+    /// Source file path is null for macros defined directly in this script (non-GSH).
+    /// Returns empty if the script has not been parsed.
+    /// </summary>
+    public IReadOnlyDictionary<string, string?> GetMacroSourcePaths()
+    {
+        // If we have live Sense data (normal parse path), derive from it directly.
+        if (Sense?.MacroDefinitions is { Count: > 0 } macros)
+        {
+            var result = new Dictionary<string, string?>(macros.Count, StringComparer.OrdinalIgnoreCase);
+            string scriptPath = ScriptUri.LocalPath;
+            foreach (var (name, (definition, _)) in macros)
+                result[name] = definition.Source.IsFromPreprocessor ? definition.Source.InsertSourcePath : scriptPath;
+            return result;
+        }
+
+        // Fallback: return paths preserved from a prior cache restore (prevents re-save from
+        // zeroing out macro data for scripts that were restored rather than freshly parsed).
+        return _cachedMacroSourcePaths ?? System.Collections.ObjectModel.ReadOnlyDictionary<string, string?>.Empty;
+    }
+
     // Precomputed function scope data (populated after analysis, before AST disposal)
     private sealed record FunctionScopeInfo(string? FunctionName, Range BodyRange, List<(string Name, Range Range)> Parameters);
     private List<FunctionScopeInfo>? _functionScopes;

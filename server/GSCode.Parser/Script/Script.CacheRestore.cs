@@ -95,10 +95,24 @@ public partial class Script
                 }
             }
 
-            // Restore macro definitions to the global cache
-            // Note: We store macro names for reference, but don't need to fully restore
-            // MacroDefinition objects since preprocessing is skipped when loading from cache.
-            // The macro data is preserved in the cache for future re-serialization.
+            // Re-register macro source paths into MacroDefinitionCache so that
+            // GetDetailedStatistics() reports accurate GSH file and macro counts after
+            // a cache restore (preprocessing is skipped, so the cache would otherwise
+            // have no entries for macros that came from #insert'd GSH files).
+            // Re-register macro source paths into MacroDefinitionCache so that
+            // GetDetailedStatistics() reports accurate GSH file and macro counts after
+            // a cache restore (preprocessing is skipped, so the cache would otherwise
+            // have no entries for macros that came from #insert'd GSH files).
+            // Also preserve the paths on the script so that a subsequent cache re-save
+            // (ExtractCacheData) can round-trip them without zeroing out macro data.
+            foreach (var (macroName, sourceFilePath) in cachedData.MacroDefinitions)
+            {
+                Pre.MacroDefinitionCache.Instance.TrackMacroSource(sourceFilePath, macroName);
+            }
+            _cachedMacroSourcePaths = cachedData.MacroDefinitions.Count > 0
+                ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, string?>(
+                    new Dictionary<string, string?>(cachedData.MacroDefinitions, StringComparer.OrdinalIgnoreCase))
+                : null;
 
             // Mark as parsed and analysed
             Parsed = true;

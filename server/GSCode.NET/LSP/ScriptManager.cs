@@ -225,6 +225,8 @@ public partial class ScriptManager
                 ))
                 .ToList();
 
+            var macroPaths = script.GetMacroSourcePaths();
+
             return new CachedScriptData
             {
                 ContentHash = contentHash,
@@ -239,7 +241,7 @@ public partial class ScriptManager
                 FunctionParameters = funcParams,
                 FunctionFlags = funcFlags,
                 FunctionDocs = funcDocs,
-                MacroDefinitions = new Dictionary<string, string>(),
+                MacroDefinitions = macroPaths.ToDictionary(kv => kv.Key, kv => kv.Value),
                 Diagnostics = cachedDiags
             };
         }

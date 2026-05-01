@@ -61,8 +61,8 @@ public sealed record CachedScriptData
     /// <summary>Function documentation: qualified key -> doc comment.</summary>
     public required Dictionary<QualifiedSymbolKey, string?> FunctionDocs { get; init; }
 
-    /// <summary>Macro definitions discovered during preprocessing: name -> define snippet.</summary>
-    public required Dictionary<string, string> MacroDefinitions { get; init; }
+    /// <summary>Macro source paths discovered during preprocessing: name -> source file path (null for macros local to the script).</summary>
+    public required Dictionary<string, string?> MacroDefinitions { get; init; }
 
     /// <summary>Diagnostics produced during parse and analysis, to be re-emitted on cache restore.</summary>
     public required List<CachedDiagnostic> Diagnostics { get; init; }

@@ -33,8 +33,19 @@ public partial class ScriptManager
             var sw = System.Diagnostics.Stopwatch.StartNew();
             await EnsureParsedAsync(uri, cached.Script, languageId, CancellationToken.None);
 
-            // Populate global symbol registry with dependency's definitions
+            // Compute and store content hash so the cache save has a valid hash for this file
             string filePath = UriHelper.GetLocalPath(uri);
+            try
+            {
+                string content = await File.ReadAllTextAsync(filePath);
+                cached.LastContentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to compute content hash for dependency {Path}", filePath);
+            }
+
+            // Populate global symbol registry with dependency's definitions
             bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
 
             cached.ExportedSymbolsChanged = symbolsChanged;

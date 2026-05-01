@@ -99,6 +99,23 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     }
 
     /// <summary>
+    /// Returns the source priority of a file path for symbol precedence.
+    /// Files under TA_TOOLS_PATH/share/raw are shared-raw (priority 0);
+    /// all other files (workspace, mod) are priority 1 and always win.
+    /// </summary>
+    private static int GetSourcePriority(string filePath)
+    {
+        string? toolsPath = Environment.GetEnvironmentVariable("TA_TOOLS_PATH");
+        if (!string.IsNullOrEmpty(toolsPath))
+        {
+            string sharedRaw = Path.Combine(toolsPath, "share", "raw");
+            if (filePath.StartsWith(sharedRaw, StringComparison.OrdinalIgnoreCase))
+                return 0;
+        }
+        return 1;
+    }
+
+    /// <summary>
     /// Internal name-only lookup. Caller must already hold the read lock.
     /// </summary>
     private SymbolDefinition? FindSymbolByNameOnlyCore(string name)
@@ -129,7 +146,12 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
 
             foreach (var key in keys.Keys)
             {
-                if (_symbols.TryRemove(key, out var removed))
+                // Only remove the canonical entry if this file is the current owner.
+                // A higher-priority file (e.g. a mod override) may have taken ownership;
+                // removing that entry here would silently discard the winning definition.
+                if (_symbols.TryGetValue(key, out var owner) &&
+                    string.Equals(owner.FilePath, filePath, StringComparison.OrdinalIgnoreCase) &&
+                    _symbols.TryRemove(key, out var removed))
                 {
                     // Remove from name index
                     var normalizedName = removed.Name.ToLowerInvariant();
@@ -177,7 +199,12 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
                 // Check if symbol exists and is identical
                 if (_symbols.TryGetValue(key, out var existing))
                 {
-                    if (!SymbolsEqual(existing, def))
+                    bool sameOwner = string.Equals(existing.FilePath, filePath, StringComparison.OrdinalIgnoreCase);
+                    bool newHasHigherOrEqualPriority = GetSourcePriority(filePath) >= GetSourcePriority(existing.FilePath);
+
+                    // Only overwrite if this file currently owns the symbol, or if it has
+                    // higher source priority (mod/local beats shared raw).
+                    if ((sameOwner || newHasHigherOrEqualPriority) && !SymbolsEqual(existing, def))
                     {
                         changed = true;
                         _symbols[key] = def;
@@ -201,7 +228,10 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
             foreach (var key in removedKeys)
             {
                 changed = true;
-                if (_symbols.TryRemove(key, out var removed))
+                // Only remove the canonical entry if this file is the current owner.
+                if (_symbols.TryGetValue(key, out var owner) &&
+                    string.Equals(owner.FilePath, filePath, StringComparison.OrdinalIgnoreCase) &&
+                    _symbols.TryRemove(key, out var removed))
                 {
                     // Remove from name index
                     var normalizedName = removed.Name.ToLowerInvariant();

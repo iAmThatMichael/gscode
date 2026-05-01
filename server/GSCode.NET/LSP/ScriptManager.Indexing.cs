@@ -31,6 +31,20 @@ public partial class ScriptManager
                 ? await WorkspaceCacheManager.LoadAsync(cacheFilePath)
                 : null;
 
+            if (_workspaceCache is not null)
+            {
+                Log.Debug("CACHE_LOAD: loaded {Count} cached entries from {CacheFile}",
+                    _workspaceCache.Scripts.Count, cacheFilePath);
+                foreach (var (cachedPath, cachedEntry) in _workspaceCache.Scripts)
+                {
+                    Log.Debug("CACHE_ENTRY: path={Path} | hash={Hash}", cachedPath, cachedEntry.ContentHash);
+                }
+            }
+            else
+            {
+                Log.Debug("CACHE_LOAD: no cache loaded (UseWorkspaceCache={UseCache})", UseWorkspaceCache);
+            }
+
             var filesList = Directory
                 .EnumerateFiles(rootDirectory, "*.*", SearchOption.AllDirectories)
                 .Where(p => p.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase) ||
@@ -140,6 +154,9 @@ public partial class ScriptManager
         string languageId = string.Equals(ext, ".csc", StringComparison.OrdinalIgnoreCase) ? "csc" : "gsc";
         string relPath = Path.GetRelativePath(rootDirectory, filePath);
 
+        // Normalize path so drive-letter casing (G:\ vs g:\) never causes a cache miss
+        filePath = Path.GetFullPath(filePath);
+
         Uri docUri = new Uri(filePath);
 
         // Try to restore from persistent cache before parsing
@@ -150,7 +167,7 @@ public partial class ScriptManager
         }
         else if (!_workspaceCache.Scripts.TryGetValue(filePath, out var cachedData))
         {
-            Log.Debug("CACHE_MISS (not_in_cache): {File}", relPath);
+            Log.Debug("CACHE_MISS (not_in_cache): {File} | full path: {FullPath}", relPath, filePath);
             cacheResult = CacheResult.MissNotInCache;
         }
         else
@@ -163,8 +180,8 @@ public partial class ScriptManager
 
                 if (contentHash != cachedData.ContentHash)
                 {
-                    Log.Debug("CACHE_MISS (hash_mismatch): {File} — file has changed since last cache",
-                        relPath);
+                    Log.Debug("CACHE_MISS (hash_mismatch): {File} | full path: {FullPath} | disk hash: {DiskHash} | cached hash: {CachedHash}",
+                        relPath, filePath, contentHash, cachedData.ContentHash);
                     cacheResult = CacheResult.MissHashMismatch;
                 }
                 else

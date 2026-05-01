@@ -46,7 +46,8 @@ public partial class ScriptManager
             var docUri = document.Uri.ToUri();
             int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(updatedContent);
 
-            if (Scripts.TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
+            if (UseWorkspaceCache &&
+                Scripts.TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
             {
                 // Content unchanged, return cached diagnostics
                 return await cached.Script.GetDiagnosticsAsync(cancellationToken);

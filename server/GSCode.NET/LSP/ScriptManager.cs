@@ -46,6 +46,12 @@ public partial class ScriptManager
     /// </summary>
     public string? CustomRawPath { get; set; }
 
+    /// <summary>
+    /// Controls whether the persistent workspace parse cache is used.
+    /// When false, cache loading, cache hits, and cache saving are all skipped.
+    /// </summary>
+    public bool UseWorkspaceCache { get; set; } = true;
+
     // Ensure only one parse per script at a time
     private readonly ConcurrentDictionary<Uri, SemaphoreSlim> _parseLocks = new(UriComparer.OrdinalIgnoreCase);
     // Ensure only one analysis/merge per script at a time

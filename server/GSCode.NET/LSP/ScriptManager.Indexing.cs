@@ -27,7 +27,9 @@ public partial class ScriptManager
 
             // Load persistent cache from disk
             string cacheFilePath = WorkspaceCacheManager.GetCacheFilePath();
-            _workspaceCache = await WorkspaceCacheManager.LoadAsync(cacheFilePath);
+            _workspaceCache = UseWorkspaceCache
+                ? await WorkspaceCacheManager.LoadAsync(cacheFilePath)
+                : null;
 
             var filesList = Directory
                 .EnumerateFiles(rootDirectory, "*.*", SearchOption.AllDirectories)
@@ -97,7 +99,10 @@ public partial class ScriptManager
             IsIndexingComplete = true;
 
             // Save updated cache to disk
-            await SaveWorkspaceCacheAsync();
+            if (UseWorkspaceCache)
+            {
+                await SaveWorkspaceCacheAsync();
+            }
         }
         catch (OperationCanceledException)
         {

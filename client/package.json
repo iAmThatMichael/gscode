@@ -155,6 +155,12 @@
 					"default": true,
 					"description": "Warn when a .csc file is opened as GSC or a .gsc file is opened as CSC.",
 					"scope": "window"
+				},
+				"gscode.enableWorkspaceCache": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable the persistent workspace parse cache. When enabled, previously indexed files are restored from cache on startup, significantly reducing indexing time. Disable if you experience stale analysis results.",
+					"scope": "window"
 				}
 			}
 		}

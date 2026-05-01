@@ -116,6 +116,7 @@ export async function activate(context: ExtensionContext) {
     const serverLogLevel = config.get<string>("serverLogLevel", "off");
     const customRawPath = config.get<string>("customRawPath");
     const allowRawFolderWrites = config.get<boolean>("allowRawFolderWrites", false);
+    const enableWorkspaceCache = config.get<boolean>("enableWorkspaceCache", true);
 
     // Options to control the language client
     const clientOptions: LanguageClientOptions = {
@@ -136,6 +137,7 @@ export async function activate(context: ExtensionContext) {
                 serverLogLevel,
                 customRawPath,
                 allowRawFolderWrites,
+                enableWorkspaceCache,
             },
         },
         outputChannel: window.createOutputChannel("GSCode Language Server"),

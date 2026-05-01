@@ -125,8 +125,12 @@ LanguageServer server = await LanguageServer.From(options =>
 						var allowWrites = gscodeSection.SelectToken("allowRawFolderWrites")?.Value<bool>() ?? false;
 						completionOpts.AllowRawFolderWrites = allowWrites;
 
-						Log.Information("Settings: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}",
-							indexingMode, allowWrites, customPath ?? "(none)");
+						// Workspace cache toggle
+						var enableCache = gscodeSection.SelectToken("enableWorkspaceCache")?.Value<bool>() ?? true;
+						sm.UseWorkspaceCache = enableCache;
+
+						Log.Information("Settings: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}, EnableWorkspaceCache={EnableCache}",
+							indexingMode, allowWrites, customPath ?? "(none)", enableCache);
 					}
 				}
 
@@ -245,7 +249,7 @@ await server.WaitForExit;
 try
 {
 	var sm = server.Services.GetService<ScriptManager>();
-	if (sm is not null)
+	if (sm is not null && sm.UseWorkspaceCache)
 	{
 		Log.Information("Saving workspace cache on shutdown...");
 		await sm.SaveWorkspaceCacheAsync();

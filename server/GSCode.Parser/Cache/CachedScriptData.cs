@@ -1,8 +1,23 @@
 using GSCode.Data.Models;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 
 namespace GSCode.Parser.Cache;
+
+/// <summary>
+/// Serializable representation of a single LSP diagnostic for cache persistence.
+/// </summary>
+public sealed record CachedDiagnostic(
+    int StartLine,
+    int StartChar,
+    int EndLine,
+    int EndChar,
+    DiagnosticSeverity? Severity,
+    string? Code,
+    string Message,
+    string? Source
+);
 
 /// <summary>
 /// Serializable DTO representing cached parse and analysis results for a single script.
@@ -48,6 +63,9 @@ public sealed record CachedScriptData
 
     /// <summary>Macro definitions discovered during preprocessing: name -> define snippet.</summary>
     public required Dictionary<string, string> MacroDefinitions { get; init; }
+
+    /// <summary>Diagnostics produced during parse and analysis, to be re-emitted on cache restore.</summary>
+    public required List<CachedDiagnostic> Diagnostics { get; init; }
 }
 
 /// <summary>

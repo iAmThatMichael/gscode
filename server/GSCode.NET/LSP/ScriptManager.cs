@@ -181,24 +181,29 @@ public partial class ScriptManager
 
         try
         {
+            // Only persist locations that belong to this script itself.
+            // Dependency-merged locations are rebuilt at load time via MergeDependencySymbolsAsync
+            // and must not be cached, or they would bloat the per-script location dict run-over-run.
             var funcLocations = new Dictionary<Parser.SA.QualifiedSymbolKey, CachedSymbolLocation>();
             foreach (var kv in defTable.GetAllFunctionLocations())
             {
-                funcLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range);
+                if (string.Equals(kv.Value.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
+                    funcLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range);
             }
 
             var classLocations = new Dictionary<Parser.SA.QualifiedSymbolKey, CachedSymbolLocation>();
             foreach (var kv in defTable.GetAllClassLocations())
             {
-                classLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range);
+                if (string.Equals(kv.Value.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
+                    classLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range);
             }
 
-            // Extract function parameters, flags, and docs
+            // Extract function parameters, flags, and docs (scoped to own locations only)
             var funcParams = new Dictionary<Parser.SA.QualifiedSymbolKey, string[]>();
             var funcFlags = new Dictionary<Parser.SA.QualifiedSymbolKey, string[]>();
             var funcDocs = new Dictionary<Parser.SA.QualifiedSymbolKey, string?>();
 
-            foreach (var kv in defTable.GetAllFunctionLocations())
+            foreach (var kv in funcLocations)
             {
                 var key = kv.Key;
                 var parameters = defTable.GetFunctionParameters(key.Qualifier, key.SymbolName);

@@ -79,6 +79,13 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         return _cachedMacroSourcePaths ?? System.Collections.ObjectModel.ReadOnlyDictionary<string, string?>.Empty;
     }
 
+    /// <summary>
+    /// Releases the cached macro source path dictionary after the workspace cache has been saved.
+    /// The data has already been registered into <see cref="Pre.MacroDefinitionCache"/> at restore time
+    /// and persisted back to disk, so the per-script copy is no longer needed.
+    /// </summary>
+    public void ReleaseCachedMacroPaths() => _cachedMacroSourcePaths = null;
+
     // Precomputed function scope data (populated after analysis, before AST disposal)
     private sealed record FunctionScopeInfo(string? FunctionName, Range BodyRange, List<(string Name, Range Range)> Parameters);
     private List<FunctionScopeInfo>? _functionScopes;
@@ -323,6 +330,7 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         Analysed = true;
         return Task.CompletedTask;
     }
+
 
     public async Task<List<Diagnostic>> GetDiagnosticsAsync(CancellationToken cancellationToken)
     {

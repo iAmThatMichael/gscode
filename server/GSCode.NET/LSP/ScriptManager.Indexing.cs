@@ -123,15 +123,27 @@ public partial class ScriptManager
                     missNotInCache, missHashMismatch, missRestoreFailed);
             }
 
-            // Signal that all files (and their #insert'd GSH macros) are now in the cache.
-            // The memory monitor reads this before logging stable GSH/Macro counts.
-            IsIndexingComplete = true;
-
             // Save updated cache to disk
             if (UseWorkspaceCache)
             {
                 await SaveWorkspaceCacheAsync();
             }
+
+            // Release the loaded cache object — all data has been restored into live Script
+            // objects and re-saved to disk. Release before signalling completion so that the
+            // ~190 MB decompressed JSON graph is eligible for GC before the memory monitor
+            // takes its first stable reading.
+            _workspaceCache = null;
+
+            // Release per-script cached macro path dictionaries — these were only needed during
+            // cache restore (to register into MacroDefinitionCache) and during the cache re-save
+            // above (GetMacroSourcePaths fallback). Both uses are now complete, so null them out
+            // to free the ~387 K string-pair entries that would otherwise live for the session.
+            foreach (var kv in Scripts)
+                kv.Value.Script.ReleaseCachedMacroPaths();
+
+            // Signal that all files (and their #insert'd GSH macros) are now in the cache.
+            IsIndexingComplete = true;
         }
         catch (OperationCanceledException)
         {
@@ -334,5 +346,6 @@ public partial class ScriptManager
 
         return cacheResult;
     }
+
 }
 

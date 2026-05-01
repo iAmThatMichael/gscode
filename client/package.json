@@ -158,7 +158,7 @@
 				},
 				"gscode.enableWorkspaceCache": {
 					"type": "boolean",
-					"default": true,
+					"default": false,
 					"description": "Enable the persistent workspace parse cache. When enabled, previously indexed files are restored from cache on startup, significantly reducing indexing time. Disable if you experience stale analysis results.",
 					"scope": "window"
 				}

@@ -116,7 +116,7 @@ export async function activate(context: ExtensionContext) {
     const serverLogLevel = config.get<string>("serverLogLevel", "off");
     const customRawPath = config.get<string>("customRawPath");
     const allowRawFolderWrites = config.get<boolean>("allowRawFolderWrites", false);
-    const enableWorkspaceCache = config.get<boolean>("enableWorkspaceCache", true);
+    const enableWorkspaceCache = config.get<boolean>("enableWorkspaceCache", false);
 
     // Options to control the language client
     const clientOptions: LanguageClientOptions = {

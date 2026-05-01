@@ -1,6 +1,7 @@
 using GSCode.Parser.Cache;
 using GSCode.Parser.Data;
 using GSCode.Parser.SA;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using Serilog;
 
 namespace GSCode.Parser;
@@ -102,6 +103,21 @@ public partial class Script
             // Mark as parsed and analysed
             Parsed = true;
             Analysed = true;
+
+            // Restore diagnostics into Sense so GetDiagnosticsAsync returns them correctly
+            foreach (var cd in cachedData.Diagnostics)
+            {
+                Sense.Diagnostics.Add(new Diagnostic
+                {
+                    Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
+                        cd.StartLine, cd.StartChar,
+                        cd.EndLine, cd.EndChar),
+                    Severity = cd.Severity,
+                    Code = cd.Code is not null ? new OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticCode(cd.Code) : (OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticCode?)null,
+                    Message = cd.Message,
+                    Source = cd.Source
+                });
+            }
 
             // Set tasks to completed so WaitUntilParsedAsync/WaitUntilAnalysedAsync don't NPE
             ParsingTask = Task.CompletedTask;

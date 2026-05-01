@@ -211,6 +211,20 @@ public partial class ScriptManager
                 if (doc is not null) funcDocs[key] = doc;
             }
 
+            // Snapshot diagnostics so they can be re-emitted on cache restore
+            var cachedDiags = script.GetDiagnosticsSnapshot()
+                .Select(d => new GSCode.Parser.Cache.CachedDiagnostic(
+                    d.Range.Start.Line,
+                    d.Range.Start.Character,
+                    d.Range.End.Line,
+                    d.Range.End.Character,
+                    d.Severity,
+                    d.Code?.IsString == true ? d.Code.Value.String : d.Code?.IsLong == true ? d.Code.Value.Long.ToString() : null,
+                    d.Message,
+                    d.Source
+                ))
+                .ToList();
+
             return new CachedScriptData
             {
                 ContentHash = contentHash,
@@ -225,7 +239,8 @@ public partial class ScriptManager
                 FunctionParameters = funcParams,
                 FunctionFlags = funcFlags,
                 FunctionDocs = funcDocs,
-                MacroDefinitions = new Dictionary<string, string>()
+                MacroDefinitions = new Dictionary<string, string>(),
+                Diagnostics = cachedDiags
             };
         }
         catch (Exception ex)

@@ -218,6 +218,13 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
             return Task.CompletedTask;
         }
 
+        // Skip re-analysis for cache-restored scripts — they have no AST/token stream to analyse,
+        // and their diagnostics were already populated from the serialized cache.
+        if (Analysed)
+        {
+            return Task.CompletedTask;
+        }
+
         string fileName = System.IO.Path.GetFileName(ScriptUri.LocalPath);
 
         // Get a comprehensive list of symbols available in this context.
@@ -299,6 +306,13 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         await WaitUntilParsedAsync(cancellationToken);
         return Sense.Diagnostics;
     }
+
+    /// <summary>
+    /// Returns a synchronous snapshot of the current diagnostics list.
+    /// Only valid to call after the script is fully parsed and analysed.
+    /// </summary>
+    public IReadOnlyList<Diagnostic> GetDiagnosticsSnapshot()
+        => Parsed ? Sense.Diagnostics : [];
 
     public async Task<IReadOnlyList<ISemanticToken>> GetSemanticTokensAsync(CancellationToken cancellationToken)
     {

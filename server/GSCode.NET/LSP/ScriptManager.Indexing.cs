@@ -45,6 +45,9 @@ public partial class ScriptManager
             using SemaphoreSlim gate = new(maxDegree, maxDegree);
             List<Task> tasks = new();
             int cacheHits = 0;
+            int missNotInCache = 0;
+            int missHashMismatch = 0;
+            int missRestoreFailed = 0;
 
             int fileIndex = 0;
             foreach (string file in filesList)
@@ -68,12 +71,18 @@ public partial class ScriptManager
 #if DEBUG
                         Log.Information("Indexing {File}", rel);
 #endif
-                        bool fromCache = await IndexFileAsync(file, cancellationToken);
-                        if (fromCache) Interlocked.Increment(ref cacheHits);
+                        var result = await IndexFileAsync(file, rootDirectory, cancellationToken);
+                        switch (result)
+                        {
+                            case CacheResult.Hit:               Interlocked.Increment(ref cacheHits); break;
+                            case CacheResult.MissNotInCache:    Interlocked.Increment(ref missNotInCache); break;
+                            case CacheResult.MissHashMismatch:  Interlocked.Increment(ref missHashMismatch); break;
+                            case CacheResult.MissRestoreFailed: Interlocked.Increment(ref missRestoreFailed); break;
+                        }
 #if DEBUG
                         fileSw.Stop();
                         Log.Information("{Status} {File} in {ElapsedMs} ms",
-                            fromCache ? "Restored" : "Indexed", rel, fileSw.ElapsedMilliseconds);
+                            result == CacheResult.Hit ? "Restored" : "Indexed", rel, fileSw.ElapsedMilliseconds);
 #endif
                     }
                     catch (OperationCanceledException) { }
@@ -93,6 +102,12 @@ public partial class ScriptManager
             swAll.Stop();
             Log.Information("Indexing completed in {ElapsedMs} ms for {Count} files ({CacheHits} from cache, {Parsed} parsed)",
                 swAll.ElapsedMilliseconds, filesList.Count, cacheHits, filesList.Count - cacheHits);
+
+            if (missNotInCache > 0 || missHashMismatch > 0 || missRestoreFailed > 0)
+            {
+                Log.Information("Cache miss breakdown — new/uncached: {NotInCache}, changed: {HashMismatch}, restore error: {RestoreFailed}",
+                    missNotInCache, missHashMismatch, missRestoreFailed);
+            }
 
             // Signal that all files (and their #insert'd GSH macros) are now in the cache.
             // The memory monitor reads this before logging stable GSH/Macro counts.
@@ -114,20 +129,31 @@ public partial class ScriptManager
         }
     }
 
+    private enum CacheResult { Hit, MissNotInCache, MissHashMismatch, MissRestoreFailed, MissNoCache }
+
     /// <summary>
-    /// Indexes a single file. Returns true if the file was restored from cache, false if parsed from scratch.
+    /// Indexes a single file. Returns the cache result for telemetry.
     /// </summary>
-    private async Task<bool> IndexFileAsync(string filePath, CancellationToken cancellationToken)
+    private async Task<CacheResult> IndexFileAsync(string filePath, string rootDirectory, CancellationToken cancellationToken)
     {
         string ext = Path.GetExtension(filePath);
         string languageId = string.Equals(ext, ".csc", StringComparison.OrdinalIgnoreCase) ? "csc" : "gsc";
+        string relPath = Path.GetRelativePath(rootDirectory, filePath);
 
         Uri docUri = new Uri(filePath);
 
         // Try to restore from persistent cache before parsing
-        bool restoredFromCache = false;
-        if (_workspaceCache is not null &&
-            _workspaceCache.Scripts.TryGetValue(filePath, out var cachedData))
+        CacheResult cacheResult;
+        if (_workspaceCache is null)
+        {
+            cacheResult = CacheResult.MissNoCache;
+        }
+        else if (!_workspaceCache.Scripts.TryGetValue(filePath, out var cachedData))
+        {
+            Log.Debug("CACHE_MISS (not_in_cache): {File}", relPath);
+            cacheResult = CacheResult.MissNotInCache;
+        }
+        else
         {
             try
             {
@@ -135,9 +161,15 @@ public partial class ScriptManager
                 string content = await File.ReadAllTextAsync(filePath, cancellationToken);
                 int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
 
-                if (contentHash == cachedData.ContentHash)
+                if (contentHash != cachedData.ContentHash)
                 {
-                    // Cache hit — restore without parsing
+                    Log.Debug("CACHE_MISS (hash_mismatch): {File} — file has changed since last cache",
+                        relPath);
+                    cacheResult = CacheResult.MissHashMismatch;
+                }
+                else
+                {
+                    // Hash matches — attempt restore
                     var script = new Script(docUri, languageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry);
                     script.RestoreFromCache(cachedData, ScriptMode.Index);
 
@@ -151,7 +183,7 @@ public partial class ScriptManager
 
                         // If already existed, skip
                         if (cached.Script != script && cached.Script.Parsed)
-                            return true;
+                            return CacheResult.Hit;
 
                         cached.LastContentHash = contentHash;
                         cached.LastParsedAt = DateTime.UtcNow;
@@ -160,18 +192,24 @@ public partial class ScriptManager
                         PopulateSymbolRegistry(filePath, script);
                         PopulateFieldRegistry(filePath, script);
 
-                        restoredFromCache = true;
+                        cacheResult = CacheResult.Hit;
+                    }
+                    else
+                    {
+                        Log.Debug("CACHE_MISS (restore_failed): {File} — RestoreFromCache returned Parsed={Parsed} Failed={Failed}",
+                            relPath, script.Parsed, script.Failed);
+                        cacheResult = CacheResult.MissRestoreFailed;
                     }
                 }
             }
             catch (Exception ex)
             {
-                Log.Warning(ex, "Cache restore failed for {File}, falling back to parse", filePath);
-                restoredFromCache = false;
+                Log.Warning(ex, "Cache restore failed for {File}, falling back to parse", relPath);
+                cacheResult = CacheResult.MissRestoreFailed;
             }
         }
 
-        if (!restoredFromCache)
+        if (cacheResult != CacheResult.Hit)
         {
             // Normal parse path
             bool isNewFile = false;
@@ -187,7 +225,7 @@ public partial class ScriptManager
 
             // Skip if already parsed (unless it's a new file)
             if (!isNewFile && cached.Script.Parsed)
-                return false;
+                return CacheResult.MissNotInCache;
 
             await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken);
 
@@ -210,7 +248,7 @@ public partial class ScriptManager
 
         // From here, both cache-restored and freshly-parsed files follow the same path
         if (!Scripts.TryGetValue(docUri, out var entry) || entry.Script.DefinitionsTable is null)
-            return restoredFromCache;
+            return cacheResult;
 
         // Snapshot dependencies to avoid collection modification during enumeration
         var dependencies = entry.Script.Dependencies.ToList();
@@ -226,7 +264,7 @@ public partial class ScriptManager
         if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Off)
         {
             Log.Warning("IndexFileAsync called with Off mode for {File} - this should not happen", Path.GetFileName(filePath));
-            return restoredFromCache;
+            return cacheResult;
         }
 
         // Merge symbols from dependencies (filtering, deduplication, path conversion)
@@ -277,7 +315,7 @@ public partial class ScriptManager
             await PublishDiagnosticsAsync(docUri, entry.Script, cancellationToken: cancellationToken);
         }
 
-        return restoredFromCache;
+        return cacheResult;
     }
 }
 

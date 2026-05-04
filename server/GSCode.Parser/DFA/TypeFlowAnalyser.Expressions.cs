@@ -1134,11 +1134,6 @@ internal ref partial struct TypeFlowAnalyser
 
             AssignmentResult assignmentResult = symbolTable.AddOrSetVariableSymbol(symbolName, right with { ReadOnly = false }, definitionSource: node);
 
-            if (right.Type == ScrDataTypes.Undefined)
-            {
-                return right;
-            }
-
             // Failed, because the symbol is a constant
             if (assignmentResult == AssignmentResult.FailedConstant)
             {
@@ -1292,22 +1287,20 @@ internal ref partial struct TypeFlowAnalyser
             return ScrData.Undefined();
         }
 
-        if (data.Type != ScrDataTypes.Undefined)
+        if (flags.HasFlag(SymbolFlags.Global))
         {
-            if (flags.HasFlag(SymbolFlags.Global))
-            {
-                if (createSenseTokenForRhs)
-                {
-                    Sense.AddSenseToken(expr.Token, ScrVariableSymbol.LanguageSymbol(expr, data));
-                }
-                return data;
-            }
             if (createSenseTokenForRhs)
             {
-                bool isConstant = symbolTable.SymbolIsConstant(expr.Identifier);
-                AstNode? defSource = symbolTable.TryGetLocalVariableInfo(expr.Identifier)?.DefinitionSource;
-                Sense.AddSenseToken(expr.Token, ScrVariableSymbol.Usage(expr, data, isConstant, defSource));
+                Sense.AddSenseToken(expr.Token, ScrVariableSymbol.LanguageSymbol(expr, data));
             }
+            return data;
+        }
+
+        if (createSenseTokenForRhs)
+        {
+            bool isConstant = symbolTable.SymbolIsConstant(expr.Identifier);
+            AstNode? defSource = symbolTable.TryGetLocalVariableInfo(expr.Identifier)?.DefinitionSource;
+            Sense.AddSenseToken(expr.Token, ScrVariableSymbol.Usage(expr, data, isConstant, defSource));
         }
         return data;
     }

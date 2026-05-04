@@ -28,7 +28,7 @@ public sealed class MacroDefinitionCache
     /// Per-file tracking of which macros came from which source.
     /// Used for cleanup when files are closed/removed.
     /// </summary>
-    private readonly ConcurrentDictionary<string, HashSet<MacroCacheKey>> _fileToMacros = new();
+    private readonly ConcurrentDictionary<string, HashSet<MacroCacheKey>> _fileToMacros = new(StringComparer.OrdinalIgnoreCase);
 
     private MacroDefinitionCache() { }
 
@@ -158,5 +158,15 @@ public sealed class MacroDefinitionCache
     /// Uniqueness is based on source file and macro name only.
     /// Within a single file, macro names must be unique (no redefinitions allowed).
     /// </summary>
-    private readonly record struct MacroCacheKey(string SourceFile, string MacroName);
+    private readonly record struct MacroCacheKey(string SourceFile, string MacroName) : IEquatable<MacroCacheKey>
+    {
+        public bool Equals(MacroCacheKey other) =>
+            string.Equals(SourceFile, other.SourceFile, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(MacroName, other.MacroName, StringComparison.OrdinalIgnoreCase);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(SourceFile),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(MacroName));
+    }
 }

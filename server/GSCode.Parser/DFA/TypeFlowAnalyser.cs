@@ -413,7 +413,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
                 continue;
             }
 
-            inSet[param.Name.Lexeme] = new(param.Name.Lexeme, ScrData.Default, 0, false);
+            inSet[param.Name.Lexeme] = new(param.Name.Lexeme, ScrData.Default, 0, false, DefinitionSource: param);
         }
 
         // Note: Built-in globals (self, level, game, anim) are no longer added to the symbol table.

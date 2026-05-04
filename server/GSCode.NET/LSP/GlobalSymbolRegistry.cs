@@ -473,4 +473,34 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
 
         return result.ToList();
     }
+
+    /// <summary>
+    /// Returns all distinct file paths that define a specific function in the given namespace.
+    /// Used by the code action handler to suggest <c>#using</c> directives for a qualified
+    /// call like <c>ns::func()</c> where the namespace is unknown — only files that actually
+    /// export the exact function are returned, preventing spurious suggestions.
+    /// </summary>
+    /// <param name="namespaceName">The namespace qualifier (case-insensitive).</param>
+    /// <param name="functionName">The function name (case-insensitive).</param>
+    /// <returns>A list of file paths, or an empty list if no files define this function.</returns>
+    public List<string> FindFilesForNamespacedFunction(string namespaceName, string functionName)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var key = QualifiedSymbolKey.Normalized(namespaceName, functionName);
+
+        _lock.EnterReadLock();
+        try
+        {
+            if (_symbols.TryGetValue(key, out var def) && def.Type == ExportedSymbolType.Function)
+            {
+                result.Add(def.FilePath);
+            }
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+
+        return result.ToList();
+    }
 }

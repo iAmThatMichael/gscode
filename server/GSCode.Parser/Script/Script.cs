@@ -140,6 +140,12 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
 
     public Task DoParseAsync(string documentText)
     {
+        // Reset analysis state so re-edits always trigger a full re-analysis pass.
+        // (Cache-restored scripts set Analysed = true via RestoreFromCache, and their
+        // ParseAsync is never called again, so this reset does not affect them.)
+        Analysed = false;
+        Failed = false;
+
         // Guard: reject files that exceed ushort range limits for TokenRange
         {
             int lineCount = 1;

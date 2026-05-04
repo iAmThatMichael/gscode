@@ -183,9 +183,20 @@ public partial class Script
         else
         {
             loc = DefinitionsTable?.GetFunctionLocation(ns, name)
-               ?? DefinitionsTable?.GetClassLocation(ns, name)
-               ?? DefinitionsTable?.GetFunctionLocationAnyNamespace(name)
-               ?? DefinitionsTable?.GetClassLocationAnyNamespace(name);
+               ?? DefinitionsTable?.GetClassLocation(ns, name);
+
+            if (loc is null)
+            {
+                // Any-namespace lookup may resolve via the workspace-wide global provider.
+                // Only accept the result if the symbol is defined in this file or in an
+                // explicitly #using-imported dependency — otherwise the function is out of
+                // scope and should not navigate.
+                var anyLoc = DefinitionsTable?.GetFunctionLocationAnyNamespace(name)
+                          ?? DefinitionsTable?.GetClassLocationAnyNamespace(name);
+
+                if (anyLoc is not null && IsInScope(anyLoc.Value.FilePath))
+                    loc = anyLoc;
+            }
         }
 
         return loc is not null
@@ -331,6 +342,28 @@ public partial class Script
             return dash >= 0 && dash + 1 < line.Length ? line[(dash + 1)..].Trim() : string.Empty;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="filePath"/> is this script or one of its declared
+    /// <c>#using</c> dependencies. Used to prevent workspace-wide GoTo Definition from
+    /// resolving symbols that are not in scope for this file.
+    /// </summary>
+    private bool IsInScope(string filePath)
+    {
+        if (string.Equals(filePath, ScriptUri.LocalPath, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (DefinitionsTable is null)
+            return false;
+
+        foreach (Uri dep in DefinitionsTable.Dependencies)
+        {
+            if (string.Equals(dep.LocalPath, filePath, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     private Location MakeLocalLocation(Range range)

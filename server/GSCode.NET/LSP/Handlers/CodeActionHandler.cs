@@ -604,8 +604,16 @@ internal sealed class CodeActionHandler(
             return results;
         }
 
-        // Query the global symbol registry for files that export this namespace
-        List<string> filePaths = _scriptManager.SymbolRegistry.FindFilesForNamespace(namespaceName);
+        // Try to extract the function name that follows the namespace token (e.g. "init" from "util::init()").
+        // When present, restrict suggestions to files that export the exact ns::function — this prevents
+        // offering a #using for a file that happens to share the namespace but doesn't define the function.
+        // Fall back to namespace-only search when no qualified member can be extracted.
+        string? functionName = TryExtractQualifiedFunctionName(content, diagnostic.Range.End);
+
+        List<string> filePaths = functionName is not null
+            ? _scriptManager.SymbolRegistry.FindFilesForNamespacedFunction(namespaceName, functionName)
+            : _scriptManager.SymbolRegistry.FindFilesForNamespace(namespaceName);
+
         if (filePaths.Count == 0)
         {
             return results;
@@ -905,6 +913,41 @@ internal sealed class CodeActionHandler(
                 }
             }
         };
+    }
+
+    /// <summary>
+    /// Tries to extract the function-name identifier that follows a <c>::</c> scope-resolution
+    /// operator immediately after the namespace token whose range ends at
+    /// <paramref name="namespaceTokenEnd"/>.
+    /// For example, given source <c>util::init()</c> and a position pointing just past
+    /// <c>util</c>, this returns <c>"init"</c>.
+    /// Returns <c>null</c> when no <c>::identifier</c> is found (e.g. the namespace token
+    /// is not followed by a qualified member on the same line).
+    /// </summary>
+    private static string? TryExtractQualifiedFunctionName(string content, Position namespaceTokenEnd)
+    {
+        string[] lines = content.ReplaceLineEndings("\n").Split('\n');
+
+        int lineIdx = namespaceTokenEnd.Line;
+        if (lineIdx >= lines.Length)
+            return null;
+
+        string line = lines[lineIdx];
+        int col = namespaceTokenEnd.Character;
+
+        // Expect "::" immediately after the namespace token
+        if (col + 1 >= line.Length || line[col] != ':' || line[col + 1] != ':')
+            return null;
+
+        int nameStart = col + 2;
+        if (nameStart >= line.Length || (!char.IsAsciiLetter(line[nameStart]) && line[nameStart] != '_'))
+            return null;
+
+        int nameEnd = nameStart;
+        while (nameEnd < line.Length && (char.IsAsciiLetterOrDigit(line[nameEnd]) || line[nameEnd] == '_'))
+            nameEnd++;
+
+        return line[nameStart..nameEnd];
     }
 
     /// <summary>

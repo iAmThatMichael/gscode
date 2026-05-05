@@ -53,6 +53,39 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
     // Expose macro outlines for outliner without exposing Sense outside assembly
     public IReadOnlyList<MacroOutlineItem> MacroOutlines => Sense?.MacroOutlines ?? [];
 
+    // Preserved macro source paths from cache restore — used by GetMacroSourcePaths() when
+    // Sense.MacroDefinitions is unavailable (i.e. preprocessing was skipped on cache restore).
+    private IReadOnlyDictionary<string, string?>? _cachedMacroSourcePaths;
+
+    /// <summary>
+    /// Returns a snapshot of macro name -> source file path for all macros discovered during preprocessing.
+    /// Source file path is null for macros defined directly in this script (non-GSH).
+    /// Returns empty if the script has not been parsed.
+    /// </summary>
+    public IReadOnlyDictionary<string, string?> GetMacroSourcePaths()
+    {
+        // If we have live Sense data (normal parse path), derive from it directly.
+        if (Sense?.MacroDefinitions is { Count: > 0 } macros)
+        {
+            var result = new Dictionary<string, string?>(macros.Count, StringComparer.OrdinalIgnoreCase);
+            string scriptPath = ScriptUri.LocalPath;
+            foreach (var (name, (definition, _)) in macros)
+                result[name] = definition.Source.IsFromPreprocessor ? definition.Source.InsertSourcePath : scriptPath;
+            return result;
+        }
+
+        // Fallback: return paths preserved from a prior cache restore (prevents re-save from
+        // zeroing out macro data for scripts that were restored rather than freshly parsed).
+        return _cachedMacroSourcePaths ?? System.Collections.ObjectModel.ReadOnlyDictionary<string, string?>.Empty;
+    }
+
+    /// <summary>
+    /// Releases the cached macro source path dictionary after the workspace cache has been saved.
+    /// The data has already been registered into <see cref="Pre.MacroDefinitionCache"/> at restore time
+    /// and persisted back to disk, so the per-script copy is no longer needed.
+    /// </summary>
+    public void ReleaseCachedMacroPaths() => _cachedMacroSourcePaths = null;
+
     // Precomputed function scope data (populated after analysis, before AST disposal)
     private sealed record FunctionScopeInfo(string? FunctionName, Range BodyRange, List<(string Name, Range Range)> Parameters);
     private List<FunctionScopeInfo>? _functionScopes;
@@ -107,6 +140,12 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
 
     public Task DoParseAsync(string documentText)
     {
+        // Reset analysis state so re-edits always trigger a full re-analysis pass.
+        // (Cache-restored scripts set Analysed = true via RestoreFromCache, and their
+        // ParseAsync is never called again, so this reset does not affect them.)
+        Analysed = false;
+        Failed = false;
+
         // Guard: reject files that exceed ushort range limits for TokenRange
         {
             int lineCount = 1;
@@ -218,6 +257,13 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
             return Task.CompletedTask;
         }
 
+        // Skip re-analysis for cache-restored scripts — they have no AST/token stream to analyse,
+        // and their diagnostics were already populated from the serialized cache.
+        if (Analysed)
+        {
+            return Task.CompletedTask;
+        }
+
         string fileName = System.IO.Path.GetFileName(ScriptUri.LocalPath);
 
         // Get a comprehensive list of symbols available in this context.
@@ -291,6 +337,7 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         return Task.CompletedTask;
     }
 
+
     public async Task<List<Diagnostic>> GetDiagnosticsAsync(CancellationToken cancellationToken)
     {
         // TODO: maybe a mechanism to check if analysed if that's a requirement
@@ -299,6 +346,13 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         await WaitUntilParsedAsync(cancellationToken);
         return Sense.Diagnostics;
     }
+
+    /// <summary>
+    /// Returns a synchronous snapshot of the current diagnostics list.
+    /// Only valid to call after the script is fully parsed and analysed.
+    /// </summary>
+    public IReadOnlyList<Diagnostic> GetDiagnosticsSnapshot()
+        => Parsed ? Sense.Diagnostics : [];
 
     public async Task<IReadOnlyList<ISemanticToken>> GetSemanticTokensAsync(CancellationToken cancellationToken)
     {

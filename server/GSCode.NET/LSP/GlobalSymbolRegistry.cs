@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using GSCode.Data.Models;
+using Serilog;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
@@ -99,20 +100,59 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     }
 
     /// <summary>
+    /// Returns the source priority of a file path for symbol precedence.
+    /// Files under TA_TOOLS_PATH/share/raw are shared-raw (priority 0);
+    /// all other files (workspace, mod) are priority 1 and always win.
+    /// </summary>
+    private static int GetSourcePriority(string filePath)
+    {
+        string? toolsPath = Environment.GetEnvironmentVariable("TA_TOOLS_PATH");
+        if (!string.IsNullOrEmpty(toolsPath))
+        {
+            string sharedRaw = Path.Combine(toolsPath, "share", "raw");
+            if (filePath.StartsWith(sharedRaw, StringComparison.OrdinalIgnoreCase))
+                return 0;
+        }
+        return 1;
+    }
+
+    /// <summary>
     /// Internal name-only lookup. Caller must already hold the read lock.
+    /// When multiple namespaces define the same name, returns the definition from the
+    /// highest-priority source (mod/local > shared raw). Logs ambiguity when two
+    /// candidates share the same priority level.
     /// </summary>
     private SymbolDefinition? FindSymbolByNameOnlyCore(string name)
     {
         var normalizedName = name?.ToLowerInvariant() ?? string.Empty;
-        if (_nameIndex.TryGetValue(normalizedName, out var keys))
+        if (!_nameIndex.TryGetValue(normalizedName, out var keys))
+            return null;
+
+        SymbolDefinition? best = null;
+        int bestPriority = -1;
+        int candidateCount = 0;
+
+        foreach (var key in keys.Keys)
         {
-            foreach (var key in keys.Keys)
+            if (!_symbols.TryGetValue(key, out var def))
+                continue;
+
+            candidateCount++;
+            int priority = GetSourcePriority(def.FilePath);
+            if (priority > bestPriority)
             {
-                if (_symbols.TryGetValue(key, out var def))
-                    return def;
+                bestPriority = priority;
+                best = def;
             }
         }
-        return null;
+
+        if (candidateCount > 1 && best is not null)
+        {
+            Log.Debug("SYMBOL_AMBIGUOUS: unqualified '{Name}' resolved to {Namespace}::{Symbol} (priority={Priority}, {Count} candidates)",
+                name, best.Namespace, best.Name, bestPriority, candidateCount);
+        }
+
+        return best;
     }
 
     /// <summary>
@@ -129,16 +169,20 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
 
             foreach (var key in keys.Keys)
             {
-                if (_symbols.TryRemove(key, out var removed))
+                // Only remove the canonical entry if this file is the current owner.
+                // A higher-priority file (e.g. a mod override) may have taken ownership;
+                // removing that entry here would silently discard the winning definition.
+                if (!(_symbols.TryGetValue(key, out var owner) &&
+                      string.Equals(owner.FilePath, filePath, StringComparison.OrdinalIgnoreCase) &&
+                      _symbols.TryRemove(key, out var removed)))
+                    continue;
+
+                var normalizedName = removed.Name.ToLowerInvariant();
+                if (_nameIndex.TryGetValue(normalizedName, out var nameKeys))
                 {
-                    // Remove from name index
-                    var normalizedName = removed.Name.ToLowerInvariant();
-                    if (_nameIndex.TryGetValue(normalizedName, out var nameKeys))
-                    {
-                        nameKeys.TryRemove(key, out _);
-                        if (nameKeys.IsEmpty)
-                            _nameIndex.TryRemove(normalizedName, out _);
-                    }
+                    nameKeys.TryRemove(key, out _);
+                    if (nameKeys.IsEmpty)
+                        _nameIndex.TryRemove(normalizedName, out _);
                 }
             }
         }
@@ -161,66 +205,72 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         try
         {
             var newSymbolsList = newSymbols.ToList();
-            var newKeys = new HashSet<QualifiedSymbolKey>();
+            var ownedKeys = new HashSet<QualifiedSymbolKey>();
             bool changed = false;
 
-            // Get existing symbols for this file
-            _fileIndex.TryGetValue(filePath, out var existingKeys);
-            var existingKeySet = existingKeys?.Keys.ToHashSet() ?? new HashSet<QualifiedSymbolKey>();
+            _fileIndex.TryGetValue(filePath, out var existingOwned);
+            var existingOwnedSet = existingOwned?.Keys.ToHashSet() ?? new HashSet<QualifiedSymbolKey>();
 
-            // Add/update new symbols
+            // --- Pass 1: process all submitted symbols ---
             foreach (var def in newSymbolsList)
             {
                 var key = QualifiedSymbolKey.Normalized(def.Namespace, def.Name);
-                newKeys.Add(key);
 
-                // Check if symbol exists and is identical
                 if (_symbols.TryGetValue(key, out var existing))
                 {
-                    if (!SymbolsEqual(existing, def))
+                    bool sameOwner = string.Equals(existing.FilePath, filePath, StringComparison.OrdinalIgnoreCase);
+                    // Strict > so same-priority files use first-write-wins, not last-write-wins
+                    bool strictlyHigherPriority = GetSourcePriority(filePath) > GetSourcePriority(existing.FilePath);
+
+                    if (sameOwner || strictlyHigherPriority)
                     {
-                        changed = true;
-                        _symbols[key] = def;
+                        ownedKeys.Add(key);
+                        if (!SymbolsEqual(existing, def))
+                        {
+                            changed = true;
+                            _symbols[key] = def;
+                        }
                     }
+                    // else: higher-or-equal-priority file owns this key — do not take it
                 }
                 else
                 {
-                    // New symbol
+                    ownedKeys.Add(key);
                     changed = true;
                     _symbols[key] = def;
 
-                    // Update name index
                     var nameSymbols = _nameIndex.GetOrAdd(StringPool.Intern(def.Name.ToLowerInvariant()),
                         _ => new ConcurrentDictionary<QualifiedSymbolKey, byte>());
                     nameSymbols[key] = 0;
                 }
             }
 
-            // Remove symbols that no longer exist in this file
-            var removedKeys = existingKeySet.Except(newKeys).ToList();
-            foreach (var key in removedKeys)
+            // --- Pass 2: remove owned keys this file no longer exports ---
+            foreach (var key in existingOwnedSet.Except(ownedKeys))
             {
+                if (!(_symbols.TryGetValue(key, out var owner) &&
+                      string.Equals(owner.FilePath, filePath, StringComparison.OrdinalIgnoreCase) &&
+                      _symbols.TryRemove(key, out var removed)))
+                    continue;
+
                 changed = true;
-                if (_symbols.TryRemove(key, out var removed))
+
+                var normalizedName = removed.Name.ToLowerInvariant();
+                if (_nameIndex.TryGetValue(normalizedName, out var nameKeys))
                 {
-                    // Remove from name index
-                    var normalizedName = removed.Name.ToLowerInvariant();
-                    if (_nameIndex.TryGetValue(normalizedName, out var nameKeys))
-                    {
-                        nameKeys.TryRemove(key, out _);
-                        if (nameKeys.IsEmpty)
-                            _nameIndex.TryRemove(normalizedName, out _);
-                    }
+                    nameKeys.TryRemove(key, out _);
+                    if (nameKeys.IsEmpty)
+                        _nameIndex.TryRemove(normalizedName, out _);
                 }
             }
 
-            // Update file index
-            if (newKeys.Count > 0)
+            // --- Update _fileIndex (owned keys only) ---
+            if (ownedKeys.Count > 0)
             {
                 var fileSymbols = _fileIndex.GetOrAdd(filePath,
                     _ => new ConcurrentDictionary<QualifiedSymbolKey, byte>());
                 fileSymbols.Clear();
-                foreach (var key in newKeys)
+                foreach (var key in ownedKeys)
                     fileSymbols[key] = 0;
             }
             else
@@ -362,6 +412,11 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Relies on <c>_fileIndex</c> containing only keys that the file currently *owns*
+    /// (i.e. won the priority race). Non-owning submissions are in <c>_submittedIndex</c>
+    /// and are intentionally excluded here so flag checks reflect the active definition.
+    /// </remarks>
     bool ISymbolLocationProvider.AnyFunctionInFileHasFlag(string filePathSuffix, string flag)
     {
         _lock.EnterReadLock();
@@ -409,6 +464,36 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
                 {
                     result.Add(def.FilePath);
                 }
+            }
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+
+        return result.ToList();
+    }
+
+    /// <summary>
+    /// Returns all distinct file paths that define a specific function in the given namespace.
+    /// Used by the code action handler to suggest <c>#using</c> directives for a qualified
+    /// call like <c>ns::func()</c> where the namespace is unknown — only files that actually
+    /// export the exact function are returned, preventing spurious suggestions.
+    /// </summary>
+    /// <param name="namespaceName">The namespace qualifier (case-insensitive).</param>
+    /// <param name="functionName">The function name (case-insensitive).</param>
+    /// <returns>A list of file paths, or an empty list if no files define this function.</returns>
+    public List<string> FindFilesForNamespacedFunction(string namespaceName, string functionName)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var key = QualifiedSymbolKey.Normalized(namespaceName, functionName);
+
+        _lock.EnterReadLock();
+        try
+        {
+            if (_symbols.TryGetValue(key, out var def) && def.Type == ExportedSymbolType.Function)
+            {
+                result.Add(def.FilePath);
             }
         }
         finally

@@ -125,8 +125,12 @@ LanguageServer server = await LanguageServer.From(options =>
 						var allowWrites = gscodeSection.SelectToken("allowRawFolderWrites")?.Value<bool>() ?? false;
 						completionOpts.AllowRawFolderWrites = allowWrites;
 
-						Log.Information("Settings: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}",
-							indexingMode, allowWrites, customPath ?? "(none)");
+						// Workspace cache toggle
+						var enableCache = gscodeSection.SelectToken("enableWorkspaceCache")?.Value<bool>() ?? true;
+						sm.UseWorkspaceCache = enableCache;
+
+						Log.Information("Settings: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}, EnableWorkspaceCache={EnableCache}",
+							indexingMode, allowWrites, customPath ?? "(none)", enableCache);
 					}
 				}
 
@@ -240,6 +244,21 @@ _ = Task.Run(async () =>
 #endif
 
 await server.WaitForExit;
+
+// Save workspace cache on shutdown
+try
+{
+	var sm = server.Services.GetService<ScriptManager>();
+	if (sm is not null && sm.UseWorkspaceCache)
+	{
+		Log.Information("Saving workspace cache on shutdown...");
+		await sm.SaveWorkspaceCacheAsync();
+	}
+}
+catch (Exception ex)
+{
+	Log.Error(ex, "Failed to save workspace cache on shutdown");
+}
 
 #if FLAG_MEMORY_DEBUG
 memoryMonitorCts.Cancel();

@@ -28,7 +28,7 @@ public sealed class MacroDefinitionCache
     /// Per-file tracking of which macros came from which source.
     /// Used for cleanup when files are closed/removed.
     /// </summary>
-    private readonly ConcurrentDictionary<string, HashSet<MacroCacheKey>> _fileToMacros = new();
+    private readonly ConcurrentDictionary<string, HashSet<MacroCacheKey>> _fileToMacros = new(StringComparer.OrdinalIgnoreCase);
 
     private MacroDefinitionCache() { }
 
@@ -97,6 +97,27 @@ public sealed class MacroDefinitionCache
     }
 
     /// <summary>
+    /// Registers a macro name/source association for tracking purposes (e.g., on cache restore),
+    /// without requiring a full MacroDefinition object. Only updates _fileToMacros so that
+    /// GetDetailedStatistics() correctly counts GSH files and macro totals after a cache load.
+    /// </summary>
+    /// <param name="sourceFilePath">The file that defines the macro (null for built-ins, skipped).</param>
+    /// <param name="macroName">The macro name.</param>
+    public void TrackMacroSource(string? sourceFilePath, string macroName)
+    {
+        if (sourceFilePath is null) return;
+
+        string cacheFilePath = ScriptFileResolver.NormalizeFilePathForUri(sourceFilePath);
+        MacroCacheKey key = new(cacheFilePath, macroName);
+
+        HashSet<MacroCacheKey> set = _fileToMacros.GetOrAdd(cacheFilePath, _ => []);
+        lock (set)
+        {
+            set.Add(key);
+        }
+    }
+
+    /// <summary>
     /// Clears the entire cache. Use sparingly (e.g., on workspace reload).
     /// </summary>
     public void Clear()
@@ -118,7 +139,18 @@ public sealed class MacroDefinitionCache
                 gshCount++;
             }
         }
-        return (_cache.Count, _fileToMacros.Count, gshCount);
+        // Count total macros from _fileToMacros set sizes: this includes both fully-cached
+        // macros (registered via GetOrAdd) and tracking-only entries added via TrackMacroSource
+        // on cache restore.  Using _cache.Count would miss the latter.
+        int totalMacros = 0;
+        foreach (var set in _fileToMacros.Values)
+        {
+            lock (set)
+            {
+                totalMacros += set.Count;
+            }
+        }
+        return (totalMacros, _fileToMacros.Count, gshCount);
     }
 
     /// <summary>
@@ -126,5 +158,15 @@ public sealed class MacroDefinitionCache
     /// Uniqueness is based on source file and macro name only.
     /// Within a single file, macro names must be unique (no redefinitions allowed).
     /// </summary>
-    private readonly record struct MacroCacheKey(string SourceFile, string MacroName);
+    private readonly record struct MacroCacheKey(string SourceFile, string MacroName) : IEquatable<MacroCacheKey>
+    {
+        public bool Equals(MacroCacheKey other) =>
+            string.Equals(SourceFile, other.SourceFile, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(MacroName, other.MacroName, StringComparison.OrdinalIgnoreCase);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(SourceFile),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(MacroName));
+    }
 }

@@ -50,6 +50,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     // Reader-writer lock for operations that need atomicity across multiple dictionaries
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
 
+
     /// <summary>
     /// Finds a symbol by namespace and name. If namespace is provided, searches that namespace first.
     /// Falls back to searching all namespaces if not found.
@@ -105,16 +106,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     /// all other files (workspace, mod) are priority 1 and always win.
     /// </summary>
     private static int GetSourcePriority(string filePath)
-    {
-        string? toolsPath = Environment.GetEnvironmentVariable("TA_TOOLS_PATH");
-        if (!string.IsNullOrEmpty(toolsPath))
-        {
-            string sharedRaw = Path.Combine(toolsPath, "share", "raw");
-            if (filePath.StartsWith(sharedRaw, StringComparison.OrdinalIgnoreCase))
-                return 0;
-        }
-        return 1;
-    }
+        => WorkspaceBoundaryFilter.IsInToolsRawFolder(filePath) ? 0 : 1;
 
     /// <summary>
     /// Internal name-only lookup. Caller must already hold the read lock.
@@ -204,15 +196,13 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         _lock.EnterWriteLock();
         try
         {
-            var newSymbolsList = newSymbols.ToList();
             var ownedKeys = new HashSet<QualifiedSymbolKey>();
             bool changed = false;
 
             _fileIndex.TryGetValue(filePath, out var existingOwned);
-            var existingOwnedSet = existingOwned?.Keys.ToHashSet() ?? new HashSet<QualifiedSymbolKey>();
 
             // --- Pass 1: process all submitted symbols ---
-            foreach (var def in newSymbolsList)
+            foreach (var def in newSymbols)
             {
                 var key = QualifiedSymbolKey.Normalized(def.Namespace, def.Name);
 
@@ -246,21 +236,27 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
             }
 
             // --- Pass 2: remove owned keys this file no longer exports ---
-            foreach (var key in existingOwnedSet.Except(ownedKeys))
+            if (existingOwned is not null)
             {
-                if (!(_symbols.TryGetValue(key, out var owner) &&
-                      string.Equals(owner.FilePath, filePath, StringComparison.OrdinalIgnoreCase) &&
-                      _symbols.TryRemove(key, out var removed)))
-                    continue;
-
-                changed = true;
-
-                var normalizedName = removed.Name.ToLowerInvariant();
-                if (_nameIndex.TryGetValue(normalizedName, out var nameKeys))
+                foreach (var key in existingOwned.Keys)
                 {
-                    nameKeys.TryRemove(key, out _);
-                    if (nameKeys.IsEmpty)
-                        _nameIndex.TryRemove(normalizedName, out _);
+                    if (ownedKeys.Contains(key))
+                        continue;
+
+                    if (!(_symbols.TryGetValue(key, out var owner) &&
+                          string.Equals(owner.FilePath, filePath, StringComparison.OrdinalIgnoreCase) &&
+                          _symbols.TryRemove(key, out var removed)))
+                        continue;
+
+                    changed = true;
+
+                    var normalizedName = removed.Name.ToLowerInvariant();
+                    if (_nameIndex.TryGetValue(normalizedName, out var nameKeys))
+                    {
+                        nameKeys.TryRemove(key, out _);
+                        if (nameKeys.IsEmpty)
+                            _nameIndex.TryRemove(normalizedName, out _);
+                    }
                 }
             }
 

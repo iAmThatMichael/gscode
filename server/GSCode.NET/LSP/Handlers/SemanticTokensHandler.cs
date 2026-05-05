@@ -5,7 +5,6 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
 using Serilog;
-using System.Linq;
 
 namespace GSCode.NET.LSP.Handlers;
 
@@ -55,13 +54,8 @@ internal class SemanticTokensHandler(
 
         var tokens = await script.GetSemanticTokensAsync(cancellationToken);
 
-        // Sort tokens chronologically (required by OmniSharp)
-        var sorted = tokens
-            .OrderBy(t => t.Range.Start.Line)
-            .ThenBy(t => t.Range.Start.Character)
-            .ToList();
-
-        foreach (var token in sorted)
+        // Tokens are pre-sorted by FinalizeSemanticTokens during analysis (line/character order).
+        foreach (var token in tokens)
         {
             int length = token.Range.End.Character - token.Range.Start.Character;
             SemanticTokenType tokenType = new(token.SemanticTokenType);

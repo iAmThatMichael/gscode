@@ -22,11 +22,6 @@ public class CachedScript
     public int LastContentHash { get; set; } = 0;
 
     /// <summary>
-    /// Hash of exported symbols from last parse. Used to detect if dependents need re-analysis.
-    /// </summary>
-    public int LastExportedSymbolsHash { get; set; } = 0;
-
-    /// <summary>
     /// Timestamp of last successful parse.
     /// </summary>
     public DateTime LastParsedAt { get; set; } = DateTime.MinValue;
@@ -36,5 +31,3 @@ public class CachedScript
     /// </summary>
     public bool ExportedSymbolsChanged { get; set; } = true;
 }
-
-public readonly record struct LoadedScript(Uri Uri, Script Script);

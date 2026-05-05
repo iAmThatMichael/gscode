@@ -142,6 +142,12 @@ public partial class ScriptManager
             foreach (var kv in Scripts)
                 kv.Value.Script.ReleaseCachedMacroPaths();
 
+            // Release parse and analysis semaphores for indexed files. Editor-opened files have
+            // their locks cleaned up via RemoveEditor; indexed-only files are never removed that
+            // way, so without this they leak one SemaphoreSlim per file for the server lifetime.
+            foreach (var kv in Scripts)
+                CleanupLocksForUri(kv.Key);
+
             // Signal that all files (and their #insert'd GSH macros) are now in the cache.
             IsIndexingComplete = true;
         }

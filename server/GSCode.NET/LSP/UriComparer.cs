@@ -20,7 +20,7 @@ internal sealed class UriComparer : IEqualityComparer<Uri>
     }
 
     public int GetHashCode(Uri uri)
-        => uri.AbsoluteUri.ToLowerInvariant().GetHashCode(StringComparison.Ordinal);
+        => StringComparer.OrdinalIgnoreCase.GetHashCode(uri.AbsoluteUri);
 }
 
 /// <summary>

@@ -85,54 +85,30 @@ LanguageServer server = await LanguageServer.From(options =>
 				var sm = server.Services.GetRequiredService<ScriptManager>();
 
 				if (request.InitializationOptions is JToken initOptions)
-				{
-					var gscodeSection = initOptions.SelectToken("gscode");
-					if (gscodeSection is not null)
 					{
-						// Log level
-						var logLevelValue = gscodeSection.SelectToken("serverLogLevel")?.Value<string>()?.ToLowerInvariant() ?? "off";
-						loggingLevelSwitch.MinimumLevel = logLevelValue switch
-						{
-							"off" => LogEventLevel.Warning,
-							"messages" => LogEventLevel.Information,
-							"verbose" => LogEventLevel.Debug,
-							_ => LogEventLevel.Information
-						};
-						Log.Information("Server log level set to: {LogLevel}", logLevelValue);
+						var indexingMode = InitializationOptionsReader.ParseWorkspaceIndexingMode(initOptions);
+						var customPath   = InitializationOptionsReader.ParseCustomRawPath(initOptions);
+						var allowWrites  = InitializationOptionsReader.ParseAllowRawFolderWrites(initOptions);
+						var enableCache  = InitializationOptionsReader.ParseEnableWorkspaceCache(initOptions);
 
-						// Indexing mode
-						var indexingModeStr = gscodeSection.SelectToken("workspaceIndexingMode")?.Value<string>()?.ToLowerInvariant();
-						var indexingMode = indexingModeStr switch
-						{
-							"full" => IndexingMode.Full,
-							"partial" => IndexingMode.Partial,
-							_ => IndexingMode.Off
-						};
+						loggingLevelSwitch.MinimumLevel = InitializationOptionsReader.ParseServerLogLevel(initOptions);
 
 						var completionOpts = CompletionOptions.Current;
 						completionOpts.WorkspaceIndexingMode = indexingMode;
+						completionOpts.AllowRawFolderWrites  = allowWrites;
 
-						// Custom raw path
-						var customPath = gscodeSection.SelectToken("customRawPath")?.Value<string>();
-						if (!string.IsNullOrWhiteSpace(customPath))
+						if (customPath is not null)
 						{
 							completionOpts.CustomRawPath = customPath;
 							sm.CustomRawPath = customPath;
 							Log.Information("CustomRawPath set: {Path}", customPath);
 						}
 
-						// Allow raw folder writes
-						var allowWrites = gscodeSection.SelectToken("allowRawFolderWrites")?.Value<bool>() ?? false;
-						completionOpts.AllowRawFolderWrites = allowWrites;
-
-						// Workspace cache toggle
-						var enableCache = gscodeSection.SelectToken("enableWorkspaceCache")?.Value<bool>() ?? true;
 						sm.UseWorkspaceCache = enableCache;
 
 						Log.Information("Settings: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}, EnableWorkspaceCache={EnableCache}",
 							indexingMode, allowWrites, customPath ?? "(none)", enableCache);
 					}
-				}
 
 				// Start workspace indexing
 				var indexingCts = new CancellationTokenSource();

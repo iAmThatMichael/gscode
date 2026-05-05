@@ -12,14 +12,12 @@ internal class SignatureHelpHandler(
     ScriptManager scriptManager,
     TextDocumentSelector documentSelector) : SignatureHelpHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
     public override async Task<SignatureHelp?> Handle(SignatureHelpParams request, CancellationToken cancellationToken)
     {
         Log.Information("SignatureHelp request received, processing...");
         var sw = Stopwatch.StartNew();
-        Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
+        Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null)
         {
             sw.Stop();
@@ -36,7 +34,7 @@ internal class SignatureHelpHandler(
         SignatureHelpCapability capability, ClientCapabilities clientCapabilities)
         => new()
         {
-            DocumentSelector = _documentSelector,
+            DocumentSelector = documentSelector,
             TriggerCharacters = new Container<string>("(", ",", ")"),
             RetriggerCharacters = new Container<string>(",", ")")
         };

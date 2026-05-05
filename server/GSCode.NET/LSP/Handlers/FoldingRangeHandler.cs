@@ -13,13 +13,11 @@ internal class FoldingRangeHandler(
     ScriptManager scriptManager,
     TextDocumentSelector documentSelector) : FoldingRangeHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
     public override async Task<Container<FoldingRange>?> Handle(FoldingRangeRequestParam request, CancellationToken cancellationToken)
     {
         Log.Information("Folding range request received, processing...");
-        Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
+        Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null) return new Container<FoldingRange>();
         var ranges = await script.GetFoldingRangesAsync(cancellationToken);
         var result = ranges.ToArray();
@@ -29,5 +27,5 @@ internal class FoldingRangeHandler(
 
     protected override FoldingRangeRegistrationOptions CreateRegistrationOptions(
         FoldingRangeCapability capability, ClientCapabilities clientCapabilities)
-        => new() { DocumentSelector = _documentSelector };
+        => new() { DocumentSelector = documentSelector };
 }

@@ -12,14 +12,12 @@ internal class HoverHandler(
     ScriptManager scriptManager,
     TextDocumentSelector documentSelector) : HoverHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
     public override async Task<Hover?> Handle(HoverParams request, CancellationToken cancellationToken)
     {
         Log.Information("Hover request received, processing...");
         var sw = Stopwatch.StartNew();
-        Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
+        Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null) { sw.Stop(); return null; }
         var result = await script.GetHoverAsync(request.Position, cancellationToken);
         sw.Stop();
@@ -29,5 +27,5 @@ internal class HoverHandler(
 
     protected override HoverRegistrationOptions CreateRegistrationOptions(
         HoverCapability capability, ClientCapabilities clientCapabilities)
-        => new() { DocumentSelector = _documentSelector };
+        => new() { DocumentSelector = documentSelector };
 }

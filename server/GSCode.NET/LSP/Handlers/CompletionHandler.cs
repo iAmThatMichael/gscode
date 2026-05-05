@@ -12,8 +12,6 @@ internal class CompletionHandler(
     ScriptManager scriptManager,
     TextDocumentSelector documentSelector) : CompletionHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
     public override Task<CompletionItem> Handle(CompletionItem request, CancellationToken cancellationToken)
         => Task.FromResult(request);
@@ -23,7 +21,7 @@ internal class CompletionHandler(
         Log.Information("Completion request for {Uri} at {Line}:{Char}",
             request.TextDocument.Uri, request.Position.Line, request.Position.Character);
         var sw = Stopwatch.StartNew();
-        Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
+        Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null)
         {
             Log.Warning("Completion: script is NULL for {Uri}", request.TextDocument.Uri);
@@ -41,7 +39,7 @@ internal class CompletionHandler(
         CompletionCapability capability, ClientCapabilities clientCapabilities)
         => new()
         {
-            DocumentSelector = _documentSelector,
+            DocumentSelector = documentSelector,
             TriggerCharacters = new List<string> { ".", ":", "#", "(", ",", "\\", "/" },
             ResolveProvider = true
         };

@@ -11,12 +11,10 @@ internal class DocumentHighlightHandler(
     ScriptManager scriptManager,
     TextDocumentSelector documentSelector) : DocumentHighlightHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
     public override async Task<DocumentHighlightContainer?> Handle(DocumentHighlightParams request, CancellationToken cancellationToken)
     {
-        Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
+        Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null) return new DocumentHighlightContainer();
 
         var ranges = await script.GetLocalVariableReferencesAsync(request.Position, includeDeclaration: true, cancellationToken);
@@ -26,5 +24,5 @@ internal class DocumentHighlightHandler(
 
     protected override DocumentHighlightRegistrationOptions CreateRegistrationOptions(
         DocumentHighlightCapability capability, ClientCapabilities clientCapabilities)
-        => new() { DocumentSelector = _documentSelector };
+        => new() { DocumentSelector = documentSelector };
 }

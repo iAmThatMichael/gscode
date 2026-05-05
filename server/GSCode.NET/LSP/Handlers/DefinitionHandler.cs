@@ -18,8 +18,6 @@ internal class DefinitionHandler(
     ScriptManager scriptManager,
     TextDocumentSelector documentSelector) : DefinitionHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
     public override async Task<LocationOrLocationLinks?> Handle(DefinitionParams request, CancellationToken cancellationToken)
     {
@@ -27,7 +25,7 @@ internal class DefinitionHandler(
         Log.Information("Definition request from {DocumentPath} at position {Position}", documentPath, request.Position);
         var sw = Stopwatch.StartNew();
 
-        Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
+        Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null)
         {
             sw.Stop();
@@ -67,7 +65,7 @@ internal class DefinitionHandler(
             }
         }
 
-        Location? remote = _scriptManager.FindSymbolLocation(ns, name, documentPath);
+        Location? remote = scriptManager.FindSymbolLocation(ns, name, documentPath);
         sw.Stop();
         if (remote is not null)
         {
@@ -83,5 +81,5 @@ internal class DefinitionHandler(
 
     protected override DefinitionRegistrationOptions CreateRegistrationOptions(
         DefinitionCapability capability, ClientCapabilities clientCapabilities)
-        => new() { DocumentSelector = _documentSelector };
+        => new() { DocumentSelector = documentSelector };
 }

@@ -43,4 +43,7 @@ internal static class InitializationOptionsReader
 
     public static bool ParseAllowRawFolderWrites(JToken? initOptions)
         => GetGsCodeSection(initOptions)?["allowRawFolderWrites"]?.Value<bool>() ?? false;
+
+    public static bool ParseEnableWorkspaceCache(JToken? initOptions)
+        => GetGsCodeSection(initOptions)?["enableWorkspaceCache"]?.Value<bool>() ?? false;
 }

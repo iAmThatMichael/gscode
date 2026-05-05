@@ -13,12 +13,10 @@ internal class ReferencesHandler(
     ScriptManager scriptManager,
     TextDocumentSelector documentSelector) : ReferencesHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
     public override async Task<LocationContainer?> Handle(ReferenceParams request, CancellationToken cancellationToken)
     {
-        Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
+        Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null) return new LocationContainer();
 
         // Try local variable references first
@@ -41,7 +39,7 @@ internal class ReferencesHandler(
         };
 
         var results = new List<Location>();
-        foreach (var loaded in _scriptManager.GetLoadedScripts())
+        foreach (var loaded in scriptManager.GetLoadedScripts())
         {
             foreach (var key in keys)
             {
@@ -70,5 +68,5 @@ internal class ReferencesHandler(
 
     protected override ReferenceRegistrationOptions CreateRegistrationOptions(
         ReferenceCapability capability, ClientCapabilities clientCapabilities)
-        => new() { DocumentSelector = _documentSelector };
+        => new() { DocumentSelector = documentSelector };
 }

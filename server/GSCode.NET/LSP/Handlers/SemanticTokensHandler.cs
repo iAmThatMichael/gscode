@@ -12,8 +12,6 @@ internal class SemanticTokensHandler(
     ScriptManager scriptManager,
     TextDocumentSelector documentSelector) : SemanticTokensHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
     private static readonly SemanticTokenType[] s_tokenTypes =
     [
@@ -31,7 +29,7 @@ internal class SemanticTokensHandler(
         SemanticTokensCapability capability, ClientCapabilities clientCapabilities)
         => new()
         {
-            DocumentSelector = _documentSelector,
+            DocumentSelector = documentSelector,
             Legend = new SemanticTokensLegend
             {
                 TokenTypes = new Container<SemanticTokenType>(s_tokenTypes),
@@ -49,7 +47,7 @@ internal class SemanticTokensHandler(
         ITextDocumentIdentifierParams identifier, CancellationToken cancellationToken)
     {
         Log.Information("Tokenization request received, processing...");
-        Script? script = _scriptManager.GetParsedEditor(identifier.TextDocument);
+        Script? script = scriptManager.GetParsedEditor(identifier.TextDocument);
         if (script is null) return;
 
         var tokens = await script.GetSemanticTokensAsync(cancellationToken);

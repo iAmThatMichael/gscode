@@ -14,15 +14,13 @@ internal class DocumentSymbolHandler(
     ScriptManager scriptManager,
     TextDocumentSelector documentSelector) : DocumentSymbolHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
     public override async Task<SymbolInformationOrDocumentSymbolContainer?> Handle(
         DocumentSymbolParams request, CancellationToken cancellationToken)
     {
         Log.Information("DocumentSymbol (outline) request received");
         var sw = Stopwatch.StartNew();
-        Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
+        Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null || script.DefinitionsTable is null)
         {
             sw.Stop();
@@ -113,5 +111,5 @@ internal class DocumentSymbolHandler(
 
     protected override DocumentSymbolRegistrationOptions CreateRegistrationOptions(
         DocumentSymbolCapability capability, ClientCapabilities clientCapabilities)
-        => new() { DocumentSelector = _documentSelector };
+        => new() { DocumentSelector = documentSelector };
 }

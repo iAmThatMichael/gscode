@@ -15,14 +15,11 @@ internal sealed class CodeActionHandler(
     ScriptManager scriptManager,
     TextDocumentSelector documentSelector) : CodeActionHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
-
     protected override CodeActionRegistrationOptions CreateRegistrationOptions(
         CodeActionCapability capability, ClientCapabilities clientCapabilities)
         => new()
         {
-            DocumentSelector = _documentSelector,
+            DocumentSelector = documentSelector,
             ResolveProvider = true,
             CodeActionKinds = new Container<CodeActionKind>(
                 CodeActionKind.QuickFix,
@@ -45,7 +42,7 @@ internal sealed class CodeActionHandler(
         var actions = new List<CodeAction>();
 
         // Pre-fetch cached document text once — only needed by a subset of fixes
-        _scriptManager.TryGetCachedContent(request.TextDocument.Uri.ToUri(), out string content);
+        scriptManager.TryGetCachedContent(request.TextDocument.Uri.ToUri(), out string content);
 
         foreach (Diagnostic diagnostic in request.Context.Diagnostics)
         {
@@ -415,7 +412,7 @@ internal sealed class CodeActionHandler(
     private async Task<CodeAction?> TryCreateRemoveAllUnusedUsingsActionAsync(
         TextDocumentIdentifier document, CancellationToken cancellationToken)
     {
-        Script? script = _scriptManager.GetParsedEditor(document);
+        Script? script = scriptManager.GetParsedEditor(document);
         if (script is null)
         {
             return null;
@@ -611,8 +608,8 @@ internal sealed class CodeActionHandler(
         string? functionName = TryExtractQualifiedFunctionName(content, diagnostic.Range.End);
 
         List<string> filePaths = functionName is not null
-            ? _scriptManager.SymbolRegistry.FindFilesForNamespacedFunction(namespaceName, functionName)
-            : _scriptManager.SymbolRegistry.FindFilesForNamespace(namespaceName);
+            ? scriptManager.SymbolRegistry.FindFilesForNamespacedFunction(namespaceName, functionName)
+            : scriptManager.SymbolRegistry.FindFilesForNamespace(namespaceName);
 
         if (filePaths.Count == 0)
         {
@@ -993,7 +990,4 @@ internal sealed class CodeActionHandler(
         return sb.ToString();
     }
 }
-
-
-
 

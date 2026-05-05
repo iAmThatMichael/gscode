@@ -14,7 +14,6 @@ namespace GSCode.NET.LSP.Handlers;
 internal class DidChangeWatchedFilesHandler(
     ScriptManager scriptManager) : DidChangeWatchedFilesHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
 
     public override async Task<Unit> Handle(DidChangeWatchedFilesParams request, CancellationToken cancellationToken)
     {
@@ -36,7 +35,7 @@ internal class DidChangeWatchedFilesHandler(
         if (hasScriptChange)
         {
             Log.Information("Watched script file changed; re-parsing all open editors");
-            await _scriptManager.ReparseAllOpenEditorsAsync(cancellationToken);
+            await scriptManager.ReparseAllOpenEditorsAsync(cancellationToken);
         }
 
         return Unit.Value;

@@ -20,9 +20,6 @@ internal class TextDocumentSyncHandler(
     TextDocumentSelector documentSelector)
     : TextDocumentSyncHandlerBase
 {
-    private readonly ILanguageServerFacade _facade = facade;
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
     public override TextDocumentAttributes GetTextDocumentAttributes(DocumentUri uri)
         => new(uri, "gsc");
@@ -31,7 +28,7 @@ internal class TextDocumentSyncHandler(
         TextSynchronizationCapability capability, ClientCapabilities clientCapabilities)
         => new()
         {
-            DocumentSelector = _documentSelector,
+            DocumentSelector = documentSelector,
             Change = TextDocumentSyncKind.Incremental,
             Save = new SaveOptions { IncludeText = false }
         };
@@ -40,7 +37,7 @@ internal class TextDocumentSyncHandler(
         TextSynchronizationCapability capability, ClientCapabilities clientCapabilities)
         => new()
         {
-            DocumentSelector = _documentSelector,
+            DocumentSelector = documentSelector,
             SyncKind = TextDocumentSyncKind.Incremental
         };
 
@@ -48,8 +45,8 @@ internal class TextDocumentSyncHandler(
     {
         Log.Information("Document opened");
         var sw = Stopwatch.StartNew();
-        var diags = await _scriptManager.AddEditorAsync(request.TextDocument, ct);
-        _facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
+        var diags = await scriptManager.AddEditorAsync(request.TextDocument, ct);
+        facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
         {
             Uri = request.TextDocument.Uri,
             Diagnostics = new Container<Diagnostic>(diags)
@@ -66,8 +63,8 @@ internal class TextDocumentSyncHandler(
         Log.Information("Document changed ({ChangeType}, {ChangeCount} change(s))",
             changeType, request.ContentChanges.Count());
         var sw = Stopwatch.StartNew();
-        var diags = await _scriptManager.UpdateEditorAsync(request.TextDocument, request.ContentChanges, ct);
-        _facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
+        var diags = await scriptManager.UpdateEditorAsync(request.TextDocument, request.ContentChanges, ct);
+        facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
         {
             Uri = request.TextDocument.Uri,
             Diagnostics = new Container<Diagnostic>(diags)
@@ -82,7 +79,7 @@ internal class TextDocumentSyncHandler(
     {
         Log.Information("Document closed");
         var sw = Stopwatch.StartNew();
-        _scriptManager.RemoveEditor(request.TextDocument);
+        scriptManager.RemoveEditor(request.TextDocument);
         sw.Stop();
         Log.Information("Document close processed in {ElapsedMs} ms", sw.ElapsedMilliseconds);
         return Unit.Task;
@@ -96,7 +93,7 @@ internal class TextDocumentSyncHandler(
             if (IsInProtectedRawFolder(path))
             {
                 Log.Warning("File saved in protected raw folder: {Path}", path);
-                _facade.SendNotification("gscode/rawFolderWriteWarning", new { path });
+                facade.SendNotification("gscode/rawFolderWriteWarning", new { path });
             }
         }
         return Unit.Task;

@@ -77,6 +77,7 @@ LanguageServer server = await LanguageServer.From(options =>
 				new TextDocumentFilter { Pattern = "**/*.csc" },
 				new TextDocumentFilter { Pattern = "**/*.gsh" }
 			));
+			services.AddSingleton(loggingLevelSwitch);
 		})
 		.OnInitialize(async (server, request, ct) =>
 		{

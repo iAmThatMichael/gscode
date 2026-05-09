@@ -85,53 +85,60 @@ LanguageServer server = await LanguageServer.From(options =>
 				var sm = server.Services.GetRequiredService<ScriptManager>();
 
 				if (request.InitializationOptions is JToken initOptions)
+				{
+					var indexingMode = InitializationOptionsReader.ParseWorkspaceIndexingMode(initOptions);
+					var customPath   = InitializationOptionsReader.ParseCustomRawPath(initOptions);
+					var allowWrites  = InitializationOptionsReader.ParseAllowRawFolderWrites(initOptions);
+					var enableCache  = InitializationOptionsReader.ParseEnableWorkspaceCache(initOptions);
+
+					loggingLevelSwitch.MinimumLevel = InitializationOptionsReader.ParseServerLogLevel(initOptions);
+
+					var completionOpts = CompletionOptions.Current;
+					completionOpts.WorkspaceIndexingMode = indexingMode;
+					completionOpts.AllowRawFolderWrites  = allowWrites;
+
+					if (customPath is not null)
 					{
-						var indexingMode = InitializationOptionsReader.ParseWorkspaceIndexingMode(initOptions);
-						var customPath   = InitializationOptionsReader.ParseCustomRawPath(initOptions);
-						var allowWrites  = InitializationOptionsReader.ParseAllowRawFolderWrites(initOptions);
-						var enableCache  = InitializationOptionsReader.ParseEnableWorkspaceCache(initOptions);
-
-						loggingLevelSwitch.MinimumLevel = InitializationOptionsReader.ParseServerLogLevel(initOptions);
-
-						var completionOpts = CompletionOptions.Current;
-						completionOpts.WorkspaceIndexingMode = indexingMode;
-						completionOpts.AllowRawFolderWrites  = allowWrites;
-
-						if (customPath is not null)
-						{
-							completionOpts.CustomRawPath = customPath;
-							sm.CustomRawPath = customPath;
-							Log.Information("CustomRawPath set: {Path}", customPath);
-						}
-
-						sm.UseWorkspaceCache = enableCache;
-
-						Log.Information("Settings: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}, EnableWorkspaceCache={EnableCache}",
-							indexingMode, allowWrites, customPath ?? "(none)", enableCache);
+						completionOpts.CustomRawPath = customPath;
+						sm.CustomRawPath = customPath;
+						Log.Information("CustomRawPath set: {Path}", customPath);
 					}
+
+					sm.UseWorkspaceCache = enableCache;
+
+					Log.Information("Settings: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}, EnableWorkspaceCache={EnableCache}",
+						indexingMode, allowWrites, customPath ?? "(none)", enableCache);
+				}
 
 				// Start workspace indexing
 				var indexingCts = new CancellationTokenSource();
 				options.RegisterForDisposal(indexingCts);
 				var indexingToken = indexingCts.Token;
 
-				if (!string.IsNullOrWhiteSpace(CompletionConfiguration.CustomRawPath))
+				if (CompletionConfiguration.WorkspaceIndexingMode != IndexingMode.Off)
 				{
-					string rawPath = CompletionConfiguration.CustomRawPath;
-					if (Directory.Exists(rawPath))
+					if (!string.IsNullOrWhiteSpace(CompletionConfiguration.CustomRawPath))
 					{
-						Log.Information("Starting workspace indexing for CustomRawPath: {Root}", rawPath);
-						_ = Task.Run(() => sm.IndexWorkspaceAsync(rawPath, indexingToken), indexingToken);
+						string rawPath = CompletionConfiguration.CustomRawPath;
+						if (Directory.Exists(rawPath))
+						{
+							Log.Information("Starting workspace indexing for CustomRawPath: {Root}", rawPath);
+							_ = Task.Run(() => sm.IndexWorkspaceAsync(rawPath, indexingToken), indexingToken);
+						}
+					}
+					else if (request.RootUri is not null)
+					{
+						string root = request.RootUri.ToUri().LocalPath;
+						if (Directory.Exists(root))
+						{
+							Log.Information("Starting workspace indexing for: {Root}", root);
+							_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), indexingToken);
+						}
 					}
 				}
-				else if (request.RootUri is not null)
+				else
 				{
-					string root = request.RootUri.ToUri().LocalPath;
-					if (Directory.Exists(root))
-					{
-						Log.Information("Starting workspace indexing for: {Root}", root);
-						_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), indexingToken);
-					}
+					Log.Information("Workspace indexing is disabled (IndexingMode=Off).");
 				}
 			}
 			catch (Exception ex)

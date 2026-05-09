@@ -75,7 +75,7 @@ export async function activate(context: ExtensionContext) {
 
     // Flip SHOULD_TEST_IN_RELEASE to use the release build path during testing, e.g. for performance profiling.
     const testServerLocation = process.env.SHOULD_TEST_IN_RELEASE === "true"
-        ? process.env.RELEASE_SERVER_LOCATION
+        ? process.env.SERVER_LOCATION
         : process.env.DEBUG_SERVER_LOCATION;
 
     const serverLocation = process.env.VSCODE_DEBUG

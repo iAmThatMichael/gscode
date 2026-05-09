@@ -186,6 +186,8 @@ export async function activate(context: ExtensionContext) {
                             customRawPath: updatedConfig.get("customRawPath"),
                             allowRawFolderWrites: updatedConfig.get("allowRawFolderWrites"),
                             workspaceIndexingMode: updatedConfig.get("workspaceIndexingMode"),
+                            serverLogLevel: updatedConfig.get("serverLogLevel"),
+                            enableWorkspaceCache: updatedConfig.get("enableWorkspaceCache"),
                         },
                     },
                 });

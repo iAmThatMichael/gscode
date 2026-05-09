@@ -156,16 +156,18 @@ export async function activate(context: ExtensionContext) {
     await client.start();
 
     // Handle raw folder write warnings sent by the server
-    client.onNotification("gscode/rawFolderWriteWarning", (params: { path: string }) => {
-        window.showWarningMessage(
-            `You are saving '${path.basename(params.path)}' inside a protected raw folder. ` +
-            `Consider working in a separate mod directory to avoid modifying vanilla game files. Enable 'allowRawFolderWrites' in settings to suppress this warning.`,
-            "Open Settings"
-        ).then(action => {
-            if (action === "Open Settings") {
-                vscode.commands.executeCommand("workbench.action.openSettings", "gscode.allowRawFolderWrites");
-            }
-        });
+    client.onNotification("gscode/rawFolderWriteWarning", async (params: { path: string }) => {
+        const cfg = workspace.getConfiguration("gscode");
+        if (cfg.get<boolean>("allowRawFolderWrites", false)) { return; }
+
+        const action = await window.showWarningMessage(
+            `You are saving '${path.basename(params.path)}' inside a protected raw folder. Consider working in a separate mod directory to avoid modifying vanilla game files.`,
+            "Dismiss",
+            "Don't show again"
+        );
+        if (action === "Don't show again") {
+            await cfg.update("allowRawFolderWrites", true, vscode.ConfigurationTarget.Global);
+        }
     });
 
     // Check already-open documents for language mismatch

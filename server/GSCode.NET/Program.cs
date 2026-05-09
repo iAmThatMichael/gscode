@@ -110,26 +110,47 @@ LanguageServer server = await LanguageServer.From(options =>
 					Log.Information("Settings: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}, EnableWorkspaceCache={EnableCache}",
 						indexingMode, allowWrites, customPath ?? "(none)", enableCache);
 				}
+			}
+			catch (Exception ex)
+			{
+				Log.Error(ex, "Failed during initialization");
+			}
+		})
+		.OnInitialized(async (server, request, response, ct) =>
+		{
+			try
+			{
+				if (CompletionConfiguration.WorkspaceIndexingMode == IndexingMode.Off)
+				{
+					Log.Information("Workspace indexing is disabled (IndexingMode=Off).");
+					return;
+				}
 
-				// Start workspace indexing
+				var sm = server.Services.GetRequiredService<ScriptManager>();
 				var indexingCts = new CancellationTokenSource();
 				options.RegisterForDisposal(indexingCts);
 				var indexingToken = indexingCts.Token;
 
-				if (CompletionConfiguration.WorkspaceIndexingMode != IndexingMode.Off)
+				Log.Information("Starting workspace indexing in {Mode} mode", CompletionConfiguration.WorkspaceIndexingMode);
+
+				if (!string.IsNullOrWhiteSpace(CompletionConfiguration.CustomRawPath))
 				{
-					if (!string.IsNullOrWhiteSpace(CompletionConfiguration.CustomRawPath))
+					string rawPath = CompletionConfiguration.CustomRawPath;
+					if (Directory.Exists(rawPath))
 					{
-						string rawPath = CompletionConfiguration.CustomRawPath;
-						if (Directory.Exists(rawPath))
-						{
-							Log.Information("Starting workspace indexing for CustomRawPath: {Root}", rawPath);
-							_ = Task.Run(() => sm.IndexWorkspaceAsync(rawPath, indexingToken), indexingToken);
-						}
+						Log.Information("Starting workspace indexing for CustomRawPath: {Root}", rawPath);
+						_ = Task.Run(() => sm.IndexWorkspaceAsync(rawPath, indexingToken), indexingToken);
 					}
-					else if (request.RootUri is not null)
+					else
 					{
-						string root = request.RootUri.ToUri().LocalPath;
+						Log.Warning("CustomRawPath is set but directory does not exist: {Path}", rawPath);
+					}
+				}
+				else if (request.WorkspaceFolders is not null && request.WorkspaceFolders.Any())
+				{
+					foreach (var wf in request.WorkspaceFolders)
+					{
+						string root = wf.Uri.ToUri().LocalPath;
 						if (Directory.Exists(root))
 						{
 							Log.Information("Starting workspace indexing for: {Root}", root);
@@ -137,14 +158,19 @@ LanguageServer server = await LanguageServer.From(options =>
 						}
 					}
 				}
-				else
+				else if (request.RootUri is not null)
 				{
-					Log.Information("Workspace indexing is disabled (IndexingMode=Off).");
+					string root = request.RootUri.ToUri().LocalPath;
+					if (Directory.Exists(root))
+					{
+						Log.Information("Starting workspace indexing for: {Root}", root);
+						_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), indexingToken);
+					}
 				}
 			}
 			catch (Exception ex)
 			{
-				Log.Error(ex, "Failed during initialization");
+				Log.Error(ex, "Failed to start workspace indexing");
 			}
 		})
 		.AddHandler<TextDocumentSyncHandler>()

@@ -11,7 +11,7 @@ import {
     ServerOptions,
     TransportKind,
 } from "vscode-languageclient/node";
-import dotenv = require("dotenv");
+import * as dotenv from "dotenv";
 
 const REQUIRED_DOTNET_MAJOR = 10;
 const DOTNET_DOWNLOAD_URL = "https://dotnet.microsoft.com/download/dotnet/10.0";
@@ -34,13 +34,13 @@ function isDotnetRuntimeAvailable(): Promise<boolean> {
 
 function checkLanguageMismatch(document: vscode.TextDocument): void {
     const ext = path.extname(document.fileName).toLowerCase();
-    if (ext !== ".gsc" && ext !== ".csc") return;
+    if (ext !== ".gsc" && ext !== ".csc") { return; }
 
     const expectedLang = ext === ".gsc" ? "gsc" : "csc";
-    if (document.languageId === expectedLang) return;
+    if (document.languageId === expectedLang) { return; }
 
     const config = workspace.getConfiguration("gscode");
-    if (!config.get<boolean>("warnLanguageMismatch", true)) return;
+    if (!config.get<boolean>("warnLanguageMismatch", true)) { return; }
 
     window.showWarningMessage(
         `'${path.basename(document.fileName)}' has a ${ext} extension but is set to ${document.languageId.toUpperCase()} language mode. GSCode features may not work correctly.`,

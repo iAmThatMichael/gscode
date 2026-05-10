@@ -96,62 +96,53 @@ public partial class ScriptManager
         string? currentWorkspaceRoot = WorkspaceBoundaryFilter.GetScriptsWorkspaceRoot(filePath);
         bool currentIsInRawFolder = WorkspaceBoundaryFilter.IsInCustomRawFolder(filePath) || WorkspaceBoundaryFilter.IsInToolsRawFolder(filePath);
 
-        var allFuncLocs = new List<(string Namespace, string Name, string FilePath, Range Range)>();
-        var allClassLocs = new List<(string Namespace, string Name, string FilePath, Range Range)>();
+        // Deduplicate inline — first-seen wins, no intermediate lists
+        var uniqueFunctions = new Dictionary<(string, string), (string FilePath, GSCode.Parser.Lexical.TokenRange Range)>();
+        var uniqueClasses   = new Dictionary<(string, string), (string FilePath, GSCode.Parser.Lexical.TokenRange Range)>();
 
         foreach (Uri dependency in dependencies)
         {
             if (!Scripts.TryGetValue(dependency, out CachedScript? depScript)) continue;
 
-            await WithAnalysisLockAsync(dependency, async () =>
+            await WithAnalysisLockAsync(dependency, () =>
             {
                 var depTable = depScript.Script.DefinitionsTable;
-                if (depTable is null) return;
+                if (depTable is null) return Task.CompletedTask;
 
-                foreach (var funcLoc in depTable.GetAllFunctionLocations())
+                // Visit in-place under the lock — no ToList() copy
+                depTable.VisitFunctionLocations((key, funcFilePath, range) =>
                 {
-                    string funcFilePath = funcLoc.Value.FilePath;
                     if (WorkspaceBoundaryFilter.FilterSymbolLocation(funcFilePath, currentWorkspaceRoot, currentIsInRawFolder)
                         != WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)
                     {
                         string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(funcFilePath);
                         if (relativePath != null)
-                            allFuncLocs.Add((funcLoc.Key.Qualifier, funcLoc.Key.SymbolName, relativePath, funcLoc.Value.Range.ToRange()));
+                            uniqueFunctions.TryAdd((key.Qualifier, key.SymbolName), (relativePath, range));
                     }
-                }
+                });
 
-                foreach (var classLoc in depTable.GetAllClassLocations())
+                depTable.VisitClassLocations((key, classFilePath, range) =>
                 {
-                    string classFilePath = classLoc.Value.FilePath;
                     if (WorkspaceBoundaryFilter.FilterSymbolLocation(classFilePath, currentWorkspaceRoot, currentIsInRawFolder)
                         != WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)
                     {
                         string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(classFilePath);
                         if (relativePath != null)
-                            allClassLocs.Add((classLoc.Key.Qualifier, classLoc.Key.SymbolName, relativePath, classLoc.Value.Range.ToRange()));
+                            uniqueClasses.TryAdd((key.Qualifier, key.SymbolName), (relativePath, range));
                     }
-                }
+                });
 
-                await Task.CompletedTask;
+                return Task.CompletedTask;
             }, cancellationToken);
         }
 
-        // Deduplicate: first-seen wins
-        var uniqueFunctions = new Dictionary<(string Namespace, string Name), (string FilePath, Range Range)>();
-        var uniqueClasses = new Dictionary<(string Namespace, string Name), (string FilePath, Range Range)>();
-
-        foreach (var func in allFuncLocs)
-            uniqueFunctions.TryAdd((func.Namespace, func.Name), (func.FilePath, func.Range));
-
-        foreach (var cls in allClassLocs)
-            uniqueClasses.TryAdd((cls.Namespace, cls.Name), (cls.FilePath, cls.Range));
-
+        // ToRange() called only on unique survivors
         var mergeFuncLocs = uniqueFunctions
-            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, kvp.Value))
+            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, (kvp.Value.FilePath, kvp.Value.Range.ToRange())))
             .ToList();
 
         var mergeClassLocs = uniqueClasses
-            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, kvp.Value))
+            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, (kvp.Value.FilePath, kvp.Value.Range.ToRange())))
             .ToList();
 
         return (mergeFuncLocs, mergeClassLocs);

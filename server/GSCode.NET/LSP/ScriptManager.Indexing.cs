@@ -129,25 +129,6 @@ public partial class ScriptManager
                 await SaveWorkspaceCacheAsync();
             }
 
-            // Release the loaded cache object — all data has been restored into live Script
-            // objects and re-saved to disk. Release before signalling completion so that the
-            // ~190 MB decompressed JSON graph is eligible for GC before the memory monitor
-            // takes its first stable reading.
-            _workspaceCache = null;
-
-            // Release per-script cached macro path dictionaries — these were only needed during
-            // cache restore (to register into MacroDefinitionCache) and during the cache re-save
-            // above (GetMacroSourcePaths fallback). Both uses are now complete, so null them out
-            // to free the ~387 K string-pair entries that would otherwise live for the session.
-            foreach (var kv in Scripts)
-                kv.Value.Script.ReleaseCachedMacroPaths();
-
-            // Release parse and analysis semaphores for indexed files. Editor-opened files have
-            // their locks cleaned up via RemoveEditor; indexed-only files are never removed that
-            // way, so without this they leak one SemaphoreSlim per file for the server lifetime.
-            foreach (var kv in Scripts)
-                CleanupLocksForUri(kv.Key);
-
             // Signal that all files (and their #insert'd GSH macros) are now in the cache.
             IsIndexingComplete = true;
         }
@@ -158,6 +139,25 @@ public partial class ScriptManager
         catch (Exception ex)
         {
             Log.Error(ex, "Indexing failed for {Root}", rootDirectory);
+        }
+        finally
+        {
+            // Release the loaded cache object — all data has been restored into live Script
+            // objects and re-saved to disk (full path), or indexing was interrupted (partial/failed
+            // paths).
+            _workspaceCache = null;
+
+            // Release per-script cached macro path dictionaries — these were only needed during
+            // cache restore and the cache re-save. Both uses are now complete (or will never run),
+            // so null them out to free the string-pair entries.
+            foreach (var kv in Scripts)
+                kv.Value.Script.ReleaseCachedMacroPaths();
+
+            // Release parse and analysis semaphores for indexed files. Editor-opened files have
+            // their locks cleaned up via RemoveEditor; indexed-only files are never removed that
+            // way, so without this they leak one SemaphoreSlim per file for the server lifetime.
+            foreach (var kv in Scripts)
+                CleanupLocksForUri(kv.Key);
         }
     }
 

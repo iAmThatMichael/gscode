@@ -176,6 +176,30 @@ public class DefinitionsTable
     }
 
     /// <summary>
+    /// Iterates function locations under the lock without allocating a copy.
+    /// </summary>
+    public void VisitFunctionLocations(Action<QualifiedSymbolKey, string, TokenRange> visitor)
+    {
+        lock (_lock)
+        {
+            foreach (var kvp in _functionLocations)
+                visitor(kvp.Key, kvp.Value.FilePath, kvp.Value.Range);
+        }
+    }
+
+    /// <summary>
+    /// Iterates class locations under the lock without allocating a copy.
+    /// </summary>
+    public void VisitClassLocations(Action<QualifiedSymbolKey, string, TokenRange> visitor)
+    {
+        lock (_lock)
+        {
+            foreach (var kvp in _classLocations)
+                visitor(kvp.Key, kvp.Value.FilePath, kvp.Value.Range);
+        }
+    }
+
+    /// <summary>
     /// Gets a method on a specific class by name.
     /// Searches both the class's methods and its parent class chain.
     /// </summary>

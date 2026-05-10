@@ -117,7 +117,7 @@ public partial class ScriptManager
             Log.Information("Indexing completed in {ElapsedMs} ms for {Count} files ({CacheHits} from cache, {Parsed} parsed)",
                 swAll.ElapsedMilliseconds, filesList.Count, cacheHits, filesList.Count - cacheHits);
 
-            if (missNotInCache > 0 || missHashMismatch > 0 || missRestoreFailed > 0)
+            if (UseWorkspaceCache && (missNotInCache > 0 || missHashMismatch > 0 || missRestoreFailed > 0))
             {
                 Log.Information("Cache miss breakdown — new/uncached: {NotInCache}, changed: {HashMismatch}, restore error: {RestoreFailed}",
                     missNotInCache, missHashMismatch, missRestoreFailed);

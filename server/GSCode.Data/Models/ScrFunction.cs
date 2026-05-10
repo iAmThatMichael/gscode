@@ -17,11 +17,13 @@ public partial record class ScrFunction : IExportedSymbol
     /// <summary>The documentation comment for this function (user-defined scripts only).</summary>
     public string? DocComment { get; set; }
 
+    private List<ScrFunctionOverload>? _overloads;
     /// <summary>The overloads (variants) of this function.</summary>
-    public List<ScrFunctionOverload> Overloads { get; set; } = [];
+    public List<ScrFunctionOverload> Overloads { get => _overloads ??= []; set => _overloads = value; }
 
+    private List<string>? _flags;
     /// <summary>The flags list of this function, which may be empty.</summary>
-    public List<string> Flags { get; set; } = [];
+    public List<string> Flags { get => _flags ??= []; set => _flags = value; }
 
     /// <summary>
     /// The confidence level for processed entries ("low", "medium", "high").

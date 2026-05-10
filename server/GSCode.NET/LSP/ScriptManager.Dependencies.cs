@@ -48,6 +48,10 @@ public partial class ScriptManager
             // Populate global symbol registry with dependency's definitions
             bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
 
+            // Location dictionaries are now redundant for dependency scripts — the global
+            // registry serves all workspace-wide lookups from here on.
+            cached.Script.StripLocationData();
+
             cached.ExportedSymbolsChanged = symbolsChanged;
             cached.LastParsedAt = DateTime.UtcNow;
             sw.Stop();

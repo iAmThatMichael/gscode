@@ -337,6 +337,12 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Frees the per-script location dictionaries after the global symbol registry has been
+    /// populated. Call on dependency scripts in Index mode once PopulateSymbolRegistry has run.
+    /// </summary>
+    public void StripLocationData() => DefinitionsTable?.StripLocationData();
+
 
     public async Task<List<Diagnostic>> GetDiagnosticsAsync(CancellationToken cancellationToken)
     {

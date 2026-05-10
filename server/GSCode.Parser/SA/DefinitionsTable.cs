@@ -343,6 +343,22 @@ public class DefinitionsTable
     }
 
     /// <summary>
+    /// Releases per-script location dictionaries after the global registry has been populated.
+    /// Safe to call on dependency scripts in Index mode once PopulateSymbolRegistry has run,
+    /// since all lookups will be served by the global registry from that point on.
+    /// </summary>
+    internal void StripLocationData()
+    {
+        lock (_lock)
+        {
+            _functionLocations.Clear();
+            _functionLocations.TrimExcess();
+            _classLocations.Clear();
+            _classLocations.TrimExcess();
+        }
+    }
+
+    /// <summary>
     /// Releases analysis-time data that's only needed during this script's own analysis.
     /// ExportedFunctions/Classes and location dictionaries are kept — other scripts' indexing
     /// may still read them via IssueExportedSymbolsAsync / GetAllFunctionLocations.

@@ -224,17 +224,17 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         try { signatureAnalyser.Analyse(); }
         catch (Exception ex) { RecordStepFailure(ex, "signature analyse", GSCErrorCodes.UnhandledSaError); return Task.CompletedTask; }
 
-        // Editor-only: folding ranges and reference index
+        // Editor-only: folding ranges
         if (Sense.IsEditorMode)
         {
             // Analyze folding ranges from the token stream
             UserRegionsAnalyser foldingRangeAnalyser = new(startNode, Sense);
             try { foldingRangeAnalyser.Analyse(); }
             catch (Exception ex) { RecordStepFailure(ex, "analyse folding ranges", GSCErrorCodes.UnhandledSaError); return Task.CompletedTask; }
-
-            // Build references index from token stream
-            BuildReferenceIndex();
         }
+
+        // Build references index from token stream (needed for workspace-wide Find All References)
+        BuildReferenceIndex();
 
 
         Parsed = true;

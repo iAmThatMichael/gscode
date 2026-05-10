@@ -31,20 +31,6 @@ public partial class ScriptManager
                 ? await WorkspaceCacheManager.LoadAsync(cacheFilePath)
                 : null;
 
-            if (_workspaceCache is not null)
-            {
-                Log.Debug("CACHE_LOAD: loaded {Count} cached entries from {CacheFile}",
-                    _workspaceCache.Scripts.Count, cacheFilePath);
-                foreach (var (cachedPath, cachedEntry) in _workspaceCache.Scripts)
-                {
-                    Log.Debug("CACHE_ENTRY: path={Path} | hash={Hash}", cachedPath, cachedEntry.ContentHash);
-                }
-            }
-            else
-            {
-                Log.Debug("CACHE_LOAD: no cache loaded (UseWorkspaceCache={UseCache})", UseWorkspaceCache);
-            }
-
             var filesList = Directory
                 .EnumerateFiles(rootDirectory, "*.*", SearchOption.AllDirectories)
                 .Where(p => p.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase) ||
@@ -179,6 +165,7 @@ public partial class ScriptManager
 
         // Try to restore from persistent cache before parsing
         CacheResult cacheResult;
+        bool needsAnalysis = false;
         if (_workspaceCache is null)
         {
             cacheResult = CacheResult.MissNoCache;
@@ -218,15 +205,41 @@ public partial class ScriptManager
 
                         if (cached.Script != script)
                         {
-                            // Another task already registered this URI.
+                            // Another task already registered this URI — our cache-restored script
+                            // object is discarded; work with the already-registered one instead.
                             if (cached.Script.Analysed)
                             {
                                 // Fully analysed — another indexer task won the race and will publish.
+                                Log.Debug("CACHE_HIT (race_won): {File} — another task already registered and analysed this URI", relPath);
                                 return CacheResult.Hit;
                             }
-                            // Only parsed (e.g. AddDependencyAsync ran first) — fall through to
-                            // analysis and publish using the existing script object.
-                            cacheResult = CacheResult.MissNotInCache;
+                            if (cached.Script.Parsed)
+                            {
+                                // Already parsed (e.g. AddDependencyAsync ran first). The work is done —
+                                // populate registries from the winning script and fall through so analysis
+                                // runs below and generates fresh diagnostics for this file.
+                                Log.Debug("CACHE_HIT (race_parsed): {File} — URI already parsed by dependency resolution, reusing", relPath);
+                                cached.LastContentHash = contentHash;
+                                cached.LastParsedAt = DateTime.UtcNow;
+                                PopulateSymbolRegistry(filePath, cached.Script);
+                                PopulateFieldRegistry(filePath, cached.Script);
+                                cacheResult = CacheResult.Hit;
+                                needsAnalysis = true;
+                            }
+                            else
+                            {
+                                // Registered but not yet parsed — wait for the in-progress parse
+                                // (AddDependencyAsync holds EnsureParsedAsync) then reuse.
+                                Log.Debug("CACHE_HIT (race_wait): {File} — waiting for in-progress parse to complete", relPath);
+                                await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken);
+                                cached.LastContentHash = contentHash;
+                                cached.LastParsedAt = DateTime.UtcNow;
+                                PopulateSymbolRegistry(filePath, cached.Script);
+                                PopulateFieldRegistry(filePath, cached.Script);
+                                cacheResult = CacheResult.Hit;
+                                needsAnalysis = true;
+                            }
+
                         }
                         else
                         {
@@ -237,6 +250,7 @@ public partial class ScriptManager
                             PopulateSymbolRegistry(filePath, script);
                             PopulateFieldRegistry(filePath, script);
 
+                            Log.Debug("CACHE_HIT: {File}", relPath);
                             cacheResult = CacheResult.Hit;
                         }
                     }
@@ -350,8 +364,9 @@ public partial class ScriptManager
         }
         if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Full)
         {
-            // Full: build exported symbols and run semantic analysis (skip for cache hits — already analysed)
-            if (cacheResult != CacheResult.Hit)
+            // Full: build exported symbols and run semantic analysis (skip for cache hits — already analysed,
+            // unless needsAnalysis is set because a dependency-race script needs fresh diagnostics).
+            if (cacheResult != CacheResult.Hit || needsAnalysis)
             {
                 List<IExportedSymbol> exportedSymbols = new();
                 foreach (Uri dep in dependencies)
@@ -375,4 +390,3 @@ public partial class ScriptManager
     }
 
 }
-

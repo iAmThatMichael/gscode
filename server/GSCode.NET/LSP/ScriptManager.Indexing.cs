@@ -216,18 +216,29 @@ public partial class ScriptManager
                             Script = script
                         });
 
-                        // If already existed, skip
-                        if (cached.Script != script && cached.Script.Parsed)
-                            return CacheResult.Hit;
+                        if (cached.Script != script)
+                        {
+                            // Another task already registered this URI.
+                            if (cached.Script.Analysed)
+                            {
+                                // Fully analysed — another indexer task won the race and will publish.
+                                return CacheResult.Hit;
+                            }
+                            // Only parsed (e.g. AddDependencyAsync ran first) — fall through to
+                            // analysis and publish using the existing script object.
+                            cacheResult = CacheResult.MissNotInCache;
+                        }
+                        else
+                        {
+                            cached.LastContentHash = contentHash;
+                            cached.LastParsedAt = DateTime.UtcNow;
 
-                        cached.LastContentHash = contentHash;
-                        cached.LastParsedAt = DateTime.UtcNow;
+                            // Populate global registries from restored data
+                            PopulateSymbolRegistry(filePath, script);
+                            PopulateFieldRegistry(filePath, script);
 
-                        // Populate global registries from restored data
-                        PopulateSymbolRegistry(filePath, script);
-                        PopulateFieldRegistry(filePath, script);
-
-                        cacheResult = CacheResult.Hit;
+                            cacheResult = CacheResult.Hit;
+                        }
                     }
                     else
                     {
@@ -258,27 +269,33 @@ public partial class ScriptManager
                 };
             });
 
-            // Skip if already parsed (unless it's a new file)
-            if (!isNewFile && cached.Script.Parsed)
-                return CacheResult.MissNotInCache;
-
-            await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken);
-
-            // Compute and store content hash for future cache saves
-            try
+            // If already parsed (e.g. loaded as a dependency of an editor-open file), skip
+            // re-parsing but still fall through so diagnostics are published below.
+            bool alreadyParsed = !isNewFile && cached.Script.Parsed;
+            if (alreadyParsed)
             {
-                string content = await File.ReadAllTextAsync(filePath, cancellationToken);
-                cached.LastContentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
+                cacheResult = CacheResult.MissNotInCache;
             }
-            catch { /* Non-fatal — hash will remain 0 */ }
+            else
+            {
+                await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken);
 
-            // Populate global symbol registry
-            bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
-            cached.ExportedSymbolsChanged = symbolsChanged;
-            cached.LastParsedAt = DateTime.UtcNow;
+                // Compute and store content hash for future cache saves
+                try
+                {
+                    string content = await File.ReadAllTextAsync(filePath, cancellationToken);
+                    cached.LastContentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
+                }
+                catch { /* Non-fatal — hash will remain 0 */ }
 
-            // Populate global field registry (level.x, world.y, game.z across files)
-            PopulateFieldRegistry(filePath, cached.Script);
+                // Populate global symbol registry
+                bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
+                cached.ExportedSymbolsChanged = symbolsChanged;
+                cached.LastParsedAt = DateTime.UtcNow;
+
+                // Populate global field registry (level.x, world.y, game.z across files)
+                PopulateFieldRegistry(filePath, cached.Script);
+            }
         }
 
         // From here, both cache-restored and freshly-parsed files follow the same path
@@ -331,22 +348,26 @@ public partial class ScriptManager
             // Partial: signature analysis only (already done during parse)
             // Symbol registry populated, definition tables merged — nothing more to do
         }
-        else if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Full)
+        if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Full)
         {
-            // Full: build exported symbols and run semantic analysis
-            List<IExportedSymbol> exportedSymbols = new();
-            foreach (Uri dep in dependencies)
+            // Full: build exported symbols and run semantic analysis (skip for cache hits — already analysed)
+            if (cacheResult != CacheResult.Hit)
             {
-                if (Scripts.TryGetValue(dep, out CachedScript? depScript))
-                    exportedSymbols.AddRange(await depScript.Script.IssueExportedSymbolsAsync(cancellationToken));
+                List<IExportedSymbol> exportedSymbols = new();
+                foreach (Uri dep in dependencies)
+                {
+                    if (Scripts.TryGetValue(dep, out CachedScript? depScript))
+                        exportedSymbols.AddRange(await depScript.Script.IssueExportedSymbolsAsync(cancellationToken));
+                }
+
+                await WithAnalysisLockAsync(docUri, async () =>
+                {
+                    await entry.Script.AnalyseAsync(exportedSymbols, cancellationToken);
+                });
             }
 
-            await WithAnalysisLockAsync(docUri, async () =>
-            {
-                await entry.Script.AnalyseAsync(exportedSymbols, cancellationToken);
-            });
-
-            // Publish diagnostics for indexed file (if LSP facade is available)
+            // Publish diagnostics for indexed file (if LSP facade is available) — covers both
+            // freshly-parsed files and cache-restored files (whose diagnostics are restored into Sense).
             await PublishDiagnosticsAsync(docUri, entry.Script, cancellationToken: cancellationToken);
         }
 

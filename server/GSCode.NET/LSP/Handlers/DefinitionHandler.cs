@@ -42,6 +42,21 @@ internal class DefinitionHandler(
             return new LocationOrLocationLinks(location);
         }
 
+        // If the cursor is on a global dot-field (level.x, world.y, game.z), return the field token's own
+        // location so VS Code navigates in-place rather than showing "No definition found".
+        var fieldKey = await script.GetGlobalFieldAtAsync(request.Position, cancellationToken);
+        if (fieldKey is not null)
+        {
+            sw.Stop();
+            Log.Debug("Definition finished in {ElapsedMs} ms from {DocumentPath}: dot-field access [{Owner}, {Field}], returning self-location",
+                sw.ElapsedMilliseconds, documentPath, fieldKey.Value.Owner, fieldKey.Value.Field);
+            return new LocationOrLocationLinks(new Location
+            {
+                Uri = request.TextDocument.Uri.ToUri(),
+                Range = fieldKey.Value.FieldRange
+            });
+        }
+
         // Try workspace-wide lookup
         var qual = await script.GetQualifiedIdentifierAtAsync(request.Position, cancellationToken);
         string? ns = qual?.qualifier;

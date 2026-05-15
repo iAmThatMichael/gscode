@@ -422,13 +422,23 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
 
     /// <summary>
     /// Set of identifier lexemes (lowered) that are tracked as global field owners.
-    /// Extend this set to track additional globals (e.g., <c>self</c> in the future).
     /// </summary>
     private static readonly HashSet<string> s_trackedOwners = new(StringComparer.OrdinalIgnoreCase)
     {
         "level",
         "world",
-        "game"
+        "self"
+    };
+
+    /// <summary>
+    /// Owners that <c>self</c> may alias at runtime. When a field reference is looked up
+    /// with owner <c>self</c>, we also search these owners (and vice-versa).
+    /// </summary>
+    public static readonly IReadOnlySet<string> SelfAliasOwners = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "level",
+        "world",
+        "self"
     };
 
     /// <summary>

@@ -21,6 +21,13 @@ public partial class Script
         if (!Sense.IsEditorMode) return null;
         await WaitUntilParsedAsync(cancellationToken);
 
+        // Try macro lookup at the raw (unadjusted) position first. Macro call tokens are consumed
+        // by the preprocessor so they don't appear in the token list; their ScriptMacro hover entry
+        // is keyed by the original source range. AdjustPositionForSelectionEnd can shift away from
+        // that range when the cursor lands on an expanded token that shares the macro name's position.
+        if (TryGetMacroDefinitionLocation(position) is { } macroLocRaw)
+            return macroLocRaw;
+
         // When Go-to-Definition is triggered with a text selection active the LSP position
         // is the selection end, which may land exactly on the first character of the next
         // token (e.g. '(' after a function name, or a space after a macro). Normalise the
@@ -34,6 +41,10 @@ public partial class Script
         Token? token = Sense.Tokens.GetAt(tokenIdx);
         if (token is null) return null;
 
+        // Skip preprocessor-expanded tokens — they carry the macro name's source range, not the
+        // real call-site, so symbol lookups on them produce wrong results.
+        if (token.IsFromPreprocessor) return null;
+
         return TryGetSymbolDefinitionLocation(token)
             ?? TryGetFileReferenceLocation(position, token, tokenIdx)
             ?? (token.Type == TokenType.Identifier ? TryGetFunctionOrClassLocation(tokenIdx) : null);
@@ -46,7 +57,50 @@ public partial class Script
 
         position = AdjustPositionForSelectionEnd(position);
         int idx = Sense.Tokens.GetIndex(position);
-        return Sense.Tokens.GetAt(idx) is not null ? ParseNamespaceQualifiedIdentifierByIndex(idx) : null;
+        Token? token = Sense.Tokens.GetAt(idx);
+        if (token is null || token.Type != TokenType.Identifier) return null;
+        return ParseNamespaceQualifiedIdentifierByIndex(idx);
+    }
+
+    /// <summary>
+    /// If the cursor is on the owner or field of a global-object dot-access (e.g. <c>level.players</c>),
+    /// returns the (ownerLower, fieldLower) pair. Returns null otherwise.
+    /// </summary>
+    public async Task<(string Owner, string Field, Range FieldRange)?> GetGlobalFieldAtAsync(Position position, CancellationToken cancellationToken = default)
+    {
+        if (!Sense.IsEditorMode) return null;
+        await WaitUntilParsedAsync(cancellationToken);
+
+        position = AdjustPositionForSelectionEnd(position);
+        var tokens = Sense.Tokens;
+        int idx = tokens.GetIndex(position);
+        Token? token = tokens.GetAt(idx);
+        if (token is null || token.Type != TokenType.Identifier) return null;
+
+        // Cursor on the field identifier (right of dot): look left for Dot → owner
+        int prevIdx = tokens.PrevNonTriviaIndex(idx);
+        if (prevIdx >= 0 && tokens.GetAt(prevIdx)!.Type == TokenType.Dot)
+        {
+            int ownerIdx = tokens.PrevNonTriviaIndex(prevIdx);
+            Token? ownerToken = ownerIdx >= 0 ? tokens.GetAt(ownerIdx) : null;
+            if (ownerToken?.Type == TokenType.Identifier && s_trackedOwners.Contains(ownerToken.Lexeme))
+                return (ownerToken.Lexeme.ToLowerInvariant(), token.Lexeme.ToLowerInvariant(), token.Range);
+        }
+
+        // Cursor on the owner identifier (left of dot): look right for Dot → field
+        if (s_trackedOwners.Contains(token.Lexeme))
+        {
+            int nextIdx = tokens.NextNonWhitespaceIndex(idx);
+            if (nextIdx >= 0 && tokens.GetAt(nextIdx)!.Type == TokenType.Dot)
+            {
+                int fieldIdx = tokens.NextNonWhitespaceIndex(nextIdx);
+                Token? fieldToken = fieldIdx >= 0 ? tokens.GetAt(fieldIdx) : null;
+                if (fieldToken?.Type == TokenType.Identifier)
+                    return (token.Lexeme.ToLowerInvariant(), fieldToken.Lexeme.ToLowerInvariant(), fieldToken.Range);
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

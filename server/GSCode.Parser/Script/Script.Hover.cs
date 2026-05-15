@@ -22,6 +22,16 @@ public partial class Script
         Token? token = Sense.Tokens.Get(position);
         if (token is null) return null;
 
+        // Priority 0.5: If the cursor is on the owner of a dot-field (e.g. "level" in "level.zombie_spawners"),
+        // suppress further lookup — the owner itself isn't a function and would fall through to a bad hover.
+        if (token.Type == TokenType.Identifier && s_trackedOwners.Contains(token.Lexeme))
+        {
+            int ownerIdx = Sense.Tokens.IndexOf(token);
+            int nextIdx = Sense.Tokens.NextNonWhitespaceIndex(ownerIdx);
+            if (nextIdx >= 0 && Sense.Tokens.GetAt(nextIdx)!.Type == TokenType.Dot)
+                return null;
+        }
+
         // Priority 1: Inside a function call's arguments — show documentation with active param highlighted.
         // Skip if hovering the function name itself (that falls through to Priority 2/3).
         if (TryGetCallInfo(token, out Token? callIdToken, out int activeParam) && token != callIdToken)

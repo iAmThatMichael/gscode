@@ -13,9 +13,14 @@ using SymbolKindSA = GSCode.Parser.SA.SymbolKind;
 
 public partial class Script
 {
+    // Field reference index: (ownerLower, fieldLower) → ranges of the field-name token
+    private readonly Dictionary<(string Owner, string Field), List<Range>> _fieldReferences = new();
+    public IReadOnlyDictionary<(string Owner, string Field), List<Range>> FieldReferences => _fieldReferences;
+
     private void BuildReferenceIndex()
     {
         _references.Clear();
+        _fieldReferences.Clear();
         var tokens = Sense.Tokens;
         for (int i = 0; i < tokens.Count; i++)
         {
@@ -50,6 +55,32 @@ public partial class Script
             string resolvedNamespace = qual ?? GetEffectiveNamespace();
             // Index as function reference for now (method support can be added later)
             AddRef(new SymbolKey(SymbolKindSA.Function, resolvedNamespace, name), token.Range);
+        }
+
+        // Second pass: index global-object field accesses (level.x, world.y, game.z)
+        for (int i = 0; i < tokens.Count; i++)
+        {
+            Token token = tokens.GetAt(i)!;
+            if (token.Type != TokenType.Dot) continue;
+
+            int prevIdx = tokens.PrevNonTriviaIndex(i);
+            if (prevIdx < 0) continue;
+            Token? ownerToken = tokens.GetAt(prevIdx);
+            if (ownerToken is null || ownerToken.Type != TokenType.Identifier) continue;
+            if (!s_trackedOwners.Contains(ownerToken.Lexeme)) continue;
+
+            int nextIdx = tokens.NextNonWhitespaceIndex(i);
+            if (nextIdx < 0) continue;
+            Token? fieldToken = tokens.GetAt(nextIdx);
+            if (fieldToken is null || fieldToken.Type != TokenType.Identifier) continue;
+
+            var key = (ownerToken.Lexeme.ToLowerInvariant(), fieldToken.Lexeme.ToLowerInvariant());
+            if (!_fieldReferences.TryGetValue(key, out var list))
+            {
+                list = new List<Range>();
+                _fieldReferences[key] = list;
+            }
+            list.Add(fieldToken.Range);
         }
 
         void AddRef(SymbolKey key, Range range)
@@ -148,9 +179,9 @@ public partial class Script
                 continue;
             // Match name (case-insensitive to be consistent with SPA checks)
             if (!string.Equals(t.Lexeme, target, StringComparison.OrdinalIgnoreCase)) continue;
-            // Exclude namespace-qualified identifiers or function calls
+            // Exclude namespace-qualified identifiers, dot-field accesses, or function calls
             int prevIdx = tokensLib.PrevNonTriviaIndex(i);
-            if (prevIdx >= 0 && tokensLib.GetAt(prevIdx)!.Type == TokenType.ScopeResolution) continue;
+            if (prevIdx >= 0 && tokensLib.GetAt(prevIdx)!.Type is TokenType.ScopeResolution or TokenType.Dot) continue;
             int nextIdx = tokensLib.NextNonWhitespaceIndex(i);
             if (nextIdx >= 0 && tokensLib.GetAt(nextIdx)!.Type == TokenType.OpenParen) continue;
 

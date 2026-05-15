@@ -20,32 +20,20 @@ internal class ReferencesHandler(
         Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null) return new LocationContainer();
 
-        // Try global-object field references first (level.x, world.y, game.z, self.x)
-        // Must run before local variable check so dot-preceded identifiers aren't matched as locals.
-        var fieldKey = await script.GetGlobalFieldAtAsync(request.Position, cancellationToken);
-        if (fieldKey is not null)
+        // Try dot-field references first — must run before local variable check so dot-preceded
+        // identifiers aren't incorrectly matched as locals.
+        var fieldAccess = await script.GetGlobalFieldAtAsync(request.Position, cancellationToken);
+        if (fieldAccess is not null)
         {
-            string fieldName = fieldKey.Value.Field;
-
-            // self can alias level/world/game at runtime, so collect refs across all alias owners.
-            // e.g. self.foo finds level.foo, world.foo, game.foo and vice versa.
-            IEnumerable<string> ownersToSearch = Script.SelfAliasOwners.Contains(fieldKey.Value.Owner)
-                ? Script.SelfAliasOwners
-                : [(string)fieldKey.Value.Owner];
-
+            var fieldKey = new SymbolKey(GSCode.Parser.SA.SymbolKind.Field, "", fieldAccess.Value.Field);
             var fieldResults = new List<Location>();
             foreach (var loaded in scriptManager.GetLoadedScripts())
             {
                 if (!string.Equals(loaded.Script.LanguageId, script.LanguageId, StringComparison.OrdinalIgnoreCase))
                     continue;
-                foreach (string owner in ownersToSearch)
-                {
-                    if (loaded.Script.FieldReferences.TryGetValue((owner, fieldName), out var ranges))
-                    {
-                        foreach (var r in ranges)
-                            fieldResults.Add(new Location { Uri = loaded.Uri, Range = r });
-                    }
-                }
+                if (loaded.Script.References.TryGetValue(fieldKey, out var ranges))
+                    foreach (var r in ranges)
+                        fieldResults.Add(new Location { Uri = loaded.Uri, Range = r });
             }
             return new LocationContainer(fieldResults);
         }

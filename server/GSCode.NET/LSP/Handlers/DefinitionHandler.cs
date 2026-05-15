@@ -48,8 +48,8 @@ internal class DefinitionHandler(
         if (fieldKey is not null)
         {
             sw.Stop();
-            Log.Debug("Definition finished in {ElapsedMs} ms from {DocumentPath}: dot-field access [{Owner}, {Field}], returning self-location",
-                sw.ElapsedMilliseconds, documentPath, fieldKey.Value.Owner, fieldKey.Value.Field);
+            Log.Debug("Definition finished in {ElapsedMs} ms from {DocumentPath}: dot-field access [{Field}], returning self-location",
+                sw.ElapsedMilliseconds, documentPath, fieldKey.Value.Field);
             return new LocationOrLocationLinks(new Location
             {
                 Uri = request.TextDocument.Uri.ToUri(),

@@ -13,21 +13,16 @@ using SymbolKindSA = GSCode.Parser.SA.SymbolKind;
 
 public partial class Script
 {
-    // Field reference index: (ownerLower, fieldLower) → ranges of the field-name token
-    private readonly Dictionary<(string Owner, string Field), List<Range>> _fieldReferences = new();
-    public IReadOnlyDictionary<(string Owner, string Field), List<Range>> FieldReferences => _fieldReferences;
-
     private void BuildReferenceIndex()
     {
         _references.Clear();
-        _fieldReferences.Clear();
         var tokens = Sense.Tokens;
         for (int i = 0; i < tokens.Count; i++)
         {
             Token token = tokens.GetAt(i)!;
             if (token.Type != TokenType.Identifier) continue;
 
-            // Recognize definition identifiers
+            // Recognize definition identifiers (populated by SignatureAnalyser before this runs)
             var senseDef = Sense.GetSenseDefinition(token);
             if (senseDef is ScrFunctionSymbol or ScrClassSymbol)
             {
@@ -57,30 +52,26 @@ public partial class Script
             AddRef(new SymbolKey(SymbolKindSA.Function, resolvedNamespace, name), token.Range);
         }
 
-        // Second pass: index global-object field accesses (level.x, world.y, game.z)
+        // Second pass: index dot-field accesses (.foo) as Field symbols keyed by name only.
+        // Owner is intentionally excluded — GSC is dynamically typed and any variable can alias
+        // any object (e.g. x = level; x.foo is the same field as level.foo).
+        // This must be a separate token-scan pass because ScrFieldSymbol sense tokens are not yet
+        // available here — they are populated by the DFA which runs after BuildReferenceIndex.
         for (int i = 0; i < tokens.Count; i++)
         {
             Token token = tokens.GetAt(i)!;
             if (token.Type != TokenType.Dot) continue;
-
-            int prevIdx = tokens.PrevNonTriviaIndex(i);
-            if (prevIdx < 0) continue;
-            Token? ownerToken = tokens.GetAt(prevIdx);
-            if (ownerToken is null || ownerToken.Type != TokenType.Identifier) continue;
-            if (!s_trackedOwners.Contains(ownerToken.Lexeme)) continue;
 
             int nextIdx = tokens.NextNonWhitespaceIndex(i);
             if (nextIdx < 0) continue;
             Token? fieldToken = tokens.GetAt(nextIdx);
             if (fieldToken is null || fieldToken.Type != TokenType.Identifier) continue;
 
-            var key = (ownerToken.Lexeme.ToLowerInvariant(), fieldToken.Lexeme.ToLowerInvariant());
-            if (!_fieldReferences.TryGetValue(key, out var list))
-            {
-                list = new List<Range>();
-                _fieldReferences[key] = list;
-            }
-            list.Add(fieldToken.Range);
+            // Exclude call-sites (obj.Method() — these are indexed as Function refs)
+            int afterFieldIdx = tokens.NextNonWhitespaceIndex(nextIdx);
+            if (afterFieldIdx >= 0 && tokens.GetAt(afterFieldIdx)!.Type == TokenType.OpenParen) continue;
+
+            AddRef(new SymbolKey(SymbolKindSA.Field, "", fieldToken.Lexeme.ToLowerInvariant()), fieldToken.Range);
         }
 
         void AddRef(SymbolKey key, Range range)

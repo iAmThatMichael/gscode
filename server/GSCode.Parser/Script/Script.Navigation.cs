@@ -63,10 +63,10 @@ public partial class Script
     }
 
     /// <summary>
-    /// If the cursor is on the owner or field of a global-object dot-access (e.g. <c>level.players</c>),
-    /// returns the (ownerLower, fieldLower) pair. Returns null otherwise.
+    /// If the cursor is on the field part of a dot-access expression (e.g. <c>foo</c> in <c>obj.foo</c>),
+    /// returns the lowered field name and its token range. Returns null otherwise.
     /// </summary>
-    public async Task<(string Owner, string Field, Range FieldRange)?> GetGlobalFieldAtAsync(Position position, CancellationToken cancellationToken = default)
+    public async Task<(string Field, Range FieldRange)?> GetGlobalFieldAtAsync(Position position, CancellationToken cancellationToken = default)
     {
         if (!Sense.IsEditorMode) return null;
         await WaitUntilParsedAsync(cancellationToken);
@@ -77,30 +77,15 @@ public partial class Script
         Token? token = tokens.GetAt(idx);
         if (token is null || token.Type != TokenType.Identifier) return null;
 
-        // Cursor on the field identifier (right of dot): look left for Dot → owner
+        // Cursor must be on the field identifier (right of dot)
         int prevIdx = tokens.PrevNonTriviaIndex(idx);
-        if (prevIdx >= 0 && tokens.GetAt(prevIdx)!.Type == TokenType.Dot)
-        {
-            int ownerIdx = tokens.PrevNonTriviaIndex(prevIdx);
-            Token? ownerToken = ownerIdx >= 0 ? tokens.GetAt(ownerIdx) : null;
-            if (ownerToken?.Type == TokenType.Identifier && s_trackedOwners.Contains(ownerToken.Lexeme))
-                return (ownerToken.Lexeme.ToLowerInvariant(), token.Lexeme.ToLowerInvariant(), token.Range);
-        }
+        if (prevIdx < 0 || tokens.GetAt(prevIdx)!.Type != TokenType.Dot) return null;
 
-        // Cursor on the owner identifier (left of dot): look right for Dot → field
-        if (s_trackedOwners.Contains(token.Lexeme))
-        {
-            int nextIdx = tokens.NextNonWhitespaceIndex(idx);
-            if (nextIdx >= 0 && tokens.GetAt(nextIdx)!.Type == TokenType.Dot)
-            {
-                int fieldIdx = tokens.NextNonWhitespaceIndex(nextIdx);
-                Token? fieldToken = fieldIdx >= 0 ? tokens.GetAt(fieldIdx) : null;
-                if (fieldToken?.Type == TokenType.Identifier)
-                    return (token.Lexeme.ToLowerInvariant(), fieldToken.Lexeme.ToLowerInvariant(), fieldToken.Range);
-            }
-        }
+        // Exclude method calls — those are indexed as Function refs, not Field refs
+        int nextIdx = tokens.NextNonWhitespaceIndex(idx);
+        if (nextIdx >= 0 && tokens.GetAt(nextIdx)!.Type == TokenType.OpenParen) return null;
 
-        return null;
+        return (token.Lexeme.ToLowerInvariant(), token.Range);
     }
 
     /// <summary>

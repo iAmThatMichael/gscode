@@ -5,7 +5,8 @@ public enum SymbolKind
     Function,
     Method,
     Class,
-    Variable // local variable (function-scoped)
+    Variable, // local variable (function-scoped)
+    Field     // dot-access member on a tracked global object (e.g. level.x)
 }
 
 public readonly record struct SymbolKey(
@@ -22,6 +23,7 @@ public readonly record struct SymbolKey(
         SymbolKind.Function => $"function {Namespace}::{Name}",
         SymbolKind.Class => $"class {Namespace}::{Name}",
         SymbolKind.Variable => $"var {ScopeId ?? Namespace}::{Name}",
+        SymbolKind.Field => $"field .{Name}",
         _ => $"{Namespace}::{Name}"
     };
 }

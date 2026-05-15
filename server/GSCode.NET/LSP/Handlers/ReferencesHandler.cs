@@ -5,6 +5,7 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
+using System.IO;
 using System.Linq;
 
 namespace GSCode.NET.LSP.Handlers;
@@ -19,7 +20,37 @@ internal class ReferencesHandler(
         Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null) return new LocationContainer();
 
-        // Try local variable references first
+        // Try global-object field references first (level.x, world.y, game.z, self.x)
+        // Must run before local variable check so dot-preceded identifiers aren't matched as locals.
+        var fieldKey = await script.GetGlobalFieldAtAsync(request.Position, cancellationToken);
+        if (fieldKey is not null)
+        {
+            string fieldName = fieldKey.Value.Field;
+
+            // self can alias level/world/game at runtime, so collect refs across all alias owners.
+            // e.g. self.foo finds level.foo, world.foo, game.foo and vice versa.
+            IEnumerable<string> ownersToSearch = Script.SelfAliasOwners.Contains(fieldKey.Value.Owner)
+                ? Script.SelfAliasOwners
+                : [(string)fieldKey.Value.Owner];
+
+            var fieldResults = new List<Location>();
+            foreach (var loaded in scriptManager.GetLoadedScripts())
+            {
+                if (!string.Equals(loaded.Script.LanguageId, script.LanguageId, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                foreach (string owner in ownersToSearch)
+                {
+                    if (loaded.Script.FieldReferences.TryGetValue((owner, fieldName), out var ranges))
+                    {
+                        foreach (var r in ranges)
+                            fieldResults.Add(new Location { Uri = loaded.Uri, Range = r });
+                    }
+                }
+            }
+            return new LocationContainer(fieldResults);
+        }
+
+        // Try local variable references
         var localRefs = await script.GetLocalVariableReferencesAsync(
             request.Position, request.Context?.IncludeDeclaration == true, cancellationToken);
         if (localRefs.Count > 0)
@@ -38,14 +69,24 @@ internal class ReferencesHandler(
             new SymbolKey(GSCode.Parser.SA.SymbolKind.Class,    ns, name)
         };
 
+        string requestingLanguageId = script.LanguageId;
+
         var results = new List<Location>();
         foreach (var loaded in scriptManager.GetLoadedScripts())
         {
+            // Don't cross GSC/CSC boundaries — a reference in a .gsc file cannot appear in a .csc file and vice versa.
+            if (!string.Equals(loaded.Script.LanguageId, requestingLanguageId, StringComparison.OrdinalIgnoreCase))
+                continue;
+
             foreach (var key in keys)
             {
                 if (loaded.Script.References.TryGetValue(key, out var ranges))
+                {
                     foreach (var r in ranges)
+                    {
                         results.Add(new Location { Uri = loaded.Uri, Range = r });
+                    }
+                }
             }
 
             if (request.Context?.IncludeDeclaration == true && loaded.Script.DefinitionsTable is not null)
@@ -54,10 +95,15 @@ internal class ReferencesHandler(
                 {
                     var loc = loaded.Script.DefinitionsTable.GetFunctionLocation(key.Namespace, key.Name)
                            ?? loaded.Script.DefinitionsTable.GetClassLocation(key.Namespace, key.Name);
+
                     if (loc is not null)
                     {
-                        string norm = ScriptFileResolver.NormalizeFilePathForUri(loc.Value.FilePath);
-                        results.Add(new Location { Uri = new Uri(norm), Range = loc.Value.Range.ToRange() });
+                        // loc.Value.FilePath may be a bare game-relative path (e.g. "scripts\shared\array_shared.gsc")
+                        // when it was merged from a dependency. Resolve it the same way FindSymbolLocation does —
+                        // using the host script's absolute path as the base so the game root is known.
+                        string? resolved = ScriptFileResolver.GetScriptFilePath(loaded.Uri.LocalPath, loc.Value.FilePath);
+                        if (resolved is null || !File.Exists(resolved)) continue;
+                        results.Add(new Location { Uri = new Uri(resolved), Range = loc.Value.Range.ToRange() });
                     }
                 }
             }

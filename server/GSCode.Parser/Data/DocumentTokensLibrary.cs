@@ -72,6 +72,10 @@ public sealed class DocumentTokensLibrary
 
     /// <summary>
     /// Returns the index of the token at or before the specified position, or -1 if not found.
+    /// Macro expansion body tokens share the macro name's source range and interleave with the
+    /// argument tokens in the linked-list order, breaking the sorted invariant assumed by binary
+    /// search. When the result lands on a preprocessor-expanded token, we scan both directions
+    /// for a real source token whose range contains the requested position.
     /// </summary>
     internal int GetIndex(Position location)
     {
@@ -87,6 +91,33 @@ public sealed class DocumentTokensLibrary
         if (index >= TokenList.Count)
         {
             return -1;
+        }
+
+        // If we landed on a preprocessor-expanded token (body of a macro expansion), scan outward
+        // for a real source token that covers the requested position. Argument tokens may be
+        // ordered after the expansion body tokens in the linked list even though they appear
+        // earlier in the source, so binary search may return the wrong token.
+        if (TokenList[index].IsFromPreprocessor)
+        {
+            // Scan forward for a source token on the requested line/char
+            for (int i = index + 1; i < TokenList.Count; i++)
+            {
+                Token t = TokenList[i];
+                if (t.IsFromPreprocessor) continue;
+                // Stop if we've gone past the requested line
+                if (t.TokenRange.StartLine > location.Line) break;
+                if (t.TokenRange.StartLine == location.Line && t.TokenRange.StartChar <= location.Character)
+                    return i;
+            }
+            // Scan backward for a source token
+            for (int i = index - 1; i >= 0; i--)
+            {
+                Token t = TokenList[i];
+                if (t.IsFromPreprocessor) continue;
+                if (t.TokenRange.StartLine < location.Line) break;
+                if (t.TokenRange.StartLine == location.Line && t.TokenRange.StartChar <= location.Character)
+                    return i;
+            }
         }
 
         return index;

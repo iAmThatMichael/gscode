@@ -58,7 +58,8 @@ internal ref partial struct Preprocessor
             return;
         }
 
-        // Get the file contents
+        // Get the file contents — preserve original .gsh token ranges so macro definition
+        // navigation can jump to the exact #define line in the inserted file.
         TokenList? insertTokensResult;
         try
         {

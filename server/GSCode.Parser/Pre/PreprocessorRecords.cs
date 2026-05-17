@@ -22,6 +22,13 @@ internal class MacroDefinition : ISenseDefinition
     public Range Range { get; }
 
     /// <summary>
+    /// Absolute path of the file where this macro is defined.
+    /// Null for built-in macros and macros defined directly in the host script.
+    /// When set, Go-to-Definition navigates to this file at the exact definition line.
+    /// </summary>
+    public string? SourceFilePath { get; }
+
+    /// <summary>
     /// Cached snippet of the full #define line. Computed eagerly; survives token release.
     /// </summary>
     public string DefineSnippet { get; }
@@ -42,7 +49,8 @@ internal class MacroDefinition : ISenseDefinition
     public string[] SemanticTokenModifiers { get; } = [];
 
     public MacroDefinition(Token source, TokenList defineTokens, TokenList expansionTokens,
-        LinkedList<Token>? parameters, string? documentation = null, bool isBuiltIn = false)
+        LinkedList<Token>? parameters, string? documentation = null, bool isBuiltIn = false,
+        string? sourceFilePath = null)
     {
         Source = source;
         Documentation = documentation;
@@ -51,6 +59,7 @@ internal class MacroDefinition : ISenseDefinition
         DefineSnippet = defineTokens.ToSnippetString();
         ExpansionTokens = expansionTokens;
         Parameters = parameters;
+        SourceFilePath = sourceFilePath;
     }
 
     public Hover GetHover() => new()

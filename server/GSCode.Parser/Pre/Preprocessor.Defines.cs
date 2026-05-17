@@ -83,16 +83,7 @@ internal ref partial struct Preprocessor
         // Remove the define directive from the script.
         ConnectTokens(defineToken.Previous!, current.Next!);
 
-        // Create the macro (will be cached to avoid duplication across files)
-        MacroDefinition uncachedDefinition = new(
-            nameToken.Token,
-            new TokenList(defineToken, current),
-            new TokenList(firstExpansionNode, lastExpansionNode),
-            parameters,
-            documentation
-            );
-
-        // Determine source file path for caching
+        // Determine source file path so Go-to-Definition can navigate to the correct file.
         string? sourceFilePath;
         string srcDisplay;
         if (nameToken.Token.IsFromPreprocessor)
@@ -110,6 +101,17 @@ internal ref partial struct Preprocessor
             sourceFilePath = Sense.ScriptPath;
             srcDisplay = GetRelativeDisplay(Sense.ScriptUri);
         }
+
+        // Create the macro (will be cached to avoid duplication across files)
+        MacroDefinition uncachedDefinition = new(
+            nameToken.Token,
+            new TokenList(defineToken, current),
+            new TokenList(firstExpansionNode, lastExpansionNode),
+            parameters,
+            documentation,
+            isBuiltIn: false,
+            sourceFilePath: sourceFilePath
+            );
 
         // Use the cache to deduplicate identical macros across files
         MacroDefinition definition = MacroDefinitionCache.Instance.GetOrAdd(sourceFilePath, macroName, uncachedDefinition);

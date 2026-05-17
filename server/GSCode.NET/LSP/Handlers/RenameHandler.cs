@@ -40,10 +40,8 @@ internal class RenameHandler(
         if (fieldAccess is not null)
         {
             var fieldKey = new SymbolKey(GSCode.Parser.SA.SymbolKind.Field, "", fieldAccess.Value.Field);
-            foreach (var loaded in scriptManager.GetLoadedScripts())
+            foreach (var loaded in scriptManager.GetLoadedScripts(script.Language))
             {
-                if (loaded.Script.Language != script.Language)
-                    continue;
                 if (loaded.Script.References.TryGetValue(fieldKey, out var ranges))
                     foreach (var r in ranges)
                         AddEdit(loaded.Uri, r);
@@ -78,11 +76,8 @@ internal class RenameHandler(
 
         ScriptLanguage requestingLanguage = script.Language;
 
-        foreach (var loaded in scriptManager.GetLoadedScripts())
+        foreach (var loaded in scriptManager.GetLoadedScripts(requestingLanguage))
         {
-            if (loaded.Script.Language != requestingLanguage)
-                continue;
-
             // Reference call-sites
             foreach (var key in keys)
             {

@@ -112,11 +112,10 @@ internal class CodeLensHandler(
         ScriptLanguage? originLanguage = originScript?.Language;
 
         int count = 0;
-        foreach (var loaded in scriptManager.GetLoadedScripts())
+        foreach (var loaded in originLanguage is not null
+            ? scriptManager.GetLoadedScripts(originLanguage.Value)
+            : scriptManager.GetLoadedScripts())
         {
-            if (originLanguage is not null && loaded.Script.Language != originLanguage)
-                continue;
-
             foreach (var key in keys)
             {
                 if (loaded.Script.References.TryGetValue(key, out var ranges))

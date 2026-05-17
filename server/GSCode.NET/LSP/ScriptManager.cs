@@ -22,30 +22,28 @@ public partial class ScriptManager
     private ConcurrentDictionary<Uri, CachedScript> Scripts { get; } = new(UriComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Per-language symbol registries. Each language (gsc, csc) gets its own isolated pool so
+    /// Per-language symbol registries. Each language gets its own isolated pool so
     /// that symbol lookups via ISymbolLocationProvider never cross language boundaries.
     /// </summary>
-    private readonly ConcurrentDictionary<string, GlobalSymbolRegistry> _symbolRegistries =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<ScriptLanguage, GlobalSymbolRegistry> _symbolRegistries = new();
 
     /// <summary>
     /// Per-language field registries. Mirrors the symbol-registry split so that field completions
     /// (level.x, game.y, world.z) are also language-scoped.
     /// </summary>
-    private readonly ConcurrentDictionary<string, GlobalFieldRegistry> _fieldRegistries =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<ScriptLanguage, GlobalFieldRegistry> _fieldRegistries = new();
 
     /// <summary>
     /// Returns (or creates) the symbol registry for <paramref name="language"/>.
     /// </summary>
     private GlobalSymbolRegistry GetSymbolRegistry(ScriptLanguage language) =>
-        _symbolRegistries.GetOrAdd(language.ToLanguageId(), _ => new GlobalSymbolRegistry());
+        _symbolRegistries.GetOrAdd(language, _ => new GlobalSymbolRegistry());
 
     /// <summary>
     /// Returns (or creates) the field registry for <paramref name="language"/>.
     /// </summary>
     private GlobalFieldRegistry GetFieldRegistry(ScriptLanguage language) =>
-        _fieldRegistries.GetOrAdd(language.ToLanguageId(), _ => new GlobalFieldRegistry());
+        _fieldRegistries.GetOrAdd(language, _ => new GlobalFieldRegistry());
 
     /// <summary>
     /// Per-language symbol counts (used for diagnostics/telemetry only).

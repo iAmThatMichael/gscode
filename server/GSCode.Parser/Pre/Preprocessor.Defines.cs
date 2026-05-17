@@ -45,6 +45,10 @@ internal ref partial struct Preprocessor
                 if (current.Next!.Type != TokenType.LineBreak)
                 {
                     AddError(GSCErrorCodes.InvalidLineContinuation, "\\");
+                    // Exclude the malformed backslash from the expansion to avoid spurious
+                    // parse errors at every call-site that uses this macro.
+                    current = current.Next!;
+                    continue;
                 }
                 else
                 {
@@ -218,38 +222,35 @@ internal ref partial struct Preprocessor
 
     /// <summary>
     /// Parses the right-hand side of a macro definition's parameters.
+    /// Iterative to avoid stack overflow on pathological macro definitions with many parameters.
     /// </summary>
     /// <returns></returns>
     private LinkedList<Token> ParamsRhs(HashSet<string> set)
     {
-        // End of parameter list
-        if (!ConsumeIfType(TokenType.Comma, out LinkedToken? commaToken))
+        LinkedList<Token> result = [];
+
+        while (ConsumeIfType(TokenType.Comma, out _))
         {
-            return [];
+            // Get the next parameter's name
+            if (CurrentTokenType != TokenType.Identifier && !CurrentToken.IsKeyword())
+            {
+                AddError(GSCErrorCodes.ExpectedMacroParameter, CurrentToken.Lexeme);
+                break;
+            }
+            LinkedToken parameterNode = Consume();
+
+            // Duplicate parameter
+            bool isDuplicate = !set.Add(parameterNode.Lexeme);
+            if (isDuplicate)
+            {
+                AddErrorAtLinkedToken(GSCErrorCodes.DuplicateMacroParameter, parameterNode, parameterNode.Lexeme);
+            }
+            else
+            {
+                result.AddLast(parameterNode.Token);
+            }
         }
 
-        // Get the next parameter's name
-        if (CurrentTokenType != TokenType.Identifier && !CurrentToken.IsKeyword())
-        {
-            AddError(GSCErrorCodes.ExpectedMacroParameter, CurrentToken.Lexeme);
-            return [];
-        }
-        LinkedToken parameterNode = Consume();
-
-        // Duplicate parameter
-        bool isDuplicate = !set.Add(parameterNode.Lexeme);
-        if(isDuplicate)
-        {
-            AddErrorAtLinkedToken(GSCErrorCodes.DuplicateMacroParameter, parameterNode, parameterNode.Lexeme);
-        }
-
-        // Recurse
-        LinkedList<Token> rest = ParamsRhs(set);
-        if(!isDuplicate)
-        {
-            rest.AddFirst(parameterNode.Token);
-        }
-
-        return rest;
+        return result;
     }
 }

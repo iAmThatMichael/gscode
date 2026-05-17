@@ -156,54 +156,36 @@ internal ref partial struct Preprocessor
     /// <returns></returns>
     private LinkedList<TokenList?> MacroArgs(LinkedToken macroToken, IEnumerable<Token> parameters)
     {
-        // Get the first argument
-        TokenList? argument = MacroArgExpansion();
-
-        // Get the rest of the arguments
-        LinkedList<TokenList?> rest = MacroArgsRhs(macroToken, parameters, 1);
-        rest.AddFirst(argument);
-
-        return rest;
-    }
-
-    /// <summary>
-    /// Parses the right-hand side of a macro expansion's arguments.
-    /// </summary>
-    /// <param name="macroToken"></param>
-    /// <param name="parameters"></param>
-    /// <param name="index"></param>
-    /// <param name="alreadyErroredAboutArgumentCount"></param>
-    /// <returns></returns>
-    private LinkedList<TokenList?> MacroArgsRhs(LinkedToken macroToken, IEnumerable<Token> parameters, int index, bool alreadyErroredAboutArgumentCount = false)
-    {
         int expectedParameterCount = parameters.Count();
 
-        // At the end of the argument list
-        if (!ConsumeIfType(TokenType.Comma, out LinkedToken? commaToken))
+        // Iterative to avoid stack overflow on pathological macro calls with many arguments.
+        LinkedList<TokenList?> result = [];
+
+        // Collect the first argument (always present once we're inside the paren).
+        result.AddLast(MacroArgExpansion());
+        int index = 1;
+        bool alreadyErroredAboutArgumentCount = false;
+
+        while (ConsumeIfType(TokenType.Comma, out LinkedToken? commaToken))
         {
-            // But we didn't get enough arguments
-            if(expectedParameterCount != index)
+            // Too many arguments — report once, keep parsing.
+            if (index + 1 > expectedParameterCount && !alreadyErroredAboutArgumentCount)
             {
-                AddError(GSCErrorCodes.TooFewMacroArguments, macroToken.Lexeme, expectedParameterCount);
+                alreadyErroredAboutArgumentCount = true;
+                AddErrorAtLinkedToken(GSCErrorCodes.TooManyMacroArguments, commaToken!, macroToken.Lexeme, expectedParameterCount);
             }
-            return [];
+
+            result.AddLast(MacroArgExpansion());
+            index++;
         }
 
-        // Check we're not about to go above the expected parameter count, continue parsing even if we are though.
-        if(index + 1 > expectedParameterCount && !alreadyErroredAboutArgumentCount)
+        // Too few arguments.
+        if (expectedParameterCount != index)
         {
-            alreadyErroredAboutArgumentCount = true;
-            AddErrorAtLinkedToken(GSCErrorCodes.TooManyMacroArguments, commaToken!, macroToken.Lexeme, expectedParameterCount);
+            AddError(GSCErrorCodes.TooFewMacroArguments, macroToken.Lexeme, expectedParameterCount);
         }
 
-        // Get the next argument
-        TokenList? argument = MacroArgExpansion();
-
-        // Get the rest of the arguments
-        LinkedList<TokenList?> rest = MacroArgsRhs(macroToken, parameters, index + 1, alreadyErroredAboutArgumentCount);
-        rest.AddFirst(argument);
-
-        return rest;
+        return result;
     }
 
     /// <summary>

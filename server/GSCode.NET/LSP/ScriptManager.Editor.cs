@@ -197,7 +197,7 @@ public partial class ScriptManager
 
         // Snapshot dependencies to avoid collection modification during enumeration
         var dependencies = script.UsingPaths.ToList();
-        Log.Debug("DEPENDENCY_RESOLVE: {FilePath} has {Count} dependencies", filePath, dependencies.Count);
+        Log.Debug("[DEPENDENCY_RESOLVE] {FilePath} has {Count} dependencies", filePath, dependencies.Count);
 
         // Parse all dependencies in parallel
         List<Task> dependencyTasks = new();

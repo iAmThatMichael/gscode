@@ -315,6 +315,51 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     }
 
     /// <summary>
+    /// Searches for symbols whose names contain <paramref name="query"/> (case-insensitive).
+    /// An empty or whitespace query returns up to <paramref name="maxResults"/> symbols in
+    /// arbitrary order (suitable for an initial Ctrl+T open).
+    /// Results are collected inside the read lock so the caller receives a snapshot list.
+    /// </summary>
+    public List<SymbolDefinition> SearchSymbols(string query, int maxResults)
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            var results = new List<SymbolDefinition>(Math.Min(maxResults, 64));
+
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                foreach (var def in _symbols.Values)
+                {
+                    results.Add(def);
+                    if (results.Count >= maxResults) break;
+                }
+                return results;
+            }
+
+            string normalizedQuery = query.ToLowerInvariant();
+            foreach (var (normalizedName, keys) in _nameIndex)
+            {
+                if (!normalizedName.Contains(normalizedQuery, StringComparison.Ordinal))
+                    continue;
+
+                foreach (var key in keys.Keys)
+                {
+                    if (!_symbols.TryGetValue(key, out var def)) continue;
+                    results.Add(def);
+                    if (results.Count >= maxResults) return results;
+                }
+            }
+
+            return results;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
     /// Gets counts of symbols by type (functions and classes).
     /// </summary>
     public (int Functions, int Classes) GetCountsByType()

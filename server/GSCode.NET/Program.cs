@@ -185,7 +185,8 @@ LanguageServer server = await LanguageServer.From(options =>
 		.AddHandler<ReferencesHandler>()
 		.AddHandler<ConfigurationHandler>()
 		.AddHandler<DidChangeWatchedFilesHandler>()
-		.AddHandler<CodeActionHandler>();
+		.AddHandler<CodeActionHandler>()
+		.AddHandler<WorkspaceSymbolHandler>();
 
 	if (disposable is not null)
 		options.RegisterForDisposal(disposable);

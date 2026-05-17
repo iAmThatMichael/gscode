@@ -69,7 +69,7 @@ internal ref struct ScriptDiagnosticsAnalyser(
             if (cLoc is not null) { referencedFiles.Add(ScriptFileResolver.NormalizeFilePathForUri(cLoc.Value.FilePath)); continue; }
         }
 
-        foreach (var depNode in RootNode.Dependencies)
+        foreach (var depNode in RootNode.UsingNodes)
         {
             string rel = depNode.Path.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar);
             string expectedSuffix = Path.DirectorySeparatorChar + rel + Language.ToExtension();

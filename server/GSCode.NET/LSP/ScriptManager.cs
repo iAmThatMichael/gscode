@@ -297,7 +297,7 @@ public partial class ScriptManager
             // Build dep-hash map: dep file path → content hash at save time.
             // Only include deps whose CachedScript is currently loaded (hash is known).
             var depHashes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (Uri dep in defTable.Dependencies)
+            foreach (Uri dep in script.UsingPaths)
             {
                 string depPath = dep.LocalPath;
                 ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(System.IO.Path.GetExtension(depPath));
@@ -333,7 +333,7 @@ public partial class ScriptManager
                 CurrentNamespace = defTable.CurrentNamespace,
                 ExportedFunctions = defTable.ExportedFunctions.ToList(),
                 ExportedClasses = defTable.ExportedClasses.ToList(),
-                Dependencies = defTable.Dependencies.Select(u => u.LocalPath).ToList(),
+                Dependencies = script.UsingPaths.Select(u => u.LocalPath).ToList(),
                 FunctionLocations = funcLocations,
                 ClassLocations = classLocations,
                 FunctionParameters = funcParams,

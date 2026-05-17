@@ -48,19 +48,16 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
 
     public DefinitionsTable? DefinitionsTable { get; private set; } = default;
 
-    public IEnumerable<Uri> Dependencies => DefinitionsTable?.Dependencies ?? [];
+    private readonly List<Uri> _usingPaths = [];
+    private readonly List<string> _insertPaths = [];
+
+    public IReadOnlyList<Uri> UsingPaths => _usingPaths;
 
     /// <summary>
     /// Resolved absolute paths of all files spliced into this script via #insert.
     /// Empty if the script has not been parsed or has no #insert directives.
     /// </summary>
-    public IEnumerable<string> InsertPaths =>
-        Sense?.InsertRegions
-              .Select(r => r.ResolvedPath)
-              .Where(p => p is not null)
-              .Distinct(StringComparer.OrdinalIgnoreCase)
-              .Cast<string>()
-        ?? [];
+    public IReadOnlyList<string> InsertPaths => _insertPaths;
 
     // Expose macro outlines for outliner without exposing Sense outside assembly
     public IReadOnlyList<MacroOutlineItem> MacroOutlines => Sense?.MacroOutlines ?? [];
@@ -247,6 +244,20 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
         // Build references index from token stream (needed for workspace-wide Find All References)
         BuildReferenceIndex();
 
+
+        // Snapshot using paths and insert paths into stable backing fields
+        if (DefinitionsTable is not null)
+        {
+            _usingPaths.AddRange(DefinitionsTable.UsingPaths);
+        }
+        if (Sense is not null)
+        {
+            foreach (var region in Sense.InsertRegions)
+            {
+                if (region.ResolvedPath is string resolved && !_insertPaths.Contains(resolved, StringComparer.OrdinalIgnoreCase))
+                    _insertPaths.Add(resolved);
+            }
+        }
 
         Parsed = true;
         return Task.CompletedTask;

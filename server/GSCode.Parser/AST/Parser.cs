@@ -64,12 +64,12 @@ internal ref partial struct Parser(LinkedToken startNode, ParserIntelliSense sen
     /// <returns></returns>
     private ScriptNode Script()
     {
-        List<DependencyNode> dependencies = DependenciesList();
+        List<UsingNode> dependencies = DependenciesList();
         List<AstNode> scriptDefns = ScriptList();
 
         return new ScriptNode
         {
-            Dependencies = dependencies,
+            UsingNodes = dependencies,
             ScriptDefns = scriptDefns
         };
     }

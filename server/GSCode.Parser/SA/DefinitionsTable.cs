@@ -19,7 +19,7 @@ public class DefinitionsTable
     public Dictionary<string, IExportedSymbol> InternalSymbols { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, IExportedSymbol> ExportedSymbols { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public List<Uri> Dependencies { get; } = new();
+    public List<Uri> UsingPaths { get; } = new();
 
     // Local dictionaries for symbols defined in THIS file only (used for merging/exporting)
     // Lock protects all local dictionaries from concurrent read/write during workspace indexing.
@@ -104,9 +104,9 @@ public class DefinitionsTable
         ExportedSymbols.Add(scrClass.Name, scrClass);
     }
 
-    public void AddDependency(string scriptPath)
+    public void AddUsingPath(string scriptPath)
     {
-        Dependencies.Add(new Uri(scriptPath));
+        UsingPaths.Add(new Uri(scriptPath));
     }
 
     public void AddFunctionLocation(string qualifier, string symbolName, string filePath, TokenRange range)

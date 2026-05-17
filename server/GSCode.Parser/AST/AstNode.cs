@@ -9,7 +9,7 @@ namespace GSCode.Parser.AST;
 internal enum AstNodeType
 {
     Script,
-    Dependency,
+    Using,
     Precache,
     UsingAnimTree,
     Namespace,
@@ -79,12 +79,12 @@ internal abstract class DecisionAstNode(AstNodeType nodeType, ExprNode? conditio
 
 internal sealed class ScriptNode() : AstNode(AstNodeType.Script)
 {
-    public required List<DependencyNode> Dependencies { get; init; }
+    public required List<UsingNode> UsingNodes { get; init; }
     public required List<AstNode> ScriptDefns { get; init; }
 }
 
 [method: SetsRequiredMembers]
-internal sealed class DependencyNode(PathNode input) : AstNode(AstNodeType.Dependency)
+internal sealed class UsingNode(PathNode input) : AstNode(AstNodeType.Using)
 {
     public required string Path { get; init; } = string.Join(System.IO.Path.DirectorySeparatorChar, input.Segments);
     public Range Range { get; init; } = RangeHelper.From(input.First!.Range.Start, input.Last!.Range.End);

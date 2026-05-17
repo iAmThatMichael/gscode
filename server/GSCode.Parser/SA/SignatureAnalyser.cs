@@ -22,8 +22,8 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
     public void Analyse()
     {
-        foreach (AstNode dep in RootNode.Dependencies)
-            if (dep is DependencyNode depNode) AnalyseDependency(depNode);
+        foreach (AstNode dep in RootNode.UsingNodes)
+            if (dep is UsingNode depNode) AnalyseUsing(depNode);
 
         foreach (AstNode defn in RootNode.ScriptDefns)
             AnalyseScriptDefinition(defn);
@@ -156,9 +156,9 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         Sense.AddSenseToken(nameToken, new ScrClassMemberSymbol(nameToken, member, scrClass));
     }
 
-    public void AnalyseDependency(DependencyNode dependencyNode)
+    public void AnalyseUsing(UsingNode dependencyNode)
     {
-        string? dependencyPath = Sense.GetDependencyPath(dependencyNode.Path, dependencyNode.Range);
+        string? dependencyPath = Sense.ResolveUsingPath(dependencyNode.Path, dependencyNode.Range);
         if (dependencyPath is null)
         {
             return;
@@ -166,8 +166,8 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         Sense.AddSenseToken(dependencyNode.FirstPathToken, new ScrDependencySymbol(dependencyNode.Range, dependencyPath, dependencyNode.Path));
 
-        // Add the dependency to the list
-        DefinitionsTable.AddDependency(dependencyPath);
+        // Add the using path to the list
+        DefinitionsTable.AddUsingPath(dependencyPath);
     }
 
     public void AnalyseNamespace(NamespaceNode namespaceNode)

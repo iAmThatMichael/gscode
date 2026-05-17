@@ -507,7 +507,7 @@ public partial class ScriptManager
                 ))
                 .ToList();
 
-            var dependencies = defTable.Dependencies
+            var dependencies = defTable.UsingPaths
                 .Select(u => NormalizeCachePath(u.LocalPath))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -530,26 +530,6 @@ public partial class ScriptManager
             var cachedGlobalFields = script.ExtractGlobalFieldAccesses()
                 .Select(field => new CachedGlobalFieldAccess(field.OwnerName, field.FieldName))
                 .ToList();
-
-            // Build insert-dependencies list: resolved paths of all #insert files.
-            // Hash each from disk so we can detect changes on the next workspace load.
-            var insertDeps = new List<string>();
-            foreach (string insertPath in script.InsertPaths)
-            {
-                insertDeps.Add(insertPath);
-                if (!depHashes.ContainsKey(insertPath))
-                {
-                    try
-                    {
-                        string insertContent = File.ReadAllText(insertPath);
-                        depHashes[insertPath] = WorkspaceCacheManager.GetDeterministicHashCode(insertContent);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Warning(ex, "Failed to hash insert file {Path} for cache", insertPath);
-                    }
-                }
-            }
 
             return new CachedScriptData
             {

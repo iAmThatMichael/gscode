@@ -469,7 +469,7 @@ public partial class ScriptManager
         }
 
         // Snapshot dependencies to avoid collection modification during enumeration
-        var dependencies = entry.Script.Dependencies.ToList();
+        var dependencies = entry.Script.UsingPaths.ToList();
 
         // Parse and register dependencies
         foreach (Uri dep in dependencies)

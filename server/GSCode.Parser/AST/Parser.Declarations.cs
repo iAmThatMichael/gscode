@@ -12,13 +12,13 @@ internal ref partial struct Parser
     /// Adaptation of: DependenciesList := Dependency DependenciesList | ε
     /// </remarks>
     /// <returns></returns>
-    private List<DependencyNode> DependenciesList()
+    private List<UsingNode> DependenciesList()
     {
-        List<DependencyNode> dependencies = new List<DependencyNode>();
+        List<UsingNode> dependencies = new List<UsingNode>();
 
         while (CurrentTokenType == TokenType.Using)
         {
-            DependencyNode? next = Dependency();
+            UsingNode? next = UsingDirective();
 
             // Success
             if (next is not null)
@@ -55,13 +55,13 @@ internal ref partial struct Parser
     }
 
     /// <summary>
-    /// Parses and outputs a dependency node.
+    /// Parses and outputs a using directive node.
     /// </summary>
     /// <remarks>
-    /// Dependency := USING Path SEMICOLON
+    /// UsingDirective := USING Path SEMICOLON
     /// </remarks>
     /// <returns></returns>
-    private DependencyNode? Dependency()
+    private UsingNode? UsingDirective()
     {
         // Pass USING
         Advance();
@@ -79,7 +79,7 @@ internal ref partial struct Parser
             AddErrorAtEndOfPrevious(GSCErrorCodes.ExpectedSemiColon, "using directive");
         }
 
-        return new DependencyNode(path);
+        return new UsingNode(path);
     }
 
     /// <summary>
@@ -249,7 +249,7 @@ internal ref partial struct Parser
             case TokenType.Using:
                 // The GSC compiler doesn't allow this, but we'll still attempt to parse it to get dependency info.
                 AddError(GSCErrorCodes.UnexpectedUsing);
-                return Dependency();
+                return UsingDirective();
             // End of this dev block
             case TokenType.CloseDevBlock when InDevBlock():
                 return null;

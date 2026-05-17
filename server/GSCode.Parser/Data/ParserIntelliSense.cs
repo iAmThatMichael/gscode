@@ -56,9 +56,9 @@ internal sealed class ParserIntelliSense
     public DocumentTokensLibrary Tokens { get; } = new();
 
     /// <summary>
-    /// List of dependencies to request from the Language Server.
+    /// List of using paths to request from the Language Server.
     /// </summary>
-    public List<Uri> Dependencies { get; } = new();
+    public List<Uri> UsingPaths { get; } = new();
 
     /// <summary>
     /// List of diagnostics to push to the editor.
@@ -230,12 +230,12 @@ internal sealed class ParserIntelliSense
     public void AddPreDiagnostic(Range range, GSCErrorCodes code, params object?[] args) => AddDiagnostic(range, DiagnosticSources.Preprocessor, code, args);
     public void AddIdeDiagnostic(Range range, GSCErrorCodes code, params object?[] args) => AddDiagnostic(range, DiagnosticSources.Ide, code, args);
 
-    public void AddDependency(string scriptPath)
+    public void AddUsingPath(string scriptPath)
     {
-        Dependencies.Add(new Uri(new Uri("file:///"), scriptPath.Replace('\\', '/')));
+        UsingPaths.Add(new Uri(new Uri("file:///"), scriptPath.Replace('\\', '/')));
     }
 
-    public string? GetDependencyPath(string dependencyPath, Range sourceRange)
+    public string? ResolveUsingPath(string dependencyPath, Range sourceRange)
     {
         string qualifiedDependencyPath = dependencyPath + _language.ToExtension();
         string? resolvedPath = ParserUtil.GetScriptFilePath(_scriptPath, qualifiedDependencyPath);

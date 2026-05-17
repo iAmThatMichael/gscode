@@ -39,6 +39,16 @@ public partial class Script
 
         int tokenIdx = Sense.Tokens.GetIndex(position);
         Token? token = Sense.Tokens.GetAt(tokenIdx);
+
+        // Check for #insert go-to-definition before the null-token guard — #insert path tokens
+        // are preprocessor-level and never appear in Sense.Tokens, so token may be null here.
+        if (Sense.HoverLibrary!.Get(position) is Pre.InsertDirectiveHover ih)
+        {
+            string? resolved = Sense.ResolveInsertPath(ih.RawPath, ih.Range);
+            if (resolved is not null && File.Exists(resolved))
+                return MakeFileStartLocation(resolved);
+        }
+
         if (token is null) return null;
 
         // Skip preprocessor-expanded tokens — they carry the macro name's source range, not the
@@ -185,14 +195,7 @@ public partial class Script
 
         if (IsOnUsingLineByIndex(tokenIdx, out string? usingPath, out Range? usingRange))
         {
-            string? resolved = Sense.GetDependencyPath(usingPath!, usingRange!);
-            if (resolved is not null && File.Exists(resolved))
-                return MakeFileStartLocation(resolved);
-        }
-
-        if (Sense.HoverLibrary!.Get(position) is Pre.InsertDirectiveHover ih)
-        {
-            string? resolved = Sense.ResolveInsertPath(ih.RawPath, ih.Range);
+            string? resolved = Sense.ResolveUsingPath(usingPath!, usingRange!);
             if (resolved is not null && File.Exists(resolved))
                 return MakeFileStartLocation(resolved);
         }
@@ -414,7 +417,7 @@ public partial class Script
         if (DefinitionsTable is null)
             return false;
 
-        foreach (Uri dep in DefinitionsTable.Dependencies)
+        foreach (Uri dep in DefinitionsTable.UsingPaths)
         {
             if (string.Equals(dep.LocalPath, filePath, StringComparison.OrdinalIgnoreCase))
                 return true;

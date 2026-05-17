@@ -16,7 +16,7 @@ internal static class AstTraversal
         switch (node)
         {
             case ScriptNode s:
-                foreach (var d in s.Dependencies) yield return d;
+                foreach (var d in s.UsingNodes) yield return d;
                 foreach (var sd in s.ScriptDefns) yield return sd; break;
             case ClassBodyListNode cbl:
                 foreach (var d in cbl.Definitions) yield return d; break;

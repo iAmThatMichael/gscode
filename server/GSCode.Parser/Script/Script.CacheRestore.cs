@@ -38,10 +38,18 @@ public partial class Script
                 DefinitionsTable.ExportedSymbols[cls.Name] = cls;
             }
 
-            // Restore Dependencies
+            // Restore UsingPaths
             foreach (var dep in cachedData.Dependencies)
             {
-                DefinitionsTable.Dependencies.Add(new Uri(dep));
+                var uri = new Uri(dep);
+                DefinitionsTable.UsingPaths.Add(uri);
+                _usingPaths.Add(uri);
+            }
+
+            // Restore InsertPaths
+            if (cachedData.InsertDependencies is { Count: > 0 })
+            {
+                _insertPaths.AddRange(cachedData.InsertDependencies);
             }
 
             // Restore function locations, parameters, flags, and docs

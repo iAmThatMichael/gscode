@@ -203,7 +203,16 @@ public partial class ScriptManager
         {
             dependencyTasks.Add(AddDependencyAsync(documentUri, dependency));
         }
-        await Task.WhenAll(dependencyTasks);
+        try
+        {
+            await Task.WhenAll(dependencyTasks);
+        }
+        finally
+        {
+            // Always signal — even on failure — so GoTo-Definition requests are never
+            // left waiting on _dependenciesReady indefinitely.
+            script.SignalDependenciesReady();
+        }
 
         // Build exported symbols from parsed dependencies
         List<IExportedSymbol> exportedSymbols = new();

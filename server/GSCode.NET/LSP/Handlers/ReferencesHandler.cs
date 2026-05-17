@@ -81,8 +81,7 @@ internal class ReferencesHandler(
             {
                 foreach (var key in keys)
                 {
-                    var loc = loaded.Script.DefinitionsTable.GetFunctionLocation(key.Namespace, key.Name)
-                           ?? loaded.Script.DefinitionsTable.GetClassLocation(key.Namespace, key.Name);
+                    var loc = loaded.Script.DefinitionsTable.GetSymbolLocation(key.Namespace, key.Name);
 
                     if (loc is not null)
                     {

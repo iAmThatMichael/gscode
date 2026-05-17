@@ -224,6 +224,8 @@ LanguageServer server = await LanguageServer.From(options =>
 		.AddHandler<DocumentHighlightHandler>()
 		.AddHandler<SignatureHelpHandler>()
 		.AddHandler<ReferencesHandler>()
+		.AddHandler<PrepareRenameHandler>()
+		.AddHandler<RenameHandler>()
 		.AddHandler<ConfigurationHandler>()
 		.AddHandler<DidChangeWatchedFilesHandler>()
 		.AddHandler<CodeActionHandler>()

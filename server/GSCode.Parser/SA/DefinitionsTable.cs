@@ -159,6 +159,13 @@ public class DefinitionsTable
     public (string FilePath, TokenRange Range)? GetClassLocation(string qualifier, string symbolName) =>
         GetLocation(_classLocations, qualifier, symbolName, _globalProvider is not null ? _globalProvider.FindClassLocation : null);
 
+    /// <summary>
+    /// Returns the declaration location for a function or class with the given qualified name,
+    /// checking functions first then classes. Returns <see langword="null"/> if neither is found.
+    /// </summary>
+    public (string FilePath, TokenRange Range)? GetSymbolLocation(string qualifier, string symbolName) =>
+        GetFunctionLocation(qualifier, symbolName) ?? GetClassLocation(qualifier, symbolName);
+
     public (string FilePath, TokenRange Range)? GetFunctionLocationAnyNamespace(string symbolName) =>
         GetLocationAnyNamespace(_functionLocations, symbolName, _globalProvider is not null ? _globalProvider.FindFunctionLocationAnyNamespace : null);
 

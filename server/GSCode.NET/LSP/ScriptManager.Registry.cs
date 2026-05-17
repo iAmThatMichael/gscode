@@ -181,7 +181,7 @@ public partial class ScriptManager
         }
     }
 
-    /// <summary>Gets per-extension script counts.</summary>
+    /// <summary>Gets per-language script counts.</summary>
     public (int GscFiles, int CscFiles) GetScriptCountsByType()
     {
         int gscCount = 0;
@@ -189,11 +189,11 @@ public partial class ScriptManager
 
         foreach (var kvp in Scripts)
         {
-            string filePath = UriHelper.GetLocalPath(kvp.Key);
-            if (filePath.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase))
-                gscCount++;
-            else if (filePath.EndsWith(".csc", StringComparison.OrdinalIgnoreCase))
-                cscCount++;
+            switch (kvp.Value.Script.Language)
+            {
+                case ScriptLanguage.Gsc: gscCount++; break;
+                case ScriptLanguage.Csc: cscCount++; break;
+            }
         }
 
         return (gscCount, cscCount);
@@ -203,6 +203,17 @@ public partial class ScriptManager
     {
         foreach (var kv in Scripts)
             yield return new LoadedScript(kv.Key, kv.Value.Script);
+    }
+
+    /// <summary>
+    /// Returns only loaded scripts whose language matches <paramref name="language"/>.
+    /// Avoids repeating the same language guard in every handler.
+    /// </summary>
+    public IEnumerable<LoadedScript> GetLoadedScripts(ScriptLanguage language)
+    {
+        foreach (var kv in Scripts)
+            if (kv.Value.Script.Language == language)
+                yield return new LoadedScript(kv.Key, kv.Value.Script);
     }
 
     /// <summary>

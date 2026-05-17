@@ -28,10 +28,8 @@ internal class ReferencesHandler(
         {
             var fieldKey = new SymbolKey(GSCode.Parser.SA.SymbolKind.Field, "", fieldAccess.Value.Field);
             var fieldResults = new List<Location>();
-            foreach (var loaded in scriptManager.GetLoadedScripts())
+            foreach (var loaded in scriptManager.GetLoadedScripts(script.Language))
             {
-                if (loaded.Script.Language != script.Language)
-                    continue;
                 if (loaded.Script.References.TryGetValue(fieldKey, out var ranges))
                     foreach (var r in ranges)
                         fieldResults.Add(new Location { Uri = loaded.Uri, Range = r });
@@ -61,12 +59,8 @@ internal class ReferencesHandler(
         ScriptLanguage requestingLanguage = script.Language;
 
         var results = new List<Location>();
-        foreach (var loaded in scriptManager.GetLoadedScripts())
+        foreach (var loaded in scriptManager.GetLoadedScripts(requestingLanguage))
         {
-            // Don't cross GSC/CSC boundaries.
-            if (loaded.Script.Language != requestingLanguage)
-                continue;
-
             foreach (var key in keys)
             {
                 if (loaded.Script.References.TryGetValue(key, out var ranges))

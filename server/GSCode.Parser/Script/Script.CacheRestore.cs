@@ -168,8 +168,8 @@ public partial class Script
             ParsingTask = Task.CompletedTask;
             AnalysisTask = Task.CompletedTask;
 
-            // Complete the TaskCompletionSources so any awaiting code can proceed
-            _parseInitiated.TrySetResult();
+            // Signal the current parse gate and analysis gate so waiters can proceed
+            _currentParseGate.TrySetResult();
             _analysisInitiated.TrySetResult();
 
             Log.Debug("Restored script {Uri} from cache (namespace: {Namespace}, functions: {FuncCount}, classes: {ClassCount})",

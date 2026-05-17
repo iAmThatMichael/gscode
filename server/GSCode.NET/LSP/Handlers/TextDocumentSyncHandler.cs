@@ -48,7 +48,7 @@ internal class TextDocumentSyncHandler(
 
     public override async Task<Unit> Handle(DidOpenTextDocumentParams request, CancellationToken ct)
     {
-        Log.Information("Document opened");
+        Log.Information("Document opened: {Uri}", request.TextDocument.Uri);
         var sw = Stopwatch.StartNew();
         var diags = await scriptManager.AddEditorAsync(request.TextDocument, ct);
         facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams

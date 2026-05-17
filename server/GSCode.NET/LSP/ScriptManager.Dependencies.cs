@@ -38,8 +38,8 @@ public partial class ScriptManager
         // Only parse if new dependency or not yet parsed
         if (isNewDependency || !cached.Script.Parsed)
         {
-            Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} (new={IsNew}, requested by {DependentUri})",
-                depPath, isNewDependency, UriHelper.GetLocalPath(dependentUri));
+            //Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} (new={IsNew}, requested by {DependentUri})",
+            //    depPath, isNewDependency, UriHelper.GetLocalPath(dependentUri));
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             string filePath = UriHelper.GetLocalPath(uri);
@@ -84,12 +84,12 @@ public partial class ScriptManager
             cached.LastParsedAt = DateTime.UtcNow;
             sw.Stop();
 
-            Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} completed in {ElapsedMs} ms (symbolsChanged={Changed})",
-                depPath, sw.ElapsedMilliseconds, symbolsChanged);
+            //Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} completed in {ElapsedMs} ms (symbolsChanged={Changed})",
+            //    depPath, sw.ElapsedMilliseconds, symbolsChanged);
         }
         else
         {
-            Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} already parsed, skipping", depPath);
+            //Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} already parsed, skipping", depPath);
         }
 
         cached.Dependents.TryAdd(dependentUri, 0);
@@ -139,9 +139,16 @@ public partial class ScriptManager
 
         foreach (Uri dependency in dependencies)
         {
-            string depPath = UriHelper.GetLocalPath(dependency);
+            // Skip self-references: a script that #using's itself (e.g. array_shared.gsc uses
+            // scripts\shared\array_shared) would overwrite its own SA-written absolute paths with
+            // relative paths from ConvertToRelativeScriptPath, hiding all its own functions.
+            string depLocalPath = UriHelper.GetLocalPath(dependency);
+            if (string.Equals(depLocalPath, filePath, StringComparison.OrdinalIgnoreCase)) continue;
 
-            foreach (SymbolDefinition def in _symbolRegistry.GetSymbolsDefinedInFile(depPath))
+            ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(System.IO.Path.GetExtension(depLocalPath));
+            if (!GetScripts(depLang).TryGetValue(dependency, out _)) continue;
+
+            foreach (SymbolDefinition def in _symbolRegistry.GetSymbolsDefinedInFile(depLocalPath))
             {
                 if (WorkspaceBoundaryFilter.FilterSymbolLocation(def.FilePath, currentWorkspaceRoot, currentIsInRawFolder)
                     == WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)

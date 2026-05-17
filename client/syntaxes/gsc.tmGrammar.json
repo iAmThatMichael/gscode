@@ -202,6 +202,21 @@
             "name": "constant.numeric.gsc",
             "match": "\\b((0(x|X)[0-9a-fA-F]+)|(\\d+(?:\\.\\d*)?(?:[eE][+\\-]?\\d+)?))\\b"
         },
+        "vector": {
+            "comment": "Vector literal: ( x, y, z ) — matched as a single constant so default-parameter vectors colour correctly",
+            "name": "meta.vector.gsc",
+            "begin": "(?<![\\w])\\(",
+            "end": "\\)",
+            "beginCaptures": { "0": { "name": "punctuation.definition.vector.begin.gsc" } },
+            "endCaptures":   { "0": { "name": "punctuation.definition.vector.end.gsc" } },
+            "patterns": [
+                { "include": "#number" },
+                {
+                    "name": "punctuation.separator.vector.gsc",
+                    "match": ","
+                }
+            ]
+        },
         "expression": {
             "patterns": [
                 { "include": "#block-comment" },
@@ -209,6 +224,7 @@
                 { "include": "#localized-string" },
                 { "include": "#hash-string" },
                 { "include": "#double-quote-string" },
+                { "include": "#vector" },
                 { "include": "#number" },
                 { "include": "#function-pointer" },
                 { "include": "#expression-keywords" },

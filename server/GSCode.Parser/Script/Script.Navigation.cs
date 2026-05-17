@@ -156,10 +156,22 @@ public partial class Script
     private Location? TryGetMacroDefinitionLocation(Position position) =>
         Sense.HoverLibrary!.Get(position) switch
         {
-            Pre.MacroDefinition { IsBuiltIn: false } macroDef => MakeLocalLocation(macroDef.Range),
-            Pre.ScriptMacro scriptMacro                       => MakeLocalLocation(scriptMacro.DefineSource.Range),
-            _                                                  => null
+            Pre.MacroDefinition { IsBuiltIn: false } macroDef =>
+                macroDef.SourceFilePath is string srcPath && File.Exists(srcPath)
+                    ? MakeFileLocation(srcPath, macroDef.Range)
+                    : MakeLocalLocation(macroDef.Range),
+            Pre.ScriptMacro scriptMacro =>
+                scriptMacro.DefineSource.SourceFilePath is string srcPath && File.Exists(srcPath)
+                    ? MakeFileLocation(srcPath, scriptMacro.DefineSource.Range)
+                    : MakeLocalLocation(scriptMacro.DefineSource.Range),
+            _ => null
         };
+
+    private static Location MakeFileLocation(string filePath, Range range)
+    {
+        string normalized = ScriptFileResolver.NormalizeFilePathForUri(filePath);
+        return new Location { Uri = new Uri(normalized), Range = range };
+    }
 
     private Location? TryGetSymbolDefinitionLocation(Token token)
     {

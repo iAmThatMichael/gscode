@@ -299,6 +299,13 @@ public partial class ScriptManager
                         foreach (var (depPath, expectedHash) in cachedData.DependencyHashes)
                         {
                             string normDep = Path.GetFullPath(depPath);
+
+                            // #insert files (.gsh) are never indexed into _workspaceCache.Scripts —
+                            // skip them here. Phase 1b validates them by hashing from disk directly.
+                            if (cachedData.InsertDependencies is not null &&
+                                cachedData.InsertDependencies.Contains(depPath, StringComparer.OrdinalIgnoreCase))
+                                continue;
+
                             if (!_workspaceCache!.Scripts.TryGetValue(normDep, out var depCached))
                             {
                                 // Dep absent from cache — treat as stale

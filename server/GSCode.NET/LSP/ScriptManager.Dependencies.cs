@@ -21,7 +21,7 @@ public partial class ScriptManager
         // Deriving from extension here is the single source of truth.
         ScriptLanguage depLanguage = ScriptLanguageExtensions.FromExtension(System.IO.Path.GetExtension(depPath));
 
-        var cached = Scripts.GetOrAdd(uri, key =>
+        var cached = GetScripts(depLanguage).GetOrAdd(uri, key =>
         {
             isNewDependency = true;
             return new CachedScript
@@ -78,7 +78,7 @@ public partial class ScriptManager
 
     private void RemoveDependent(Uri dependentUri)
     {
-        foreach (KeyValuePair<Uri, CachedScript> script in Scripts)
+        foreach (KeyValuePair<Uri, CachedScript> script in AllScripts)
         {
             var dependents = script.Value.Dependents;
             if (dependents.TryRemove(dependentUri, out _))
@@ -86,7 +86,7 @@ public partial class ScriptManager
                 // Housekeeping: remove orphaned dependency scripts
                 if (dependents.IsEmpty && script.Value.Type == CachedScriptType.Dependency)
                 {
-                    Scripts.Remove(script.Key, out _);
+                    GetScripts(script.Value.Script.Language).Remove(script.Key, out _);
                     CleanupLocksForUri(script.Key);
                 }
             }
@@ -113,7 +113,8 @@ public partial class ScriptManager
 
         foreach (Uri dependency in dependencies)
         {
-            if (!Scripts.TryGetValue(dependency, out CachedScript? depScript)) continue;
+            ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(System.IO.Path.GetExtension(UriHelper.GetLocalPath(dependency)));
+            if (!GetScripts(depLang).TryGetValue(dependency, out CachedScript? depScript)) continue;
 
             await WithAnalysisLockAsync(dependency, () =>
             {

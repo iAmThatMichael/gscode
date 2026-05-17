@@ -19,7 +19,22 @@ public partial class ScriptManager
     /// </summary>
     private WorkspaceCacheFile? _workspaceCache;
 
-    private ConcurrentDictionary<Uri, CachedScript> Scripts { get; } = new(UriComparer.OrdinalIgnoreCase);
+    private ConcurrentDictionary<Uri, CachedScript> GscScripts { get; } = new(UriComparer.OrdinalIgnoreCase);
+    private ConcurrentDictionary<Uri, CachedScript> CscScripts { get; } = new(UriComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Routes to the correct per-language script dictionary.
+    /// All single-URI operations should use this instead of iterating AllScripts.
+    /// </summary>
+    private ConcurrentDictionary<Uri, CachedScript> GetScripts(ScriptLanguage language) =>
+        language == ScriptLanguage.Csc ? CscScripts : GscScripts;
+
+    /// <summary>
+    /// Combined view of both language dictionaries for operations that genuinely need all scripts
+    /// (cache serialisation, full cleanup, workspace-wide search anchoring).
+    /// </summary>
+    private IEnumerable<KeyValuePair<Uri, CachedScript>> AllScripts =>
+        GscScripts.Concat(CscScripts);
 
     /// <summary>
     /// Per-language symbol registries. Each language gets its own isolated pool so
@@ -153,7 +168,7 @@ public partial class ScriptManager
             string cacheFilePath = WorkspaceCacheManager.GetCacheFilePath();
             var scripts = new Dictionary<string, CachedScriptData>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var kvp in Scripts)
+            foreach (var kvp in AllScripts)
             {
                 string filePath = UriHelper.GetLocalPath(kvp.Key);
                 var cached = kvp.Value;

@@ -1124,5 +1124,5 @@ internal record struct ScrData
 }
 
 internal record ScrParameter(string Name, Token Source, Range Range, bool ByRef = false, ExprNode? Default = null, bool Mandatory = false);
-internal record ScrVariable(string Name, ScrData Data, int LexicalScope, bool Global = false, bool IsConstant = false, Range? SourceLocation = null, AstNode? DefinitionSource = null);
+internal record ScrVariable(string Name, ScrData Data, int LexicalScope, bool Global = false, bool IsConstant = false, Range? SourceLocation = null, AstNode? DefinitionSource = null, ScrParameter? SourceParameter = null);
 // internal record ScrArguments(List<IExpressionNode> Arguments);

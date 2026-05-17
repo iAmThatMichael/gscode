@@ -904,9 +904,12 @@ internal ref partial struct TypeFlowAnalyser
                 return false;
             }
 
-            AstNode? defSource = symbolTable.TryGetLocalVariableInfo(symbolName)?.DefinitionSource;
+            ScrVariable? varInfo = symbolTable.TryGetLocalVariableInfo(symbolName);
             symbolTable.SetSymbol(symbolName, newValue);
-            Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Usage(identifier, newValue, definitionSource: defSource));
+            if (varInfo?.SourceParameter is ScrParameter srcParam)
+                Sense.AddSenseToken(identifier.Token, ScrParameterSymbol.Usage(identifier.Token, srcParam, varInfo.DefinitionSource));
+            else
+                Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Usage(identifier, newValue, definitionSource: varInfo?.DefinitionSource));
             return true;
         }
 
@@ -1154,8 +1157,11 @@ internal ref partial struct TypeFlowAnalyser
                 return right;
             }
 
-            AstNode? defSource = symbolTable.TryGetLocalVariableInfo(symbolName)?.DefinitionSource;
-            Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Usage(identifier, right, definitionSource: defSource));
+            ScrVariable? varInfoReuse = symbolTable.TryGetLocalVariableInfo(symbolName);
+            if (varInfoReuse?.SourceParameter is ScrParameter reuseParam)
+                Sense.AddSenseToken(identifier.Token, ScrParameterSymbol.Usage(identifier.Token, reuseParam, varInfoReuse.DefinitionSource));
+            else
+                Sense.AddSenseToken(identifier.Token, ScrVariableSymbol.Usage(identifier, right, definitionSource: varInfoReuse?.DefinitionSource));
             return right;
         }
 
@@ -1298,9 +1304,16 @@ internal ref partial struct TypeFlowAnalyser
 
         if (createSenseTokenForRhs)
         {
-            bool isConstant = symbolTable.SymbolIsConstant(expr.Identifier);
-            AstNode? defSource = symbolTable.TryGetLocalVariableInfo(expr.Identifier)?.DefinitionSource;
-            Sense.AddSenseToken(expr.Token, ScrVariableSymbol.Usage(expr, data, isConstant, defSource));
+            ScrVariable? varInfo = symbolTable.TryGetLocalVariableInfo(expr.Identifier);
+            if (varInfo?.SourceParameter is ScrParameter srcParam)
+            {
+                Sense.AddSenseToken(expr.Token, ScrParameterSymbol.Usage(expr.Token, srcParam, varInfo.DefinitionSource));
+            }
+            else
+            {
+                bool isConstant = symbolTable.SymbolIsConstant(expr.Identifier);
+                Sense.AddSenseToken(expr.Token, ScrVariableSymbol.Usage(expr, data, isConstant, varInfo?.DefinitionSource));
+            }
         }
         return data;
     }

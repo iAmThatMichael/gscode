@@ -124,6 +124,21 @@ public class ScrParameterSymbol : ISenseDefinition
         }
     }
 
+    /// <summary>
+    /// Creates a symbol for a usage site of a parameter inside a function body.
+    /// The range comes from the usage token, not the declaration.
+    /// </summary>
+    internal static ScrParameterSymbol Usage(Token usageToken, ScrParameter sourceParam, AstNode? definitionSource = null)
+        => new(usageToken, sourceParam, definitionSource);
+
+    private ScrParameterSymbol(Token usageToken, ScrParameter sourceParam, AstNode? definitionSource)
+    {
+        Source = sourceParam;
+        Range = usageToken.Range;
+        DefinitionSource = definitionSource;
+        SemanticTokenModifiers = sourceParam.Name == "vararg" ? new string[] { "defaultLibrary" } : [];
+    }
+
     public Hover GetHover()
     {
         string parameterName = $"{Source.Name}";

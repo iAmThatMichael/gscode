@@ -4,16 +4,16 @@
     "fileTypes": [
         "gsc"
     ],
-    "foldingStartMarker": "^.*\bfunction\\s*(\\w+\\s*)?\\([^\\)]*\\)(\\s*\\{[^\\}]*)?\\s*$",
+    "foldingStartMarker": "^.*\\bfunction\\s*(\\w+\\s*)?\\([^\\)]*\\)(\\s*\\{[^\\}]*)?\\s*$",
     "foldingStopMarker": "^\\s*\\}",
     "patterns": [
         { "include": "#function" },
         { "include": "#class" },
         { "include": "#block-comment" },
+        { "include": "#line-comment" },
         { "include": "#expression" },
         { "include": "#control" },
         { "include": "#operator" },
-        { "include": "#line-comment" },
         {
             "name": "comment.block.documentation.gsc",
             "begin": "/@",
@@ -117,14 +117,36 @@
         },
         "double-quote-string": {	
             "name": "string.quoted.double.gsc",
-			"begin": "\"",
+            "begin": "\"",
             "end": "\"",
-			"beginCaptures": { "0": { "name": "punctuation.definition.string.begin.gsc" }},
+            "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.gsc" }},
             "endCaptures": { "0": { "name": "punctuation.definition.string.end.gsc" }},
             "patterns": [
                 { "include": "#escape" }
             ]
-		},
+        },
+        "localized-string": {
+            "comment": "Localized/istring literals: &\"MY_REF\"",
+            "name": "string.quoted.double.localized.gsc",
+            "begin": "&\"",
+            "end": "\"",
+            "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.gsc" }},
+            "endCaptures": { "0": { "name": "punctuation.definition.string.end.gsc" }},
+            "patterns": [
+                { "include": "#escape" }
+            ]
+        },
+        "hash-string": {
+            "comment": "Hashed string literals: #\"MY_HASH\"",
+            "name": "string.quoted.double.hash.gsc",
+            "begin": "#\"",
+            "end": "\"",
+            "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.gsc" }},
+            "endCaptures": { "0": { "name": "punctuation.definition.string.end.gsc" }},
+            "patterns": [
+                { "include": "#escape" }
+            ]
+        },
         "function-parameter-defaults": {
             "name": "meta.parameters.default.gsc",
             "begin": "(([[:alnum:]]\\w*)\\s*(=)\\s*)",
@@ -151,10 +173,10 @@
             "name": "variable.language.gsc",
             "match": "\\b(self|level|game|world|vararg|anim)\\b"
         },
-		"storage-types": {
-			"name": "storage.type.gsc",
-			"match": "\\b(var|const)\\b"
-		},
+        "storage-types": {
+            "name": "storage.type.gsc",
+            "match": "\\b(var|const)\\b"
+        },
         "boolean-true": {
             "name": "constant.language.boolean.true.gsc",
             "match": "\\btrue\\b"
@@ -173,17 +195,19 @@
                 { "include": "#boolean-true" },
                 { "include": "#boolean-false" },
                 { "include": "#language-reserved-variables" },
-				{ "include": "#storage-types" }
+                { "include": "#storage-types" }
             ]
         },
         "number": {	
             "name": "constant.numeric.gsc",
-			"match": "\\b((0(x|X)[0-9a-fA-F]+)|(\\d+(?:\\.\\d*)?(?:[eE][+\\-]?\\d+)?))\\b"
-		},
+            "match": "\\b((0(x|X)[0-9a-fA-F]+)|(\\d+(?:\\.\\d*)?(?:[eE][+\\-]?\\d+)?))\\b"
+        },
         "expression": {
             "patterns": [
                 { "include": "#block-comment" },
                 { "include": "#dev-block" },
+                { "include": "#localized-string" },
+                { "include": "#hash-string" },
                 { "include": "#double-quote-string" },
                 { "include": "#number" },
                 { "include": "#function-pointer" },
@@ -204,9 +228,9 @@
         },
         "namespace-call": {	
             "name": "meta.namespace-call.gsc",
-			"comment": "match function calls like: scene::play('example');",
-			"match": "\\b((?:[[:alpha:]]|_)\\w+)(::)((?:[[:alnum:]]|_)\\w+)\\b",
-			"captures": {
+            "comment": "match function calls like: scene::play('example');",
+            "match": "\\b((?:[[:alpha:]]|_)\\w+)(::)((?:[[:alnum:]]|_)\\w+)\\b",
+            "captures": {
                 "1": { "name": "entity.name.scope-resolution.gsc" },
                 "3": { 
                     "name": "entity.name.function.gsc",
@@ -224,10 +248,10 @@
         },
         "other-function": {	
             "name": "meta.function-call.gsc",
-			"comment": "match function calls like: burger('example');",
+            "comment": "match function calls like: burger('example');",
             "begin": "((?:[[:alpha:]]|_)\\w+)\\s*(\\()",
             "end": "\\)",
-			"beginCaptures": {
+            "beginCaptures": {
                 "1": { 
                     "name": "entity.name.function.gsc",
                     "patterns": [
@@ -251,7 +275,7 @@
             "name": "entity.name.function.pointer.gsc",
             "match": "(\\&)(?:((?:[[:alpha:]]|_)\\w+)(::))?(?:[[:alnum:]]|_)+?\\b",
             "captures": {
-				"1": { "name": "keyword.operator.function-pointer.gsc" },
+                "1": { "name": "keyword.operator.function-pointer.gsc" },
                 "2": { "name": "entity.name.scope-resolution.gsc" }
             }
         },
@@ -265,8 +289,7 @@
             "match": "\\\\\\n",
             "name": "constant.character.escape.line-continuation.gsc"
         },
-        "line-comment": 
-        {
+        "line-comment": {
             "name": "comment.line.double-slash.gsc",
             "begin": "//",
             "end": "(?<=\\n)(?<!\\\\\\n)",
@@ -276,10 +299,10 @@
         },
         "function": {	
             "name": "meta.function.gsc",
-			"comment": "match regular function like: function myFunc(arg) { É }",
-			"begin": "\\b(function)(\\s[a-zA-Z_$]\\w*)?\\s+([a-zA-Z_$]\\w*)?\\s*(\\()",
-			"end": "(?!\\G)(?<=\\))",
-			"beginCaptures": {
+            "comment": "match regular function like: function myFunc(arg) { ... }",
+            "begin": "\\b(function)(\\s[a-zA-Z_$]\\w*)?\\s+([a-zA-Z_$]\\w*)?\\s*(\\()",
+            "end": "(?!\\G)(?<=\\))",
+            "beginCaptures": {
                 "1": { "name": "storage.type.function.gsc" },
                 "2": {
                     "patterns": [
@@ -292,30 +315,20 @@
                 "3": { "name": "entity.name.function.gsc" },
                 "4": { "name": "punctuation.definition.parameters.begin.gsc" }
             },
-			"endCaptures": {
-				"1": { "name": "punctuation.definition.parameters.end.gsc" }
-			},
-			"patterns": [
-				{
-					"include": "#function-parameter-defaults"
-				},
-				{
-					"include": "#function-vararg"
-				},
-				{
-					"include": "#function-parameter"
-				},
-				{
-					"name": "keyword.operator.parameter-comma.gsc",
-					"match": ","
-				},
+            "endCaptures": {
+                "1": { "name": "punctuation.definition.parameters.end.gsc" }
+            },
+            "patterns": [
+                { "include": "#function-parameter-defaults" },
+                { "include": "#function-vararg" },
+                { "include": "#function-parameter" },
                 {
-                    "include": "#block-comment"
+                    "name": "keyword.operator.parameter-comma.gsc",
+                    "match": ","
                 },
-                {
-                    "include": "#line-comment"
-                }
-			]
+                { "include": "#block-comment" },
+                { "include": "#line-comment" }
+            ]
         },
         "class": {
             "patterns": [
@@ -325,9 +338,9 @@
         },
         "class-decl": {	
             "name": "meta.class.gsc",
-			"comment": "match classes like: class Ham, class Cheddar : Cheese { É }",
-			"match": "\\b(class)\\s([a-zA-Z_$]\\w*)(\\s:\\s+([a-zA-Z_$]\\w*))?",
-			"captures": {
+            "comment": "match classes like: class Ham, class Cheddar : Cheese { ... }",
+            "match": "\\b(class)\\s([a-zA-Z_$]\\w*)(\\s:\\s+([a-zA-Z_$]\\w*))?",
+            "captures": {
                 "1": { "name": "storage.type.class.gsc" },
                 "2": { "name": "entity.name.class.gsc" },
                 "4": { "name": "entity.other.inherited-class.gsc" }
@@ -335,37 +348,27 @@
         },
         "class-structor": {	
             "name": "meta.class.structor.gsc",
-			"comment": "con/de structor()",
-			"match": "\\b(constructor|destructor)\\s*(\\()(.*?)(\\))",
-			"captures": {
+            "comment": "con/destructor(...) — uses begin/end so multiline parameter lists are handled correctly",
+            "begin": "\\b(constructor|destructor)\\s*(\\()",
+            "end": "(?!\\G)(?<=\\))",
+            "beginCaptures": {
                 "1": { "name": "storage.type.function.gsc" },
-                "2": { "name": "punctuation.definition.parameters.begin.gsc" },
-                "3": { 
-                    "name": "variable.parameter.function.gsc",
-                    "patterns": [
-                        {
-                            "include": "#function-parameter-defaults"
-                        },
-                        {
-                            "include": "#line-comment"
-                        },
-                        {
-                            "include": "#block-comment"
-                        },
-                        {
-                            "include": "#expression"
-                        },
-                        {
-                            "include": "#function-vararg"
-                        },
-                        {
-                            "name": "keyword.operator.parameter-comma.gsc",
-                            "match": ","
-                        }
-                    ]
+                "2": { "name": "punctuation.definition.parameters.begin.gsc" }
+            },
+            "endCaptures": {
+                "1": { "name": "punctuation.definition.parameters.end.gsc" }
+            },
+            "patterns": [
+                { "include": "#function-parameter-defaults" },
+                { "include": "#function-vararg" },
+                { "include": "#function-parameter" },
+                {
+                    "name": "keyword.operator.parameter-comma.gsc",
+                    "match": ","
                 },
-                "4": { "name": "punctuation.definition.parameters.end.gsc" }
-            }
+                { "include": "#block-comment" },
+                { "include": "#line-comment" }
+            ]
         },
         "operator": {
             "name": "keyword.operator.gsc",
@@ -385,7 +388,7 @@
         "doc-comment-descriptor": {
             "name": "comment.block.documentation.descriptor.gsc",
             "comment": "GSC/CSC function description",
-            "match": "\"(.*?): (.*)\"",
+            "match": "\"(.*?): (.*?)\"",
             "captures": {
                 "1": { "name": "entity.name.tag.documentation.gsc" },
                 "2": {
@@ -411,16 +414,16 @@
             }
         },
         "doc-comment-argument": {
-            "comment": "TODO: 'variable.parameter.documentation.gsc' intentionally scopes <mandatory> and [optional] argument names in doc comments as parameter-like. Now that semantic tokens give real parameters a distinct color, this makes doc-comment arg references visually indistinguishable from live parameter usages. Consider changing the scope to 'variable.other.documentation.gsc' so most themes stop coloring them the same as real parameters.",
+            "comment": "Scopes <mandatory> and [optional] argument refs in doc comments. Uses 'variable.other' rather than 'variable.parameter' to avoid visual clash with semantic-token-colored real parameters.",
             "match": "(<|\\[)(.*?)(>|\\])",
             "captures": {
                 "1": { "name": "punctuation.definition.tag.documentation.gsc" },
-                "2": { "name": "variable.parameter.documentation.gsc" },
+                "2": { "name": "variable.other.documentation.gsc" },
                 "3": { "name": "punctuation.definition.tag.documentation.gsc" }
             }
         },
         "doc-comment-gscode-directive": {
-            "match": "(gscode) (\\w*) (\\w*)?",
+            "match": "(gscode) (\\w+) (\\w*)?",
             "captures": {
                 "1": { "name": "support.type.gscode-directive.gsc" },
                 "2": { "name": "support.function.gscode-directive.gsc" },

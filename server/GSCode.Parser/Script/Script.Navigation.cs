@@ -19,10 +19,9 @@ public partial class Script
     public async Task<Location?> GetDefinitionAsync(Position position, CancellationToken cancellationToken = default)
     {
         if (!Sense.IsEditorMode) return null;
-        // Wait for analysis, not just parse: AddDependencyAsync (which populates GlobalSymbolRegistry
-        // with dependency symbols) runs after ParseAsync completes but before AnalyseAsync.
-        // Waiting for parse only creates a race where GoTo fires before dependencies are indexed.
-        await WaitUntilAnalysedAsync(cancellationToken);
+        // Wait until dependency scripts are parsed and registered — cheaper than waiting for full
+        // analysis (CFA/DFA) but sufficient to ensure GlobalSymbolRegistry has dependency symbols.
+        await WaitUntilDependenciesReadyAsync(cancellationToken);
 
         // Try macro lookup at the raw (unadjusted) position first. Macro call tokens are consumed
         // by the preprocessor so they don't appear in the token list; their ScriptMacro hover entry
@@ -66,7 +65,7 @@ public partial class Script
     public async Task<(string? qualifier, string name)?> GetQualifiedIdentifierAtAsync(Position position, CancellationToken cancellationToken = default)
     {
         if (!Sense.IsEditorMode) return null;
-        await WaitUntilAnalysedAsync(cancellationToken);
+        await WaitUntilDependenciesReadyAsync(cancellationToken);
 
         position = AdjustPositionForSelectionEnd(position);
         int idx = Sense.Tokens.GetIndex(position);

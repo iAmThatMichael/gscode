@@ -38,6 +38,7 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
 
     private readonly TaskCompletionSource _parseInitiated = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _analysisInitiated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _dependenciesReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private ScriptNode? RootNode { get; set; } = null;
 
@@ -465,6 +466,25 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
         await ParsingTask!;
         cancellationToken.ThrowIfCancellationRequested();
     }
+
+    /// <summary>
+    /// Waits until all <c>#using</c> dependencies have been parsed and their symbols registered
+    /// in the global registry. This is the minimum barrier for namespace-qualified GoTo-Definition
+    /// lookups, and is cheaper than waiting for full analysis (CFA/DFA).
+    /// For scripts without dependencies the signal is set immediately after parse.
+    /// </summary>
+    internal async Task WaitUntilDependenciesReadyAsync(CancellationToken cancellationToken = default)
+    {
+        await WaitUntilParsedAsync(cancellationToken);
+        await _dependenciesReady.Task.WaitAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    /// <summary>
+    /// Signals that all dependency scripts have been parsed and their symbols registered.
+    /// Called by the script manager immediately after <c>Task.WhenAll(dependencyTasks)</c>.
+    /// </summary>
+    public void SignalDependenciesReady() => _dependenciesReady.TrySetResult();
 
     private async Task WaitUntilAnalysedAsync(CancellationToken cancellationToken = default)
     {

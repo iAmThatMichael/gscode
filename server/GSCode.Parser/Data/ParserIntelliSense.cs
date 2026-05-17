@@ -188,9 +188,10 @@ internal sealed class ParserIntelliSense
             return;
         }
 
-        // The token is from an insert/macro (which we don't show) or it's already had a definition pushed.
+        // The token is from an insert/macro (which we don't show), is inside a comment,
+        // or it's already had a definition pushed.
         // In these cases, skip (for existing, the first gets precedence).
-        if (token.IsFromPreprocessor || _senseDefinitions.ContainsKey(token))
+        if (token.IsFromPreprocessor || token.IsComment() || _senseDefinitions.ContainsKey(token))
         {
             return;
         }

@@ -411,6 +411,7 @@
             }
         },
         "doc-comment-argument": {
+            "comment": "TODO: 'variable.parameter.documentation.gsc' intentionally scopes <mandatory> and [optional] argument names in doc comments as parameter-like. Now that semantic tokens give real parameters a distinct color, this makes doc-comment arg references visually indistinguishable from live parameter usages. Consider changing the scope to 'variable.other.documentation.gsc' so most themes stop coloring them the same as real parameters.",
             "match": "(<|\\[)(.*?)(>|\\])",
             "captures": {
                 "1": { "name": "punctuation.definition.tag.documentation.gsc" },

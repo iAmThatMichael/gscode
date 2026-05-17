@@ -437,7 +437,9 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
                 continue;
             }
 
-            inSet[param.Name.Lexeme] = new(param.Name.Lexeme, ScrData.Default, 0, false, DefinitionSource: param);
+            // Build a ScrParameter so usage sites can emit ScrParameterSymbol with the correct hover/name.
+            var scrParam = new ScrParameter(param.Name.Lexeme, param.Name, param.Name.Range, param.ByRef);
+            inSet[param.Name.Lexeme] = new(param.Name.Lexeme, ScrData.Default, 0, false, DefinitionSource: param, SourceParameter: scrParam);
         }
 
         // Note: Built-in globals (self, level, game, anim) are no longer added to the symbol table.

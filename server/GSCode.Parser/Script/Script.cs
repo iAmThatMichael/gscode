@@ -405,7 +405,7 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
         return Sense.FoldingRanges;
     }
 
-    private async Task WaitUntilParsedAsync(CancellationToken cancellationToken = default)
+    public async Task WaitUntilParsedAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 

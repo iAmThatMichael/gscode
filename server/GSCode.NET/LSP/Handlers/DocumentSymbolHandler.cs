@@ -21,10 +21,22 @@ internal class DocumentSymbolHandler(
         Log.Information("DocumentSymbol (outline) request received");
         var sw = Stopwatch.StartNew();
         Script? script = scriptManager.GetParsedEditor(request.TextDocument);
-        if (script is null || script.DefinitionsTable is null)
+        if (script is null)
         {
             sw.Stop();
-            Log.Information("DocumentSymbol finished in {ElapsedMs} ms: no script or no definitions", sw.ElapsedMilliseconds);
+            Log.Information("DocumentSymbol finished in {ElapsedMs} ms: no script", sw.ElapsedMilliseconds);
+            return new SymbolInformationOrDocumentSymbolContainer();
+        }
+
+        // Wait for parse to complete — SignatureAnalyser (which populates DefinitionsTable function/class
+        // locations) runs during parse. Without this wait the first-open request races against parse and
+        // sees an empty DefinitionsTable, showing only macros (which are populated earlier, during preprocessing).
+        await script.WaitUntilParsedAsync(cancellationToken);
+
+        if (script.DefinitionsTable is null)
+        {
+            sw.Stop();
+            Log.Information("DocumentSymbol finished in {ElapsedMs} ms: no definitions table", sw.ElapsedMilliseconds);
             return new SymbolInformationOrDocumentSymbolContainer();
         }
         cancellationToken.ThrowIfCancellationRequested();

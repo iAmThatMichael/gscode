@@ -10,7 +10,7 @@ namespace GSCode.Parser.AST;
 /// <summary>
 /// An implementation of an LL(1) recursive descent parser for the GSC & CSC languages.
 /// </summary>
-internal ref partial struct Parser(LinkedToken startNode, ParserIntelliSense sense, string languageId)
+internal ref partial struct Parser(LinkedToken startNode, ParserIntelliSense sense, ScriptLanguage language)
 {
     public LinkedToken PreviousNode { get; private set; } = startNode;
     public LinkedToken CurrentNode { get; private set; } = startNode;
@@ -33,7 +33,7 @@ internal ref partial struct Parser(LinkedToken startNode, ParserIntelliSense sen
 
     // TODO: temp hack to add function hoverables in current version.
     // Use shared API instance to avoid redundant allocations
-    private readonly ScriptAnalyserData? _scriptAnalyserData = ScriptAnalyserData.GetShared(languageId);
+    private readonly ScriptAnalyserData? _scriptAnalyserData = ScriptAnalyserData.GetShared(language);
 
     public ParserIntelliSense Sense { get; } = sense;
 

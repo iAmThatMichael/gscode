@@ -44,6 +44,10 @@ internal sealed class CodeActionHandler(
         // Pre-fetch cached document text once — only needed by a subset of fixes
         scriptManager.TryGetCachedContent(request.TextDocument.Uri.ToUri(), out string content);
 
+        // Derive language from file extension so code actions can be scoped correctly.
+        ScriptLanguage language = ScriptLanguageExtensions.FromExtension(
+            System.IO.Path.GetExtension(request.TextDocument.Uri.ToUri().LocalPath));
+
         foreach (Diagnostic diagnostic in request.Context.Diagnostics)
         {
             if (!diagnostic.Code.HasValue || !diagnostic.Code.Value.IsLong)
@@ -167,7 +171,7 @@ internal sealed class CodeActionHandler(
             if (errorCode == GSCErrorCodes.UnknownNamespace)
             {
                 var usingActions = CreateAddUsingForNamespaceActions(
-                    request.TextDocument, diagnostic, content);
+                    request.TextDocument, diagnostic, content, language);
 
                 foreach (var usingAction in usingActions)
                 {
@@ -585,7 +589,7 @@ internal sealed class CodeActionHandler(
     /// producing a path like <c>scripts\zm\utility</c>.
     /// </remarks>
     private List<CodeAction> CreateAddUsingForNamespaceActions(
-        TextDocumentIdentifier document, Diagnostic diagnostic, string content)
+        TextDocumentIdentifier document, Diagnostic diagnostic, string content, ScriptLanguage language)
     {
         var results = new List<CodeAction>();
 
@@ -608,8 +612,8 @@ internal sealed class CodeActionHandler(
         string? functionName = TryExtractQualifiedFunctionName(content, diagnostic.Range.End);
 
         List<string> filePaths = functionName is not null
-            ? scriptManager.SymbolRegistry.FindFilesForNamespacedFunction(namespaceName, functionName)
-            : scriptManager.SymbolRegistry.FindFilesForNamespace(namespaceName);
+            ? scriptManager.FindFilesForNamespacedFunction(language, namespaceName, functionName)
+            : scriptManager.FindFilesForNamespace(language, namespaceName);
 
         if (filePaths.Count == 0)
         {

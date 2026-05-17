@@ -23,7 +23,7 @@ namespace GSCode.Parser;
 
 using SymbolKindSA = GSCode.Parser.SA.SymbolKind;
 
-public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationProvider? globalSymbolProvider = null, ScriptMode mode = ScriptMode.Editor, IGlobalFieldProvider? globalFieldProvider = null)
+public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocationProvider? globalSymbolProvider = null, ScriptMode mode = ScriptMode.Editor, IGlobalFieldProvider? globalFieldProvider = null)
 {
     public bool Failed { get; private set; } = false;
     public bool Parsed { get; private set; } = false;
@@ -31,7 +31,7 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
 
     internal ParserIntelliSense Sense { get; private set; } = default!;
 
-    public string LanguageId { get; } = languageId;
+    public ScriptLanguage Language { get; } = language;
 
     private Task? ParsingTask { get; set; } = null;
     private Task? AnalysisTask { get; set; } = null;
@@ -110,7 +110,7 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
     private string GetEffectiveNamespace() => DefinitionsTable?.CurrentNamespace ?? ScriptFileName;
 
     // Use shared API instance to avoid redundant allocations across scripts
-    private ScriptAnalyserData? TryGetApi() => ScriptAnalyserData.GetShared(LanguageId);
+    private ScriptAnalyserData? TryGetApi() => ScriptAnalyserData.GetShared(Language);
 
     private bool IsBuiltinFunction(string name)
     {
@@ -165,7 +165,7 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
                 if (lineCount > TokenRange.MaxLine || lineLength > TokenRange.MaxChar)
                 {
                     Failed = true;
-                    Sense = new(0, ScriptUri, LanguageId, mode);
+                    Sense = new(0, ScriptUri, Language, mode);
                     Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledLexError,
                         $"File too large to parse ({lineCount} lines, max line length {lineLength})");
                     return Task.CompletedTask;
@@ -188,13 +188,12 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
             Log.Error(ex, "Failed to tokenise script.");
 
             // Create a dummy IntelliSense container so we can provide an error to the IDE.
-            Sense = new(0, ScriptUri, LanguageId, mode);
-            Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledLexError, ex.GetType().Name);
+            Sense = new(0, ScriptUri, Language, mode);
 
             return Task.CompletedTask;
         }
 
-        ParserIntelliSense sense = Sense = new(endLine: endNode.TokenRange.EndLine, ScriptUri, LanguageId, mode);
+        ParserIntelliSense sense = Sense = new(endLine: endNode.TokenRange.EndLine, ScriptUri, Language, mode);
 
         // Preprocess the tokens.
         Preprocessor preprocessor = new(startNode, sense);
@@ -205,7 +204,7 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         Sense.CommitTokens(startNode);
 
         // Build the AST.
-        AST.Parser parser = new(startNode, sense, LanguageId);
+        AST.Parser parser = new(startNode, sense, Language);
 
         try { RootNode = parser.Parse(); }
         catch (Exception ex) { RecordStepFailure(ex, "AST-gen", GSCErrorCodes.UnhandledAstError); return Task.CompletedTask; }
@@ -307,7 +306,7 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         {
             try
             {
-                ScriptDiagnosticsAnalyser diagnosticsAnalyser = new(RootNode, Sense, DefinitionsTable, _references, LanguageId);
+                ScriptDiagnosticsAnalyser diagnosticsAnalyser = new(RootNode, Sense, DefinitionsTable, _references, Language);
                 diagnosticsAnalyser.Run();
             }
             catch (Exception ex)

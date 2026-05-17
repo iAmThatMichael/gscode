@@ -1,4 +1,5 @@
 using Serilog;
+using GSCode.Data;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Data;
@@ -15,11 +16,10 @@ public partial class ScriptManager
         string depPath = UriHelper.GetLocalPath(uri);
 
         // Derive language from the dependency's own file extension. GetDependencyPath in
-        // ParserIntelliSense already appends the parent's languageId as the file extension
-        // when resolving #using paths, so a .gsc file can never produce a .csc dependency URI
-        // and vice versa. Deriving from extension here is the single source of truth and
-        // prevents LanguageId being inherited incorrectly from a parent script.
-        string depLanguageId = depPath.EndsWith(".csc", StringComparison.OrdinalIgnoreCase) ? "csc" : "gsc";
+        // ParserIntelliSense already appends the parent's language extension when resolving
+        // #using paths, so a .gsc file can never produce a .csc dependency URI and vice versa.
+        // Deriving from extension here is the single source of truth.
+        ScriptLanguage depLanguage = ScriptLanguageExtensions.FromExtension(System.IO.Path.GetExtension(depPath));
 
         var cached = Scripts.GetOrAdd(uri, key =>
         {
@@ -27,7 +27,7 @@ public partial class ScriptManager
             return new CachedScript
             {
                 Type = CachedScriptType.Dependency,
-                Script = new Script(key, depLanguageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry)
+                Script = new Script(key, depLanguage, GetSymbolRegistry(depLanguage), ScriptMode.Index, GetFieldRegistry(depLanguage))
             };
         });
 
@@ -38,7 +38,7 @@ public partial class ScriptManager
                 depPath, isNewDependency, UriHelper.GetLocalPath(dependentUri));
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            await EnsureParsedAsync(uri, cached.Script, depLanguageId, CancellationToken.None);
+            await EnsureParsedAsync(uri, cached.Script, CancellationToken.None);
 
             // Compute and store content hash so the cache save has a valid hash for this file
             string filePath = UriHelper.GetLocalPath(uri);

@@ -20,7 +20,7 @@ public partial class Script
         {
             // Create a minimal ParserIntelliSense for this restored script
             // In Index mode, we don't need tokens or most IntelliSense features
-            Sense = new ParserIntelliSense(endLine: 0, ScriptUri, LanguageId, mode);
+            Sense = new ParserIntelliSense(endLine: 0, ScriptUri, Language, mode);
 
             // Restore DefinitionsTable
             DefinitionsTable = new DefinitionsTable(cachedData.CurrentNamespace, GlobalSymbolProvider);

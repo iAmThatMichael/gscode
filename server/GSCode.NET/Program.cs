@@ -214,13 +214,14 @@ _ = Task.Run(async () =>
 			var memoryMB = process.WorkingSet64 / 1024.0 / 1024.0;
 			var privateMemoryMB = process.PrivateMemorySize64 / 1024.0 / 1024.0;
 
-			int functionCount = 0, classCount = 0, gscCount = 0, cscCount = 0;
+			int gscCount = 0, cscCount = 0;
+
+			int gscFunctions = 0, gscClasses = 0, cscFunctions = 0, cscClasses = 0;
 
 			if (scriptManager != null)
 			{
-				var symbolCounts = scriptManager.SymbolRegistry.GetCountsByType();
-				functionCount = symbolCounts.Functions;
-				classCount = symbolCounts.Classes;
+				(gscFunctions, gscClasses) = scriptManager.GetSymbolCounts(GSCode.Data.ScriptLanguage.Gsc);
+				(cscFunctions, cscClasses) = scriptManager.GetSymbolCounts(GSCode.Data.ScriptLanguage.Csc);
 				var scriptCounts = scriptManager.GetScriptCountsByType();
 				gscCount = scriptCounts.GscFiles;
 				cscCount = scriptCounts.CscFiles;
@@ -237,11 +238,13 @@ _ = Task.Run(async () =>
 
 			Log.Information(
 				"Memory Usage - Working Set: {WorkingSet:F2} MB, Private: {Private:F2} MB | " +
-				"Functions: {Functions}, Classes: {Classes}, " +
-				"Files: GSC={Gsc} CSC={Csc} {MacroSuffix}",
+				"GSC: Functions={GscFunctions}, Classes={GscClasses}, Files={GscFiles} | " +
+				"CSC: Functions={CscFunctions}, Classes={CscClasses}, Files={CscFiles} | " +
+				"{MacroSuffix}",
 				memoryMB, privateMemoryMB,
-				functionCount, classCount,
-				gscCount, cscCount, macroSuffix);
+				gscFunctions, gscClasses, gscCount,
+				cscFunctions, cscClasses, cscCount,
+				macroSuffix);
 
 			await Task.Delay(1000, memoryMonitorCts.Token);
 		}

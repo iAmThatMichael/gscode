@@ -1,4 +1,5 @@
 using Serilog;
+using GSCode.Data;
 using GSCode.Parser;
 using GSCode.Parser.Cache;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -21,24 +22,39 @@ public partial class ScriptManager
     private ConcurrentDictionary<Uri, CachedScript> Scripts { get; } = new(UriComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Global symbol registry for workspace-wide symbol deduplication and O(1) lookup.
+    /// Per-language symbol registries. Each language (gsc, csc) gets its own isolated pool so
+    /// that symbol lookups via ISymbolLocationProvider never cross language boundaries.
     /// </summary>
-    private readonly GlobalSymbolRegistry _symbolRegistry = new();
+    private readonly ConcurrentDictionary<string, GlobalSymbolRegistry> _symbolRegistries =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Provides read-only access to the global symbol registry for other components.
+    /// Per-language field registries. Mirrors the symbol-registry split so that field completions
+    /// (level.x, game.y, world.z) are also language-scoped.
     /// </summary>
-    public GlobalSymbolRegistry SymbolRegistry => _symbolRegistry;
+    private readonly ConcurrentDictionary<string, GlobalFieldRegistry> _fieldRegistries =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Global field registry for cross-file tracking of fields on global objects (level, world, game).
+    /// Returns (or creates) the symbol registry for <paramref name="language"/>.
     /// </summary>
-    private readonly GlobalFieldRegistry _fieldRegistry = new();
+    private GlobalSymbolRegistry GetSymbolRegistry(ScriptLanguage language) =>
+        _symbolRegistries.GetOrAdd(language.ToLanguageId(), _ => new GlobalSymbolRegistry());
 
     /// <summary>
-    /// Provides read-only access to the global field registry for other components.
+    /// Returns (or creates) the field registry for <paramref name="language"/>.
     /// </summary>
-    public GlobalFieldRegistry FieldRegistry => _fieldRegistry;
+    private GlobalFieldRegistry GetFieldRegistry(ScriptLanguage language) =>
+        _fieldRegistries.GetOrAdd(language.ToLanguageId(), _ => new GlobalFieldRegistry());
+
+    /// <summary>
+    /// Per-language symbol counts (used for diagnostics/telemetry only).
+    /// </summary>
+    public (int Functions, int Classes) GetSymbolCounts(ScriptLanguage language)
+    {
+        var reg = GetSymbolRegistry(language);
+        return reg.GetCountsByType();
+    }
 
     /// <summary>
     /// Optional user-configured custom path to the "raw" folder for path completions.
@@ -73,7 +89,7 @@ public partial class ScriptManager
         _notifier = notifier;
     }
 
-    private async Task EnsureParsedAsync(Uri docUri, Script script, string? languageId, CancellationToken cancellationToken)
+    private async Task EnsureParsedAsync(Uri docUri, Script script, CancellationToken cancellationToken)
     {
         var gate = _parseLocks.GetOrAdd(docUri, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken);
@@ -235,7 +251,7 @@ public partial class ScriptManager
             return new CachedScriptData
             {
                 ContentHash = contentHash,
-                LanguageId = script.LanguageId,
+                LanguageId = script.Language.ToLanguageId(),
                 CachedAt = DateTime.UtcNow,
                 CurrentNamespace = defTable.CurrentNamespace,
                 ExportedFunctions = defTable.ExportedFunctions.ToList(),

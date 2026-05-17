@@ -23,13 +23,13 @@ internal ref struct ScriptDiagnosticsAnalyser(
     ParserIntelliSense sense,
     DefinitionsTable definitionsTable,
     IReadOnlyDictionary<SymbolKey, List<Range>> references,
-    string languageId)
+    ScriptLanguage language)
 {
     private ScriptNode RootNode { get; } = rootNode;
     private ParserIntelliSense Sense { get; } = sense;
     private DefinitionsTable DefinitionsTable { get; } = definitionsTable;
     private IReadOnlyDictionary<SymbolKey, List<Range>> References { get; } = references;
-    private string LanguageId { get; } = languageId;
+    private ScriptLanguage Language { get; } = language;
 
     public void Run()
     {
@@ -72,7 +72,7 @@ internal ref struct ScriptDiagnosticsAnalyser(
         foreach (var depNode in RootNode.Dependencies)
         {
             string rel = depNode.Path.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar);
-            string expectedSuffix = Path.DirectorySeparatorChar + rel + "." + LanguageId;
+            string expectedSuffix = Path.DirectorySeparatorChar + rel + Language.ToExtension();
 
             bool anyFromThisUsing = false;
             foreach (var referenced in referencedFiles)

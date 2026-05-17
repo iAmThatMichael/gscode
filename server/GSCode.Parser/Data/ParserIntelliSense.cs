@@ -90,7 +90,7 @@ internal sealed class ParserIntelliSense
     private bool _semanticTokensSorted = false;
 
     private readonly string _scriptPath;
-    public readonly string _languageId;
+    public readonly ScriptLanguage _language;
     public string ScriptPath => _scriptPath;
     public string ScriptUri { get; }
 
@@ -104,17 +104,17 @@ internal sealed class ParserIntelliSense
     /// </summary>
     public DocumentCompletionsLibrary? Completions { get; }
 
-    public ParserIntelliSense(int endLine, Uri scriptUri, string languageId, ScriptMode mode = ScriptMode.Editor)
+    public ParserIntelliSense(int endLine, Uri scriptUri, ScriptLanguage language, ScriptMode mode = ScriptMode.Editor)
     {
         Mode = mode;
         _scriptPath = scriptUri.LocalPath;
         ScriptUri = scriptUri.LocalPath;
-        _languageId = languageId;
+        _language = language;
 
         if (mode == ScriptMode.Editor)
         {
             HoverLibrary = new(endLine + 1);
-            Completions = new(Tokens, languageId, scriptUri.LocalPath);
+            Completions = new(Tokens, language, scriptUri.LocalPath);
         }
     }
 
@@ -221,7 +221,7 @@ internal sealed class ParserIntelliSense
 
     public string? GetDependencyPath(string dependencyPath, Range sourceRange)
     {
-        string qualifiedDependencyPath = dependencyPath + "." + _languageId;
+        string qualifiedDependencyPath = dependencyPath + _language.ToExtension();
         string? resolvedPath = ParserUtil.GetScriptFilePath(_scriptPath, qualifiedDependencyPath);
         if (resolvedPath is null)
         {

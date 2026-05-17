@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Parser;
 using GSCode.Parser.Util;
 using MediatR;
@@ -22,7 +23,11 @@ internal class TextDocumentSyncHandler(
 {
 
     public override TextDocumentAttributes GetTextDocumentAttributes(DocumentUri uri)
-        => new(uri, "gsc");
+    {
+        ScriptLanguage language = ScriptLanguageExtensions.FromExtension(
+            Path.GetExtension(uri.ToUri().LocalPath));
+        return new(uri, language.ToLanguageId());
+    }
 
     protected override TextDocumentSyncRegistrationOptions CreateRegistrationOptions(
         TextSynchronizationCapability capability, ClientCapabilities clientCapabilities)

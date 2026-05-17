@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Parser.Configuration;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
@@ -15,7 +16,7 @@ namespace GSCode.Parser.Data;
 /// <summary>
 /// A "dumb" implementation of a completions library, with naive heuristics for completion.
 /// </summary>
-public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, string languageId, string? scriptPath = null)
+public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, ScriptLanguage language, string? scriptPath = null)
 {
     /// <summary>
     /// Library of tokens to quickly lookup a token at a given position.
@@ -43,11 +44,11 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
     /// </summary>
     internal Dictionary<string, (Pre.MacroDefinition Definition, string? SourceDisplay)>? MacroDefinitions { get; set; }
 
-    // Language ID (gsc or csc) for filtering file completions
-    private readonly string _languageId = languageId;
+    // Language (Gsc or Csc) for filtering file completions
+    private readonly ScriptLanguage _language = language;
 
     // Use shared API instance to avoid redundant allocations
-    private readonly ScriptAnalyserData? _scriptAnalyserData = ScriptAnalyserData.GetShared(languageId);
+    private readonly ScriptAnalyserData? _scriptAnalyserData = ScriptAnalyserData.GetShared(language);
 
     /// <summary>
     /// Pre-cached unique identifiers from the token stream for fast completions.
@@ -1423,7 +1424,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             string[] extensions;
             if (context.DirectiveType == TokenType.Using)
             {
-                string ext = "." + _languageId.ToLowerInvariant();
+                string ext = _language.ToExtension();
                 extensions = [ext];
                 Log.Information("GetDirectivePathCompletions: #using directive, filtering to {Ext} files only", ext);
             }

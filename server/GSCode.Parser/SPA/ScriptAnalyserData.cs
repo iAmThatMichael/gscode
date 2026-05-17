@@ -1,4 +1,5 @@
-﻿using GSCode.Parser.SPA.Models;
+﻿using GSCode.Data;
+using GSCode.Parser.SPA.Models;
 using System.Text.Json;
 using System.Collections.Concurrent;
 using Serilog;
@@ -34,6 +35,18 @@ public class ScriptAnalyserData
     };
 
     /// <summary>
+    /// Gets a shared ScriptAnalyserData instance for the specified language.
+    /// </summary>
+    public static ScriptAnalyserData? GetShared(ScriptLanguage language) =>
+        GetShared(language.ToLanguageId());
+
+    /// <summary>
+    /// Checks if a language API library is loaded and available.
+    /// </summary>
+    public static bool IsLanguageLoaded(ScriptLanguage language) =>
+        IsLanguageLoaded(language.ToLanguageId());
+
+    /// <summary>
     /// Gets a shared ScriptAnalyserData instance for the specified language ID.
     /// This avoids creating redundant instances across scripts while maintaining thread safety.
     /// </summary>
@@ -62,7 +75,7 @@ public class ScriptAnalyserData
     /// <summary>
     /// Checks if a language API library is loaded and available.
     /// </summary>
-    /// <param name="languageId">The language identifier to check.</param>
+    /// <param name="languageId">The string language identifier to check.</param>
     /// <returns>True if the library is loaded, false otherwise.</returns>
     public static bool IsLanguageLoaded(string languageId)
     {

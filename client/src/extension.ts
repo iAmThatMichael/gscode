@@ -155,6 +155,40 @@ export async function activate(context: ExtensionContext) {
     // client can be deactivated on extension deactivation
     await client.start();
 
+    // Status bar item — only shown when workspace indexing is active
+    if (workspaceIndexingMode !== "off") {
+        const outputChannel = clientOptions.outputChannel as vscode.OutputChannel;
+
+        const statusBar = window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+        statusBar.name = "GSCode Indexing";
+        statusBar.command = "gscode.showOutput";
+        context.subscriptions.push(statusBar);
+
+        context.subscriptions.push(
+            vscode.commands.registerCommand("gscode.showOutput", () => outputChannel?.show())
+        );
+
+        statusBar.text = "$(loading~spin) GSCode: Indexing...";
+        statusBar.tooltip = "GSCode is indexing workspace scripts";
+        statusBar.show();
+
+        client.onNotification("gscode/indexingStarted", (params: { totalFiles: number }) => {
+            statusBar.text = `$(loading~spin) GSCode: Indexing (0 / ${params.totalFiles})`;
+            statusBar.tooltip = `Indexing ${params.totalFiles} script files...`;
+            statusBar.show();
+        });
+
+        client.onNotification("gscode/indexingProgress", (params: { filesIndexed: number; totalFiles: number }) => {
+            statusBar.text = `$(loading~spin) GSCode: Indexing (${params.filesIndexed} / ${params.totalFiles})`;
+        });
+
+        client.onNotification("gscode/indexingComplete", (params: { filesIndexed: number; totalFiles: number; fromCache: number }) => {
+            const parsed = params.filesIndexed - params.fromCache;
+            statusBar.text = `$(check) GSCode: Ready`;
+            statusBar.tooltip = `Indexed ${params.filesIndexed} files (${parsed} parsed, ${params.fromCache} from cache)`;
+        });
+    }
+
     // Handle raw folder write warnings sent by the server
     client.onNotification("gscode/rawFolderWriteWarning", async (params: { path: string }) => {
         const cfg = workspace.getConfiguration("gscode");

@@ -21,4 +21,22 @@ public sealed class OmniSharpLspNotifier(ILanguageServerFacade facade) : ILspNot
         });
         return Task.CompletedTask;
     }
+
+    public Task SendIndexingStartedAsync(int totalFiles, CancellationToken cancellationToken = default)
+    {
+        facade.SendNotification("gscode/indexingStarted", new { totalFiles });
+        return Task.CompletedTask;
+    }
+
+    public Task SendIndexingProgressAsync(int filesIndexed, int totalFiles, CancellationToken cancellationToken = default)
+    {
+        facade.SendNotification("gscode/indexingProgress", new { filesIndexed, totalFiles });
+        return Task.CompletedTask;
+    }
+
+    public Task SendIndexingCompleteAsync(int filesIndexed, int totalFiles, int fromCache, CancellationToken cancellationToken = default)
+    {
+        facade.SendNotification("gscode/indexingComplete", new { filesIndexed, totalFiles, fromCache });
+        return Task.CompletedTask;
+    }
 }

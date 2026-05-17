@@ -13,4 +13,13 @@ public interface ILspNotifier
     /// <summary>Sends a <c>textDocument/publishDiagnostics</c> notification to the client.</summary>
     Task PublishDiagnosticsAsync(Uri uri, IEnumerable<Diagnostic> diagnostics,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Sends a <c>gscode/indexingStarted</c> notification to the client.</summary>
+    Task SendIndexingStartedAsync(int totalFiles, CancellationToken cancellationToken = default);
+
+    /// <summary>Sends a <c>gscode/indexingProgress</c> notification to the client.</summary>
+    Task SendIndexingProgressAsync(int filesIndexed, int totalFiles, CancellationToken cancellationToken = default);
+
+    /// <summary>Sends a <c>gscode/indexingComplete</c> notification to the client.</summary>
+    Task SendIndexingCompleteAsync(int filesIndexed, int totalFiles, int fromCache, CancellationToken cancellationToken = default);
 }

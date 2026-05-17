@@ -146,6 +146,38 @@ public partial class ScriptManager
     /// <summary>Gets the total number of loaded scripts (editor and dependency).</summary>
     public int GetLoadedScriptCount() => Scripts.Count;
 
+    /// <summary>
+    /// Searches all indexed symbols whose names contain <paramref name="query"/>
+    /// and returns resolved (definition, URI, range) tuples ready for the LSP handler.
+    /// Game-relative paths are resolved using any loaded script as the base anchor.
+    /// Symbols whose files cannot be resolved are silently skipped.
+    /// </summary>
+    public IEnumerable<(SymbolDefinition Symbol, Uri Uri, Range Range)> SearchWorkspaceSymbols(
+        string query, int maxResults = 250)
+    {
+        var symbols = _symbolRegistry.SearchSymbols(query, maxResults);
+
+        // Use any loaded script's absolute path as the base for game-relative resolution.
+        string anyLoadedPath = Scripts.Keys.FirstOrDefault()?.LocalPath ?? string.Empty;
+
+        foreach (var def in symbols)
+        {
+            string? resolvedPath;
+            if (Path.IsPathRooted(def.FilePath) && File.Exists(def.FilePath))
+            {
+                resolvedPath = def.FilePath;
+            }
+            else
+            {
+                resolvedPath = GSCode.Parser.Util.ScriptFileResolver.GetScriptFilePath(anyLoadedPath, def.FilePath);
+                if (resolvedPath is null || !File.Exists(resolvedPath))
+                    continue;
+            }
+
+            yield return (def, new Uri(resolvedPath), def.Range.ToRange());
+        }
+    }
+
     /// <summary>Gets per-extension script counts.</summary>
     public (int GscFiles, int CscFiles) GetScriptCountsByType()
     {

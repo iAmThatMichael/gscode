@@ -9,20 +9,20 @@ namespace GSCode.Parser.SPA;
 public class ScriptAnalyserData
 {
     public string GameId { get; } = "t7";
-    public string LanguageId { get; }
+    public ScriptLanguage Language { get; }
 
-    public ScriptAnalyserData(string languageId)
+    public ScriptAnalyserData(ScriptLanguage language)
     {
-        LanguageId = languageId;
+        Language = language;
     }
 
-    private static readonly ConcurrentDictionary<string, ScrLibraryData> _languageLibraries = new();
+    private static readonly ConcurrentDictionary<ScriptLanguage, ScrLibraryData> _languageLibraries = new();
 
     /// <summary>
-    /// Static cache of ScriptAnalyserData instances by language ID.
+    /// Static cache of ScriptAnalyserData instances by language.
     /// This eliminates redundant instance creation across scripts.
     /// </summary>
-    private static readonly Dictionary<string, ScriptAnalyserData> _sharedInstances = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<ScriptLanguage, ScriptAnalyserData> _sharedInstances = new();
     private static readonly object _sharedInstancesLock = new();
 
     /// <summary>
@@ -37,37 +37,18 @@ public class ScriptAnalyserData
     /// <summary>
     /// Gets a shared ScriptAnalyserData instance for the specified language.
     /// </summary>
-    public static ScriptAnalyserData? GetShared(ScriptLanguage language) =>
-        GetShared(language.ToLanguageId());
-
-    /// <summary>
-    /// Checks if a language API library is loaded and available.
-    /// </summary>
-    public static bool IsLanguageLoaded(ScriptLanguage language) =>
-        IsLanguageLoaded(language.ToLanguageId());
-
-    /// <summary>
-    /// Gets a shared ScriptAnalyserData instance for the specified language ID.
-    /// This avoids creating redundant instances across scripts while maintaining thread safety.
-    /// </summary>
-    /// <param name="languageId">The language identifier (e.g., "gsc", "csc").</param>
-    /// <returns>A shared instance for the language, or null if the language is not loaded.</returns>
-    public static ScriptAnalyserData? GetShared(string languageId)
+    public static ScriptAnalyserData? GetShared(ScriptLanguage language)
     {
-        if (string.IsNullOrEmpty(languageId))
-            return null;
-
         lock (_sharedInstancesLock)
         {
-            if (_sharedInstances.TryGetValue(languageId, out var existing))
+            if (_sharedInstances.TryGetValue(language, out var existing))
                 return existing;
 
-            // Only create if the language library is loaded
-            if (!_languageLibraries.ContainsKey(languageId))
+            if (!_languageLibraries.ContainsKey(language))
                 return null;
 
-            var instance = new ScriptAnalyserData(languageId);
-            _sharedInstances[languageId] = instance;
+            var instance = new ScriptAnalyserData(language);
+            _sharedInstances[language] = instance;
             return instance;
         }
     }
@@ -75,12 +56,8 @@ public class ScriptAnalyserData
     /// <summary>
     /// Checks if a language API library is loaded and available.
     /// </summary>
-    /// <param name="languageId">The string language identifier to check.</param>
-    /// <returns>True if the library is loaded, false otherwise.</returns>
-    public static bool IsLanguageLoaded(string languageId)
-    {
-        return !string.IsNullOrEmpty(languageId) && _languageLibraries.ContainsKey(languageId);
-    }
+    public static bool IsLanguageLoaded(ScriptLanguage language) =>
+        _languageLibraries.ContainsKey(language);
 
     public static async Task<bool> LoadLanguageApiAsync(string url, string filePathFallback)
     {
@@ -124,6 +101,14 @@ public class ScriptAnalyserData
                 return false;
             }
 
+            // Parse the JSON string language ID to the enum at the boundary.
+            // FromString defaults to Gsc for unrecognised values, so log a warning if the value is unexpected.
+            ScriptLanguage language = ScriptLanguageExtensions.FromString(library.LanguageId);
+            if (!library.LanguageId.Equals(language.ToLanguageId(), StringComparison.OrdinalIgnoreCase))
+            {
+                Log.Warning("Unrecognised languageId '{LanguageId}' in API library; defaulting to GSC.", library.LanguageId);
+            }
+
             // All built-ins are implicit, because they can be called without using the sys namespace.
             foreach (ScrFunction function in library.Api)
             {
@@ -141,14 +126,14 @@ public class ScriptAnalyserData
                 }
             }
 
-            if (_languageLibraries.TryGetValue(library.LanguageId, out ScrLibraryData? existingLibrary)
+            if (_languageLibraries.TryGetValue(language, out ScrLibraryData? existingLibrary)
                 && existingLibrary!.Library.Revision >= library.Revision)
             {
                 return false;
             }
 
-            _languageLibraries[library.LanguageId] = new ScrLibraryData(library);
-            Log.Information("Loaded API library for {LanguageId}.", library.LanguageId);
+            _languageLibraries[language] = new ScrLibraryData(library);
+            Log.Information("Loaded API library for {Language}.", language);
             return true;
         }
         catch (Exception e)
@@ -160,20 +145,20 @@ public class ScriptAnalyserData
 
     public List<ScrFunction> GetApiFunctions(string? filter = null)
     {
-        if (!_languageLibraries.TryGetValue(LanguageId, out ScrLibraryData? library))
+        if (!_languageLibraries.TryGetValue(Language, out ScrLibraryData? library))
         {
-            Log.Error("No API library found for {LanguageId}", LanguageId);
+            Log.Error("No API library found for {Language}", Language);
             return [];
         }
-        Log.Information("API library found for {LanguageId}, it has {Count} functions", LanguageId, library.Functions.Count);
+        Log.Information("API library found for {Language}, it has {Count} functions", Language, library.Functions.Count);
         return library.Library.Api;
     }
 
     public ScrFunction? GetApiFunction(string name)
     {
-        if (!_languageLibraries.TryGetValue(LanguageId, out ScrLibraryData? library))
+        if (!_languageLibraries.TryGetValue(Language, out ScrLibraryData? library))
         {
-            Log.Error("No API library found for {LanguageId}", LanguageId);
+            Log.Error("No API library found for {Language}", Language);
             return null;
         }
         return library.Functions.TryGetValue(name, out ScrFunction? function) ? function : null;

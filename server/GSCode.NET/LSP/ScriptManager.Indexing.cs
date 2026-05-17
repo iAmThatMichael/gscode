@@ -398,7 +398,6 @@ public partial class ScriptManager
                             cacheResult = CacheResult.MissRestoreFailed;
                         }
                     }
-                    } // end dep-hash-ok else
                 }
             }
             catch (Exception ex)

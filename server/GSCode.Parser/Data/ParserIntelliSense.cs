@@ -239,6 +239,13 @@ internal sealed class ParserIntelliSense
     /// </summary>
     private static readonly ConcurrentDictionary<string, TokenList> _insertTokenCache = new();
 
+    /// <summary>
+    /// Evicts a single entry from the static insert-token cache.
+    /// Call this whenever an insert file changes on disk so the next consumer re-reads it.
+    /// </summary>
+    public static void InvalidateInsertCache(string resolvedPath) =>
+        _insertTokenCache.TryRemove(resolvedPath, out _);
+
     public TokenList? GetFileTokens(string dependencyPath, TokenRange? belongToRange = null)
     {
         string? resolvedPath = ParserUtil.GetScriptFilePath(_scriptPath, dependencyPath);

@@ -101,6 +101,16 @@ internal class TextDocumentSyncHandler(
                 facade.SendNotification("gscode/rawFolderWriteWarning", new { path });
             }
         }
+
+        // Keep the on-disk cache warm so a crash-restart doesn't force a full re-parse
+        // of every file touched during the session.
+        _ = scriptManager.SaveWorkspaceCacheAsync();
+
+        // If the saved file is used as an #insert source, evict its stale token cache
+        // and re-parse all open editors that splice it in.
+        string savedPath = request.TextDocument.Uri.ToUri().LocalPath;
+        _ = scriptManager.NotifyInsertFileSavedAsync(savedPath, ct);
+
         return Unit.Task;
     }
 

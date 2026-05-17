@@ -6,6 +6,7 @@ using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 
@@ -87,6 +88,10 @@ public partial class ScriptManager
         CleanupLocksForUri(documentUri);
 
         RemoveDependent(documentUri);
+
+        // Remove this URI from the insert-dependents reverse map.
+        foreach (var (_, consumers) in _insertDependents)
+            consumers.TryRemove(documentUri, out _);
     }
 
     public Script? GetParsedEditor(Uri uri)
@@ -165,6 +170,17 @@ public partial class ScriptManager
 
         await script.ParseAsync(content);
 
+        // Register/refresh this script as a consumer of its #insert files.
+        // Also evict each insert file's cached token list so the next parse of any
+        // consumer re-reads from disk (handles the case where the insert file itself changed).
+        foreach (string insertPath in script.InsertPaths)
+        {
+            _insertDependents
+                .GetOrAdd(insertPath, _ => new ConcurrentDictionary<Uri, byte>(UriComparer.OrdinalIgnoreCase))
+                .TryAdd(documentUri, 0);
+            InsertTokenCache.Invalidate(insertPath);
+        }
+
         // Populate global symbol registry with this script's definitions (returns true if changed)
         bool symbolsChanged = PopulateSymbolRegistry(filePath, script);
 
@@ -225,7 +241,41 @@ public partial class ScriptManager
             await script.AnalyseAsync(exportedSymbols, cancellationToken);
         }, cancellationToken);
 
-        return await script.GetDiagnosticsAsync(cancellationToken);
+        var diagnostics = await script.GetDiagnosticsAsync(cancellationToken);
+
+        // If this script's exported symbols changed, any open editor that #insert's it
+        // needs a fresh parse so it immediately sees the updated definitions.
+        if (symbolsChanged && cached is not null)
+        {
+            foreach (Uri dependentUri in cached.Dependents.Keys)
+            {
+                ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(Path.GetExtension(dependentUri.LocalPath));
+                if (!GetScripts(depLang).TryGetValue(dependentUri, out var depEntry))
+                    continue;
+                if (depEntry.Type != CachedScriptType.Editor)
+                    continue;
+                if (!_cache.TryGetContent(dependentUri, out string depContent))
+                    continue;
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        IEnumerable<Diagnostic> depDiags =
+                            await ProcessEditorAsync(dependentUri, depEntry.Script, depContent, cancellationToken);
+                        if (_notifier is not null)
+                            await _notifier.PublishDiagnosticsAsync(dependentUri, depDiags, cancellationToken);
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "Failed to reparse dependent {Uri} after symbol change", dependentUri);
+                    }
+                }, cancellationToken);
+            }
+        }
+
+        return diagnostics;
     }
 
     private Script GetEditor(TextDocumentIdentifier document)
@@ -266,6 +316,47 @@ public partial class ScriptManager
         }
 
         return cached.Script;
+    }
+
+    /// <summary>
+    /// Called when a file that may be used as an #insert source is saved.
+    /// Evicts its cached token list and re-parses every open editor that includes it,
+    /// so stale spliced tokens are never used after the file changes on disk.
+    /// </summary>
+    public async Task NotifyInsertFileSavedAsync(string insertFilePath, CancellationToken cancellationToken = default)
+    {
+        // Evict the old lexed token list so the next parse re-reads from disk.
+        InsertTokenCache.Invalidate(insertFilePath);
+
+        if (!_insertDependents.TryGetValue(insertFilePath, out var consumers) || consumers.IsEmpty)
+            return;
+
+        foreach (Uri dependentUri in consumers.Keys)
+        {
+            ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(Path.GetExtension(dependentUri.LocalPath));
+            if (!GetScripts(depLang).TryGetValue(dependentUri, out var depEntry))
+                continue;
+            if (depEntry.Type != CachedScriptType.Editor)
+                continue;
+            if (!_cache.TryGetContent(dependentUri, out string depContent))
+                continue;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    IEnumerable<Diagnostic> depDiags =
+                        await ProcessEditorAsync(dependentUri, depEntry.Script, depContent, cancellationToken);
+                    if (_notifier is not null)
+                        await _notifier.PublishDiagnosticsAsync(dependentUri, depDiags, cancellationToken);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Failed to reparse insert-consumer {Uri} after insert file saved", dependentUri);
+                }
+            }, cancellationToken);
+        }
     }
 }
 

@@ -24,7 +24,7 @@ public static class WorkspaceCacheManager
     /// Current format version of the cache schema.
     /// Increment this whenever the cache structure changes in a breaking way.
     /// </summary>
-    public const int CacheFormatVersion = 3;
+    public const int CacheFormatVersion = 4;
 
     /// <summary>
     /// Gets the full path to the cache file.

@@ -49,6 +49,16 @@ public partial class ScriptManager
     private readonly ConcurrentDictionary<ScriptLanguage, GlobalFieldRegistry> _fieldRegistries = new();
 
     /// <summary>
+    /// Reverse map from an #insert file's absolute path to the set of editor/dependency
+    /// URIs whose token stream includes that file.  Used to invalidate consumers when an
+    /// insert file is saved or changed.
+    /// Key: absolute insert-file path (OrdinalIgnoreCase).
+    /// Value: concurrent set of dependent document URIs.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<Uri, byte>> _insertDependents =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Returns (or creates) the symbol registry for <paramref name="language"/>.
     /// </summary>
     private GlobalSymbolRegistry GetSymbolRegistry(ScriptLanguage language) =>
@@ -295,6 +305,26 @@ public partial class ScriptManager
                     depHashes[depPath] = depCached.LastContentHash;
             }
 
+            // Build insert-dependencies list: resolved paths of all #insert files.
+            // Hash each from disk so we can detect changes on the next workspace load.
+            var insertDeps = new List<string>();
+            foreach (string insertPath in script.InsertPaths)
+            {
+                insertDeps.Add(insertPath);
+                if (!depHashes.ContainsKey(insertPath))
+                {
+                    try
+                    {
+                        string insertContent = File.ReadAllText(insertPath);
+                        depHashes[insertPath] = WorkspaceCacheManager.GetDeterministicHashCode(insertContent);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "Failed to hash insert file {Path} for cache", insertPath);
+                    }
+                }
+            }
+
             return new CachedScriptData
             {
                 ContentHash = contentHash,
@@ -311,7 +341,8 @@ public partial class ScriptManager
                 FunctionDocs = funcDocs,
                 MacroDefinitions = macroPaths.ToDictionary(kv => kv.Key, kv => kv.Value),
                 Diagnostics = cachedDiags,
-                DependencyHashes = depHashes.Count > 0 ? depHashes : null
+                DependencyHashes = depHashes.Count > 0 ? depHashes : null,
+                InsertDependencies = insertDeps.Count > 0 ? insertDeps : null
             };
         }
         catch (Exception ex)

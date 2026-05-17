@@ -328,7 +328,51 @@ public partial class ScriptManager
                     }
                     else
                     {
-                    // Hash matches and dep hashes are consistent — attempt restore
+                        // Phase-1b insert-dep check: #insert files are not in the script cache,
+                        // so hash them directly from disk and compare against DependencyHashes.
+                        bool insertMismatch = false;
+                        if (cachedData.InsertDependencies is { Count: > 0 })
+                        {
+                            foreach (string insertPath in cachedData.InsertDependencies)
+                            {
+                                string normInsert = Path.GetFullPath(insertPath);
+                                if (!File.Exists(normInsert))
+                                {
+                                    Log.Debug("CACHE_MISS (insert_deleted): {File} — insert {Insert} no longer exists", relPath, normInsert);
+                                    insertMismatch = true;
+                                    break;
+                                }
+                                if (cachedData.DependencyHashes is not null &&
+                                    cachedData.DependencyHashes.TryGetValue(insertPath, out int expectedInsertHash))
+                                {
+                                    try
+                                    {
+                                        string insertContent = await File.ReadAllTextAsync(normInsert, cancellationToken);
+                                        int actualHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(insertContent);
+                                        if (actualHash != expectedInsertHash)
+                                        {
+                                            Log.Debug("CACHE_MISS (insert_hash_mismatch): {File} — insert {Insert} expected {Expected} got {Actual}",
+                                                relPath, normInsert, expectedInsertHash, actualHash);
+                                            insertMismatch = true;
+                                            break;
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Log.Warning(ex, "Failed to hash insert file {Insert} during cache validation", normInsert);
+                                        insertMismatch = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (insertMismatch)
+                        {
+                            cacheResult = CacheResult.MissHashMismatch;
+                        }
+                        else
+                        {
                     var script = new Script(docUri, language, GetSymbolRegistry(language), ScriptMode.Index, GetFieldRegistry(language));
                     script.RestoreFromCache(cachedData, ScriptMode.Index);
 
@@ -398,6 +442,7 @@ public partial class ScriptManager
                         cacheResult = CacheResult.MissRestoreFailed;
                     }
                     } // end dep-hash-ok else
+                    } // end insert-check else
                 }
             }
             catch (Exception ex)

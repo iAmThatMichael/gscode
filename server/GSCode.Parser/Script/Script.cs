@@ -50,6 +50,18 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
 
     public IEnumerable<Uri> Dependencies => DefinitionsTable?.Dependencies ?? [];
 
+    /// <summary>
+    /// Resolved absolute paths of all files spliced into this script via #insert.
+    /// Empty if the script has not been parsed or has no #insert directives.
+    /// </summary>
+    public IEnumerable<string> InsertPaths =>
+        Sense?.InsertRegions
+              .Select(r => r.ResolvedPath)
+              .Where(p => p is not null)
+              .Distinct(StringComparer.OrdinalIgnoreCase)
+              .Cast<string>()
+        ?? [];
+
     // Expose macro outlines for outliner without exposing Sense outside assembly
     public IReadOnlyList<MacroOutlineItem> MacroOutlines => Sense?.MacroOutlines ?? [];
 

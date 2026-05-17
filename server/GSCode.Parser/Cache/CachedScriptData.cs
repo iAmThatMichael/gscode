@@ -73,6 +73,13 @@ public sealed record CachedScriptData
     /// Null for cache entries written before this field was introduced (treated as no dep-hash data → skip phase-1 check).
     /// </summary>
     public Dictionary<string, int>? DependencyHashes { get; init; }
+
+    /// <summary>
+    /// Resolved absolute paths of files spliced into this script via #insert at the time this entry was cached.
+    /// Used at restore time to detect if any insert file changed or was deleted.
+    /// Null for cache entries written before this field was introduced (treated as no insert data → skip check).
+    /// </summary>
+    public List<string>? InsertDependencies { get; init; }
 }
 
 /// <summary>

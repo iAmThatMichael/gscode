@@ -202,13 +202,9 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
     {
         // Get the name of the function - if it's unnamed then it's one that was produced in recovery. No use to us.
         if (functionDefn.Name is not Token nameToken)
-        {
-            Log.Debug("[SA] AnalyseFunction: skipping unnamed function");
             return;
-        }
 
         string name = nameToken.Lexeme;
-        Log.Debug("[SA] AnalyseFunction: '{Name}' at ({L},{C})", name, nameToken.TokenRange.StartLine, nameToken.TokenRange.StartChar);
 
         // Extract raw doc comment token
         Token? docCommentToken = FindDocCommentTokenBefore(nameToken);
@@ -304,8 +300,6 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
     {
         DocumentTokensLibrary tokens = Sense.Tokens;
         int idx = tokens.IndexOf(nameToken);
-        Log.Debug("[SA] FindDocComment for '{Name}' at ({L},{C}): idx={Idx} tokenCount={Count}",
-            nameToken.Lexeme, nameToken.TokenRange.StartLine, nameToken.TokenRange.StartChar, idx, tokens.Count);
         if (idx < 0) return null;
 
         // Walk backwards to the start of the current line (first LineBreak before the name token)

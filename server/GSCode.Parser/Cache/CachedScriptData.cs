@@ -66,6 +66,13 @@ public sealed record CachedScriptData
 
     /// <summary>Diagnostics produced during parse and analysis, to be re-emitted on cache restore.</summary>
     public required List<CachedDiagnostic> Diagnostics { get; init; }
+
+    /// <summary>
+    /// Content hashes of each dependency at the time this entry was cached.
+    /// Used at restore time to detect if any dependency changed on disk between runs.
+    /// Null for cache entries written before this field was introduced (treated as no dep-hash data → skip phase-1 check).
+    /// </summary>
+    public Dictionary<string, int>? DependencyHashes { get; init; }
 }
 
 /// <summary>

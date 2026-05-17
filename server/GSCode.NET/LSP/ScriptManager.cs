@@ -203,7 +203,30 @@ public partial class ScriptManager
     /// <summary>
     /// Extracts a CachedScriptData DTO from a parsed script for serialization.
     /// </summary>
-    private static CachedScriptData? ExtractCacheData(string filePath, Script script, int contentHash)
+    /// <summary>
+    /// Builds a reverse-dependency map from the loaded cache:
+    /// dep file path → set of file paths that depend on it.
+    /// Used by the phase-2 stale-dependent reanalysis pass.
+    /// </summary>
+    private static Dictionary<string, HashSet<string>> BuildReverseDependencyMap(WorkspaceCacheFile cache)
+    {
+        var reverseMap = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (filePath, data) in cache.Scripts)
+        {
+            foreach (string dep in data.Dependencies)
+            {
+                if (!reverseMap.TryGetValue(dep, out var dependents))
+                {
+                    dependents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    reverseMap[dep] = dependents;
+                }
+                dependents.Add(filePath);
+            }
+        }
+        return reverseMap;
+    }
+
+    private CachedScriptData? ExtractCacheData(string filePath, Script script, int contentHash)
     {
         var defTable = script.DefinitionsTable;
         if (defTable is null) return null;
@@ -261,6 +284,17 @@ public partial class ScriptManager
 
             var macroPaths = script.GetMacroSourcePaths();
 
+            // Build dep-hash map: dep file path → content hash at save time.
+            // Only include deps whose CachedScript is currently loaded (hash is known).
+            var depHashes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (Uri dep in defTable.Dependencies)
+            {
+                string depPath = dep.LocalPath;
+                ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(System.IO.Path.GetExtension(depPath));
+                if (GetScripts(depLang).TryGetValue(dep, out var depCached))
+                    depHashes[depPath] = depCached.LastContentHash;
+            }
+
             return new CachedScriptData
             {
                 ContentHash = contentHash,
@@ -276,7 +310,8 @@ public partial class ScriptManager
                 FunctionFlags = funcFlags,
                 FunctionDocs = funcDocs,
                 MacroDefinitions = macroPaths.ToDictionary(kv => kv.Key, kv => kv.Value),
-                Diagnostics = cachedDiags
+                Diagnostics = cachedDiags,
+                DependencyHashes = depHashes.Count > 0 ? depHashes : null
             };
         }
         catch (Exception ex)

@@ -229,7 +229,8 @@ LanguageServer server = await LanguageServer.From(options =>
 		.AddHandler<ConfigurationHandler>()
 		.AddHandler<DidChangeWatchedFilesHandler>()
 		.AddHandler<CodeActionHandler>()
-		.AddHandler<WorkspaceSymbolHandler>();
+		.AddHandler<WorkspaceSymbolHandler>()
+		.AddHandler<CodeLensHandler>();
 
 	if (disposable is not null)
 		options.RegisterForDisposal(disposable);

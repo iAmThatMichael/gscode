@@ -63,6 +63,24 @@ public partial class Script
     }
 
     /// <summary>
+    /// Returns the identifier token name and its source range at the given cursor position,
+    /// or <see langword="null"/> if the cursor is not over a renameable identifier.
+    /// Preprocessor-expanded tokens and non-identifier tokens are rejected.
+    /// </summary>
+    public async Task<(string Name, Range Range)?> GetRenameTargetAtAsync(Position position, CancellationToken cancellationToken = default)
+    {
+        if (!Sense.IsEditorMode) return null;
+        await WaitUntilParsedAsync(cancellationToken);
+
+        position = AdjustPositionForSelectionEnd(position);
+        int idx = Sense.Tokens.GetIndex(position);
+        Token? token = Sense.Tokens.GetAt(idx);
+        if (token is null || token.Type != TokenType.Identifier) return null;
+        if (token.IsFromPreprocessor) return null;
+        return (token.Lexeme, token.Range);
+    }
+
+    /// <summary>
     /// If the cursor is on the field part of a dot-access expression (e.g. <c>foo</c> in <c>obj.foo</c>),
     /// returns the lowered field name and its token range. Returns null otherwise.
     /// </summary>

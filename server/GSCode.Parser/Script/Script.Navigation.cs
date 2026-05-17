@@ -19,7 +19,10 @@ public partial class Script
     public async Task<Location?> GetDefinitionAsync(Position position, CancellationToken cancellationToken = default)
     {
         if (!Sense.IsEditorMode) return null;
-        await WaitUntilParsedAsync(cancellationToken);
+        // Wait for analysis, not just parse: AddDependencyAsync (which populates GlobalSymbolRegistry
+        // with dependency symbols) runs after ParseAsync completes but before AnalyseAsync.
+        // Waiting for parse only creates a race where GoTo fires before dependencies are indexed.
+        await WaitUntilAnalysedAsync(cancellationToken);
 
         // Try macro lookup at the raw (unadjusted) position first. Macro call tokens are consumed
         // by the preprocessor so they don't appear in the token list; their ScriptMacro hover entry
@@ -63,7 +66,7 @@ public partial class Script
     public async Task<(string? qualifier, string name)?> GetQualifiedIdentifierAtAsync(Position position, CancellationToken cancellationToken = default)
     {
         if (!Sense.IsEditorMode) return null;
-        await WaitUntilParsedAsync(cancellationToken);
+        await WaitUntilAnalysedAsync(cancellationToken);
 
         position = AdjustPositionForSelectionEnd(position);
         int idx = Sense.Tokens.GetIndex(position);

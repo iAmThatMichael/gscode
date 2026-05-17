@@ -31,7 +31,10 @@ internal class DocumentSymbolHandler(
         // Wait for parse to complete — SignatureAnalyser (which populates DefinitionsTable function/class
         // locations) runs during parse. Without this wait the first-open request races against parse and
         // sees an empty DefinitionsTable, showing only macros (which are populated earlier, during preprocessing).
+        Log.Debug("[DOCSYM] Waiting for parse: {Uri}", request.TextDocument.Uri);
         await script.WaitUntilParsedAsync(cancellationToken);
+        Log.Debug("[DOCSYM] Parse complete: Parsed={Parsed} Failed={Failed} DefinitionsTable={DT}",
+            script.Parsed, script.Failed, script.DefinitionsTable is null ? "null" : "set");
 
         if (script.DefinitionsTable is null)
         {
@@ -42,6 +45,7 @@ internal class DocumentSymbolHandler(
         cancellationToken.ThrowIfCancellationRequested();
 
         string currentPath = ScriptFileResolver.NormalizeFilePathForUri(request.TextDocument.Uri.ToUri().LocalPath);
+        Log.Debug("[DOCSYM] currentPath={CurrentPath}", currentPath);
 
         static string BuildFunctionLabel(string name, string? ns, string[]? parameters, string[]? flags)
         {
@@ -66,10 +70,16 @@ internal class DocumentSymbolHandler(
         }
 
         var functionNodes = new List<DocumentSymbol>();
+        bool loggedFunctionPath = false;
         foreach (var kv in script.DefinitionsTable.GetAllFunctionLocations())
         {
             cancellationToken.ThrowIfCancellationRequested();
             string fp = ScriptFileResolver.NormalizeFilePathForUri(kv.Value.FilePath ?? "");
+            if (!loggedFunctionPath)
+            {
+                Log.Debug("[DOCSYM] first function FilePath raw={Raw} normalized={FP}", kv.Value.FilePath, fp);
+                loggedFunctionPath = true;
+            }
             if (!string.Equals(fp, currentPath, StringComparison.OrdinalIgnoreCase)) continue;
             string[]? parameters = script.DefinitionsTable.GetFunctionParameters(kv.Key.Qualifier, kv.Key.SymbolName);
             string[]? flags = script.DefinitionsTable.GetFunctionFlags(kv.Key.Qualifier, kv.Key.SymbolName);
@@ -116,7 +126,8 @@ internal class DocumentSymbolHandler(
 
         sw.Stop();
         int totalSymbols = root.Sum(s => s.Children?.Count() ?? 0);
-        Log.Information("DocumentSymbol finished in {ElapsedMs} ms: {Count} symbols", sw.ElapsedMilliseconds, totalSymbols);
+        Log.Information("DocumentSymbol finished in {ElapsedMs} ms: {Count} symbols (classes={Classes} functions={Functions} macros={Macros})",
+            sw.ElapsedMilliseconds, totalSymbols, classNodes.Count, functionNodes.Count, macroNodes.Count);
         return new SymbolInformationOrDocumentSymbolContainer(
             root.Select(s => new SymbolInformationOrDocumentSymbol(s)));
     }

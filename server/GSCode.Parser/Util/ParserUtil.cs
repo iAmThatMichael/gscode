@@ -77,14 +77,14 @@ internal static partial class ParserUtil
         string scriptPath = NormalisePath(desiredScriptPath);
         string? basePath = ExtractBasePath(currentScriptPath, baseDir);
 
-        Log.Debug("[DEPENDENCY_RESOLVE] Resolving '{DesiredScript}' from '{CurrentScript}'", desiredScriptPath, currentScriptPath);
-        Log.Debug("[DEPENDENCY_RESOLVE] Extracted base path: {BasePath}", basePath ?? "null");
+        //Log.Debug("[DEPENDENCY_RESOLVE] Resolving '{DesiredScript}' from '{CurrentScript}'", desiredScriptPath, currentScriptPath);
+        //Log.Debug("[DEPENDENCY_RESOLVE] Extracted base path: {BasePath}", basePath ?? "null");
 
         // Check within the base path
         if (!string.IsNullOrEmpty(basePath) && ScriptFileExists(basePath, scriptPath))
         {
             string localPath = Path.Combine(basePath, scriptPath);
-            Log.Debug("[DEPENDENCY_RESOLVE] FOUND locally: {Path}", localPath);
+            //Log.Debug("[DEPENDENCY_RESOLVE] FOUND locally: {Path}", localPath);
             return localPath;
         }
 
@@ -96,13 +96,13 @@ internal static partial class ParserUtil
             if (ScriptFileExists(sharedPath, scriptPath))
             {
                 string rawPath = Path.Combine(sharedPath, scriptPath);
-                Log.Debug("[DEPENDENCY_RESOLVE] FOUND in TA_TOOLS_PATH: {Path}", rawPath);
+                //Log.Debug("[DEPENDENCY_RESOLVE] FOUND in TA_TOOLS_PATH: {Path}", rawPath);
                 return rawPath;
             }
         }
 
         // Return null if the script file is not found
-        Log.Debug("[DEPENDENCY_RESOLVE] NOT FOUND: {DesiredScript}", desiredScriptPath);
+        //Log.Debug("[DEPENDENCY_RESOLVE] NOT FOUND: {DesiredScript}", desiredScriptPath);
         return null;
     }
 

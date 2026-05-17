@@ -36,7 +36,8 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
     private Task? ParsingTask { get; set; } = null;
     private Task? AnalysisTask { get; set; } = null;
 
-    private readonly TaskCompletionSource _parseInitiated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // Replaced on every ParseAsync so WaitUntilParsedAsync binds to the current parse cycle.
+    private volatile TaskCompletionSource _currentParseGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _analysisInitiated = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _dependenciesReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -143,9 +144,21 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
 
     public async Task ParseAsync(string documentText)
     {
+        // Create a fresh gate BEFORE starting the task so any concurrent
+        // WaitUntilParsedAsync issued after this point waits on this cycle.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _currentParseGate = gate;
+
         ParsingTask = DoParseAsync(documentText);
-        _parseInitiated.TrySetResult();
-        await ParsingTask;
+        try
+        {
+            await ParsingTask;
+        }
+        finally
+        {
+            // Signal waiters regardless of success or failure.
+            gate.TrySetResult();
+        }
     }
 
     public Task DoParseAsync(string documentText)
@@ -409,11 +422,9 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (ParsingTask is null)
-        {
-            await _parseInitiated.Task.WaitAsync(cancellationToken);
-        }
-        await ParsingTask!;
+        // Capture the gate for the current parse cycle.  If no parse has started
+        // yet this waits until ParseAsync sets _currentParseGate and signals it.
+        await _currentParseGate.Task.WaitAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
     }
 

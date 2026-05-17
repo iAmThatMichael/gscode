@@ -107,14 +107,19 @@ internal sealed class ParserIntelliSense
     public ParserIntelliSense(int endLine, Uri scriptUri, ScriptLanguage language, ScriptMode mode = ScriptMode.Editor)
     {
         Mode = mode;
-        _scriptPath = scriptUri.LocalPath;
-        ScriptUri = scriptUri.LocalPath;
+        // Uri.LocalPath returns "/C:/foo" on Windows; strip the leading slash so paths are
+        // consistent with what UriHelper.GetLocalPath returns and cache filter comparisons work.
+        string rawPath = scriptUri.LocalPath;
+        if (rawPath.Length >= 3 && rawPath[0] == '/' && char.IsLetter(rawPath[1]) && rawPath[2] == ':')
+            rawPath = rawPath[1..];
+        _scriptPath = rawPath;
+        ScriptUri = rawPath;
         _language = language;
 
         if (mode == ScriptMode.Editor)
         {
             HoverLibrary = new(endLine + 1);
-            Completions = new(Tokens, language, scriptUri.LocalPath);
+            Completions = new(Tokens, language, rawPath);
         }
     }
 

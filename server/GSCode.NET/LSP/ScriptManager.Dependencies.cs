@@ -34,8 +34,8 @@ public partial class ScriptManager
         // Only parse if new dependency or not yet parsed
         if (isNewDependency || !cached.Script.Parsed)
         {
-            Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} (new={IsNew}, requested by {DependentUri})",
-                depPath, isNewDependency, UriHelper.GetLocalPath(dependentUri));
+            //Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} (new={IsNew}, requested by {DependentUri})",
+            //    depPath, isNewDependency, UriHelper.GetLocalPath(dependentUri));
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             await EnsureParsedAsync(uri, cached.Script, CancellationToken.None);
@@ -55,20 +55,25 @@ public partial class ScriptManager
             // Populate global symbol registry with dependency's definitions
             bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
 
-            // Location dictionaries are now redundant for dependency scripts — the global
+            // Location dictionaries are now redundant for dependency-only scripts — the global
             // registry serves all workspace-wide lookups from here on.
-            cached.Script.StripLocationData();
+            // Do NOT strip if the script has been promoted to an editor document, because the
+            // DocumentSymbolHandler reads its _functionLocations to build the outline.
+            if (cached.Type != CachedScriptType.Editor)
+            {
+                cached.Script.StripLocationData();
+            }
 
             cached.ExportedSymbolsChanged = symbolsChanged;
             cached.LastParsedAt = DateTime.UtcNow;
             sw.Stop();
 
-            Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} completed in {ElapsedMs} ms (symbolsChanged={Changed})",
-                depPath, sw.ElapsedMilliseconds, symbolsChanged);
+            //Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} completed in {ElapsedMs} ms (symbolsChanged={Changed})",
+            //    depPath, sw.ElapsedMilliseconds, symbolsChanged);
         }
         else
         {
-            Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} already parsed, skipping", depPath);
+            //Log.Debug("[DEPENDENCY_RESOLVE] {DependencyPath} already parsed, skipping", depPath);
         }
 
         cached.Dependents.TryAdd(dependentUri, 0);
@@ -113,7 +118,13 @@ public partial class ScriptManager
 
         foreach (Uri dependency in dependencies)
         {
-            ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(System.IO.Path.GetExtension(UriHelper.GetLocalPath(dependency)));
+            // Skip self-references: a script that #using's itself (e.g. array_shared.gsc uses
+            // scripts\shared\array_shared) would overwrite its own SA-written absolute paths with
+            // relative paths from ConvertToRelativeScriptPath, hiding all its own functions.
+            string depLocalPath = UriHelper.GetLocalPath(dependency);
+            if (string.Equals(depLocalPath, filePath, StringComparison.OrdinalIgnoreCase)) continue;
+
+            ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(System.IO.Path.GetExtension(depLocalPath));
             if (!GetScripts(depLang).TryGetValue(dependency, out CachedScript? depScript)) continue;
 
             await WithAnalysisLockAsync(dependency, () =>

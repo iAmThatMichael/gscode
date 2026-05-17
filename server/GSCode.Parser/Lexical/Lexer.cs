@@ -734,10 +734,7 @@ internal ref partial struct Lexer(ReadOnlySpan<char> input)
         int lines = contents.Count('\n');
         int endOffset = contents.Length - contents.LastIndexOf('\n');
 
-        Token token = CreateToken(tokenType, contents, _line, _linePosition, _line + lines, endOffset);
-        Log.Debug("[LEXER] {Type} token: start=({StartLine},{StartChar}) end=({EndLine},{EndChar}) length={Length} lexeme={Lexeme}",
-            tokenType, _line, _linePosition, _line + lines, endOffset, length, new string(contents));
-        return token;
+        return CreateToken(tokenType, contents, _line, _linePosition, _line + lines, endOffset);
     }
 
     private Token SinglelineRegexMatch(TokenType tokenType, int length)

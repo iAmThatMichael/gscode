@@ -350,7 +350,16 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
 
         // We still expose diagnostics even if the script failed to parse
         await WaitUntilParsedAsync(cancellationToken);
-        return Sense.Diagnostics;
+
+        HashSet<int> ignoredLines = Sense.Tokens.GetIgnoredLines();
+        if (ignoredLines.Count == 0)
+        {
+            return Sense.Diagnostics;
+        }
+
+        return Sense.Diagnostics
+            .Where(d => !ignoredLines.Contains(d.Range.Start.Line))
+            .ToList();
     }
 
     /// <summary>

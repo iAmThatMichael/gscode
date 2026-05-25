@@ -42,7 +42,9 @@ public static class WorkspaceCacheManager
     /// Loads the workspace cache from disk.
     /// Returns null if the cache doesn't exist, is corrupted, or has a version mismatch.
     /// </summary>
-    public static async Task<WorkspaceCacheFile?> LoadAsync(string cacheFilePath)
+    public static async Task<WorkspaceCacheFile?> LoadAsync(
+        string cacheFilePath,
+        string? expectedServerVersion = null)
     {
         if (!File.Exists(cacheFilePath))
         {
@@ -67,6 +69,14 @@ public static class WorkspaceCacheManager
             {
                 Log.Warning("Cache format version mismatch (expected {Expected}, got {Actual}), discarding cache",
                     CacheFormatVersion, cache.FormatVersion);
+                return null;
+            }
+
+            if (expectedServerVersion is not null &&
+                !string.Equals(cache.ServerVersion, expectedServerVersion, StringComparison.Ordinal))
+            {
+                Log.Warning("Cache server version mismatch (expected {Expected}, got {Actual}), discarding cache",
+                    expectedServerVersion, cache.ServerVersion);
                 return null;
             }
 

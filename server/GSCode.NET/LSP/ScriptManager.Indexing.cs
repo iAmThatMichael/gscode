@@ -28,7 +28,7 @@ public partial class ScriptManager
             // Load persistent cache from disk
             string cacheFilePath = WorkspaceCacheManager.GetCacheFilePath();
             _workspaceCache = UseWorkspaceCache
-                ? await WorkspaceCacheManager.LoadAsync(cacheFilePath)
+                ? await WorkspaceCacheManager.LoadAsync(cacheFilePath, CurrentServerVersion)
                 : null;
 
             var filesList = Directory

@@ -782,8 +782,12 @@ internal sealed class CodeActionHandler(
             Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [DocumentUri.From(newFileUri)] = [new TextEdit { Range = new Range { Start = new Position { Line = 0, Character = 0 }, End = new Position { Line = 0, Character = 0 } }, NewText = "" }]
-                }
+                DocumentChanges = new Container<WorkspaceEditDocumentChange>(
+                    new WorkspaceEditDocumentChange(new CreateFile
+                    {
+                        Uri = newFileUri,
+                        Options = new CreateFileOptions { IgnoreIfExists = true }
+                    }))
             }
         };
     }

@@ -1,9 +1,12 @@
 using Serilog;
+using GSCode.Data;
 using GSCode.Parser;
 using GSCode.Parser.Cache;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Reflection;
+using System.Security.Cryptography;
 
 namespace GSCode.NET.LSP;
 
@@ -17,6 +20,52 @@ public partial class ScriptManager
     /// Null until the first indexing pass loads (or fails to load) the cache file.
     /// </summary>
     private WorkspaceCacheFile? _workspaceCache;
+
+    private static readonly Lazy<string> ServerBuildIdentity = new(CreateServerBuildIdentity);
+
+    private static string CurrentServerVersion => ServerBuildIdentity.Value;
+
+    private static string CreateServerBuildIdentity()
+    {
+        var parts = new List<string>
+        {
+            GetAssemblyBuildId(typeof(ScriptManager).Assembly),
+            GetAssemblyBuildId(typeof(Script).Assembly),
+            GetAssemblyBuildId(typeof(GsPosition).Assembly)
+        };
+
+        string? assemblyDirectory = Path.GetDirectoryName(typeof(ScriptManager).Assembly.Location);
+        if (assemblyDirectory is not null)
+        {
+            string apiDirectory = Path.Combine(assemblyDirectory, "api");
+            parts.Add(GetFileBuildId(Path.Combine(apiDirectory, "t7_api_gsc.json")));
+            parts.Add(GetFileBuildId(Path.Combine(apiDirectory, "t7_api_csc.json")));
+        }
+        else
+        {
+            parts.Add("api:unknown");
+        }
+
+        return string.Join("|", parts);
+    }
+
+    private static string GetAssemblyBuildId(Assembly assembly)
+    {
+        AssemblyName name = assembly.GetName();
+        return $"{name.Name}:{name.Version}:{assembly.ManifestModule.ModuleVersionId:N}";
+    }
+
+    private static string GetFileBuildId(string path)
+    {
+        string fileName = Path.GetFileName(path);
+        if (!File.Exists(path))
+        {
+            return $"{fileName}:missing";
+        }
+
+        byte[] hash = SHA256.HashData(File.ReadAllBytes(path));
+        return $"{fileName}:{Convert.ToHexString(hash)}";
+    }
 
     private ConcurrentDictionary<Uri, CachedScript> Scripts { get; } = new(UriComparer.OrdinalIgnoreCase);
 
@@ -158,7 +207,7 @@ public partial class ScriptManager
             var cacheFile = new WorkspaceCacheFile
             {
                 FormatVersion = WorkspaceCacheManager.CacheFormatVersion,
-                ServerVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown",
+                ServerVersion = CurrentServerVersion,
                 LastSaved = DateTime.UtcNow,
                 Scripts = scripts
             };

@@ -151,6 +151,8 @@ public partial class ScriptManager
         {
             cached.LastContentHash = contentHash;
             cached.LastParsedAt = DateTime.UtcNow;
+            cached.WorkspaceCacheDirty = true;
+            _workspaceCacheDirty = true;
         }
 
         await script.ParseAsync(content);

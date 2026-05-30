@@ -9,7 +9,12 @@ namespace GSCode.NET.LSP;
 
 public partial class ScriptManager
 {
-    private async Task<Script> AddDependencyAsync(Uri dependentUri, Uri uri, string languageId)
+    private async Task<Script> AddDependencyAsync(
+        Uri dependentUri,
+        Uri uri,
+        string languageId,
+        IndexingContext? indexingContext = null,
+        CancellationToken cancellationToken = default)
     {
         bool isNewDependency = false;
         string depPath = UriHelper.GetLocalPath(uri);
@@ -31,19 +36,30 @@ public partial class ScriptManager
                 depPath, isNewDependency, UriHelper.GetLocalPath(dependentUri));
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            await EnsureParsedAsync(uri, cached.Script, languageId, CancellationToken.None);
-
-            // Compute and store content hash so the cache save has a valid hash for this file
             string filePath = UriHelper.GetLocalPath(uri);
-            try
+
+            if (indexingContext is not null)
             {
-                string content = await File.ReadAllTextAsync(filePath);
-                cached.LastContentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
+                FileSnapshot snapshot = await indexingContext.FileSnapshots.GetAsync(filePath, cancellationToken);
+                await EnsureParsedAsync(uri, cached.Script, languageId, cancellationToken, snapshot.Content);
+                cached.LastContentHash = snapshot.Exists ? snapshot.ContentHash : 0;
             }
-            catch (Exception ex)
+            else
             {
-                Log.Warning(ex, "Failed to compute content hash for dependency {Path}", filePath);
+                await EnsureParsedAsync(uri, cached.Script, languageId, cancellationToken);
+
+                try
+                {
+                    string content = await File.ReadAllTextAsync(filePath, cancellationToken);
+                    cached.LastContentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Failed to compute content hash for dependency {Path}", filePath);
+                }
             }
+            cached.WorkspaceCacheDirty = true;
+            _workspaceCacheDirty = true;
 
             // Populate global symbol registry with dependency's definitions
             bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);

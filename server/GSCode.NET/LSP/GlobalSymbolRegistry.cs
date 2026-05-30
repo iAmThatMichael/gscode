@@ -43,6 +43,11 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     // (ConcurrentDictionary<K, byte> is used as a concurrent hash-set; the byte value is unused)
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<QualifiedSymbolKey, byte>> _fileIndex = new(StringComparer.OrdinalIgnoreCase);
 
+    // All submitted definitions by file path. The canonical _symbols map is derived from
+    // this index by source priority, which lets a lower-priority definition be promoted
+    // again when a higher-priority override is removed.
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<QualifiedSymbolKey, SymbolDefinition>> _submittedIndex = new(StringComparer.OrdinalIgnoreCase);
+
     // Index for fast lookup by name only (ignoring namespace)
     // (ConcurrentDictionary<K, byte> is used as a concurrent hash-set; the byte value is unused)
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<QualifiedSymbolKey, byte>> _nameIndex = new(StringComparer.OrdinalIgnoreCase);
@@ -156,27 +161,11 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         _lock.EnterWriteLock();
         try
         {
-            if (!_fileIndex.TryRemove(filePath, out var keys))
+            if (!_submittedIndex.TryRemove(filePath, out var submitted))
                 return;
 
-            foreach (var key in keys.Keys)
-            {
-                // Only remove the canonical entry if this file is the current owner.
-                // A higher-priority file (e.g. a mod override) may have taken ownership;
-                // removing that entry here would silently discard the winning definition.
-                if (!(_symbols.TryGetValue(key, out var owner) &&
-                      string.Equals(owner.FilePath, filePath, StringComparison.OrdinalIgnoreCase) &&
-                      _symbols.TryRemove(key, out var removed)))
-                    continue;
-
-                var normalizedName = removed.Name.ToLowerInvariant();
-                if (_nameIndex.TryGetValue(normalizedName, out var nameKeys))
-                {
-                    nameKeys.TryRemove(key, out _);
-                    if (nameKeys.IsEmpty)
-                        _nameIndex.TryRemove(normalizedName, out _);
-                }
-            }
+            foreach (var key in submitted.Keys)
+                RecomputeCanonicalSymbol(key);
         }
         finally
         {
@@ -196,83 +185,35 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         _lock.EnterWriteLock();
         try
         {
-            var ownedKeys = new HashSet<QualifiedSymbolKey>();
+            var submittedSymbols = new Dictionary<QualifiedSymbolKey, SymbolDefinition>();
             bool changed = false;
 
-            _fileIndex.TryGetValue(filePath, out var existingOwned);
-
-            // --- Pass 1: process all submitted symbols ---
             foreach (var def in newSymbols)
             {
                 var key = QualifiedSymbolKey.Normalized(def.Namespace, def.Name);
-
-                if (_symbols.TryGetValue(key, out var existing))
-                {
-                    bool sameOwner = string.Equals(existing.FilePath, filePath, StringComparison.OrdinalIgnoreCase);
-                    // Strict > so same-priority files use first-write-wins, not last-write-wins
-                    bool strictlyHigherPriority = GetSourcePriority(filePath) > GetSourcePriority(existing.FilePath);
-
-                    if (sameOwner || strictlyHigherPriority)
-                    {
-                        ownedKeys.Add(key);
-                        if (!SymbolsEqual(existing, def))
-                        {
-                            changed = true;
-                            _symbols[key] = def;
-                        }
-                    }
-                    // else: higher-or-equal-priority file owns this key — do not take it
-                }
-                else
-                {
-                    ownedKeys.Add(key);
-                    changed = true;
-                    _symbols[key] = def;
-
-                    var nameSymbols = _nameIndex.GetOrAdd(StringPool.Intern(def.Name.ToLowerInvariant()),
-                        _ => new ConcurrentDictionary<QualifiedSymbolKey, byte>());
-                    nameSymbols[key] = 0;
-                }
+                submittedSymbols[key] = def;
             }
 
-            // --- Pass 2: remove owned keys this file no longer exports ---
-            if (existingOwned is not null)
+            _submittedIndex.TryGetValue(filePath, out var existingSubmitted);
+            var affectedKeys = new HashSet<QualifiedSymbolKey>(submittedSymbols.Keys);
+            if (existingSubmitted is not null)
+                affectedKeys.UnionWith(existingSubmitted.Keys);
+
+            if (submittedSymbols.Count == 0)
             {
-                foreach (var key in existingOwned.Keys)
-                {
-                    if (ownedKeys.Contains(key))
-                        continue;
-
-                    if (!(_symbols.TryGetValue(key, out var owner) &&
-                          string.Equals(owner.FilePath, filePath, StringComparison.OrdinalIgnoreCase) &&
-                          _symbols.TryRemove(key, out var removed)))
-                        continue;
-
-                    changed = true;
-
-                    var normalizedName = removed.Name.ToLowerInvariant();
-                    if (_nameIndex.TryGetValue(normalizedName, out var nameKeys))
-                    {
-                        nameKeys.TryRemove(key, out _);
-                        if (nameKeys.IsEmpty)
-                            _nameIndex.TryRemove(normalizedName, out _);
-                    }
-                }
-            }
-
-            // --- Update _fileIndex (owned keys only) ---
-            if (ownedKeys.Count > 0)
-            {
-                var fileSymbols = _fileIndex.GetOrAdd(filePath,
-                    _ => new ConcurrentDictionary<QualifiedSymbolKey, byte>());
-                fileSymbols.Clear();
-                foreach (var key in ownedKeys)
-                    fileSymbols[key] = 0;
+                _submittedIndex.TryRemove(filePath, out _);
             }
             else
             {
-                _fileIndex.TryRemove(filePath, out _);
+                var fileSymbols = _submittedIndex.GetOrAdd(filePath,
+                    _ => new ConcurrentDictionary<QualifiedSymbolKey, SymbolDefinition>());
+                fileSymbols.Clear();
+                foreach (var (key, def) in submittedSymbols)
+                    fileSymbols[key] = def;
             }
+
+            foreach (var key in affectedKeys)
+                changed |= RecomputeCanonicalSymbol(key);
 
             return changed;
         }
@@ -280,6 +221,95 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         {
             _lock.ExitWriteLock();
         }
+    }
+
+    private bool RecomputeCanonicalSymbol(QualifiedSymbolKey key)
+    {
+        SymbolDefinition? best = null;
+        int bestPriority = -1;
+
+        foreach (var fileSymbols in _submittedIndex.Values)
+        {
+            if (!fileSymbols.TryGetValue(key, out var candidate))
+                continue;
+
+            int priority = GetSourcePriority(candidate.FilePath);
+            if (best is null ||
+                priority > bestPriority ||
+                (priority == bestPriority &&
+                 string.Compare(candidate.FilePath, best.FilePath, StringComparison.OrdinalIgnoreCase) < 0))
+            {
+                best = candidate;
+                bestPriority = priority;
+            }
+        }
+
+        return SetCanonicalSymbol(key, best);
+    }
+
+    private bool SetCanonicalSymbol(QualifiedSymbolKey key, SymbolDefinition? replacement)
+    {
+        _symbols.TryGetValue(key, out var existing);
+
+        if (replacement is null)
+        {
+            if (existing is null)
+                return false;
+
+            _symbols.TryRemove(key, out _);
+            RemoveNameIndex(existing.Name, key);
+            RemoveFileIndex(existing.FilePath, key);
+            return true;
+        }
+
+        if (existing is not null && SymbolsEqual(existing, replacement))
+            return false;
+
+        if (existing is not null)
+        {
+            RemoveNameIndex(existing.Name, key);
+            RemoveFileIndex(existing.FilePath, key);
+        }
+
+        _symbols[key] = replacement;
+        AddNameIndex(replacement.Name, key);
+        AddFileIndex(replacement.FilePath, key);
+        return true;
+    }
+
+    private void AddNameIndex(string name, QualifiedSymbolKey key)
+    {
+        var nameSymbols = _nameIndex.GetOrAdd(StringPool.Intern(name.ToLowerInvariant()),
+            _ => new ConcurrentDictionary<QualifiedSymbolKey, byte>());
+        nameSymbols[key] = 0;
+    }
+
+    private void RemoveNameIndex(string name, QualifiedSymbolKey key)
+    {
+        string normalizedName = name.ToLowerInvariant();
+        if (!_nameIndex.TryGetValue(normalizedName, out var nameKeys))
+            return;
+
+        nameKeys.TryRemove(key, out _);
+        if (nameKeys.IsEmpty)
+            _nameIndex.TryRemove(normalizedName, out _);
+    }
+
+    private void AddFileIndex(string filePath, QualifiedSymbolKey key)
+    {
+        var fileSymbols = _fileIndex.GetOrAdd(filePath,
+            _ => new ConcurrentDictionary<QualifiedSymbolKey, byte>());
+        fileSymbols[key] = 0;
+    }
+
+    private void RemoveFileIndex(string filePath, QualifiedSymbolKey key)
+    {
+        if (!_fileIndex.TryGetValue(filePath, out var fileSymbols))
+            return;
+
+        fileSymbols.TryRemove(key, out _);
+        if (fileSymbols.IsEmpty)
+            _fileIndex.TryRemove(filePath, out _);
     }
 
     /// <summary>

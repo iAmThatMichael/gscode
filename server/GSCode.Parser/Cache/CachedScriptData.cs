@@ -5,6 +5,8 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 
 namespace GSCode.Parser.Cache;
 
+using SaSymbolKind = GSCode.Parser.SA.SymbolKind;
+
 /// <summary>
 /// Serializable representation of a single LSP diagnostic for cache persistence.
 /// </summary>
@@ -18,6 +20,26 @@ public sealed record CachedDiagnostic(
     string Message,
     string? Source
 );
+
+/// <summary>
+/// Serializable representation of one symbol reference range.
+/// </summary>
+public sealed record CachedReference(
+    SaSymbolKind Kind,
+    string Namespace,
+    string Name,
+    string? ClassName,
+    string? ScopeId,
+    int StartLine,
+    int StartChar,
+    int EndLine,
+    int EndChar
+);
+
+/// <summary>
+/// Serializable representation of a global-object field access.
+/// </summary>
+public sealed record CachedGlobalFieldAccess(string OwnerName, string FieldName);
 
 /// <summary>
 /// Serializable DTO representing cached parse and analysis results for a single script.
@@ -46,6 +68,9 @@ public sealed record CachedScriptData
     /// <summary>File paths this script depends on (via #include or using).</summary>
     public required List<string> Dependencies { get; init; }
 
+    /// <summary>Content hashes for dependencies that affect this script's diagnostics.</summary>
+    public required Dictionary<string, int> DependencyContentHashes { get; init; }
+
     /// <summary>Function locations: qualified key -> (file path, range).</summary>
     public required Dictionary<QualifiedSymbolKey, CachedSymbolLocation> FunctionLocations { get; init; }
 
@@ -66,6 +91,12 @@ public sealed record CachedScriptData
 
     /// <summary>Diagnostics produced during parse and analysis, to be re-emitted on cache restore.</summary>
     public required List<CachedDiagnostic> Diagnostics { get; init; }
+
+    /// <summary>Reference index entries used by workspace/document references.</summary>
+    public required List<CachedReference> References { get; init; }
+
+    /// <summary>Global-object field accesses used by cross-file dot completions.</summary>
+    public required List<CachedGlobalFieldAccess> GlobalFieldAccesses { get; init; }
 }
 
 /// <summary>

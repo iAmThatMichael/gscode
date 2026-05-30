@@ -30,4 +30,11 @@ public class CachedScript
     /// Whether exported symbols changed during the last parse, requiring dependent re-analysis.
     /// </summary>
     public bool ExportedSymbolsChanged { get; set; } = true;
+
+    /// <summary>
+    /// Whether this script needs to be re-serialized into the persistent workspace cache.
+    /// Cache-restored scripts can keep the existing cache entry; freshly parsed or edited
+    /// scripts need a new entry.
+    /// </summary>
+    public bool WorkspaceCacheDirty { get; set; } = true;
 }

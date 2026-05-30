@@ -99,10 +99,6 @@ public partial class Script
             // GetDetailedStatistics() reports accurate GSH file and macro counts after
             // a cache restore (preprocessing is skipped, so the cache would otherwise
             // have no entries for macros that came from #insert'd GSH files).
-            // Re-register macro source paths into MacroDefinitionCache so that
-            // GetDetailedStatistics() reports accurate GSH file and macro counts after
-            // a cache restore (preprocessing is skipped, so the cache would otherwise
-            // have no entries for macros that came from #insert'd GSH files).
             // Also preserve the paths on the script so that a subsequent cache re-save
             // (ExtractCacheData) can round-trip them without zeroing out macro data.
             foreach (var (macroName, sourceFilePath) in cachedData.MacroDefinitions)
@@ -113,6 +109,33 @@ public partial class Script
                 ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, string?>(
                     new Dictionary<string, string?>(cachedData.MacroDefinitions, StringComparer.OrdinalIgnoreCase))
                 : null;
+
+            _references.Clear();
+            foreach (var cachedReference in cachedData.References)
+            {
+                var key = new SymbolKey(
+                    cachedReference.Kind,
+                    cachedReference.Namespace,
+                    cachedReference.Name,
+                    cachedReference.ClassName,
+                    cachedReference.ScopeId);
+
+                if (!_references.TryGetValue(key, out var ranges))
+                {
+                    ranges = [];
+                    _references[key] = ranges;
+                }
+
+                ranges.Add(new Range(
+                    cachedReference.StartLine,
+                    cachedReference.StartChar,
+                    cachedReference.EndLine,
+                    cachedReference.EndChar));
+            }
+
+            _cachedGlobalFieldAccesses = cachedData.GlobalFieldAccesses
+                .Select(field => (field.OwnerName, field.FieldName))
+                .ToList();
 
             // Mark as parsed and analysed
             Parsed = true;

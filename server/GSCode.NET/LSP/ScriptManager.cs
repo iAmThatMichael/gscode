@@ -21,6 +21,51 @@ public partial class ScriptManager
     /// </summary>
     private WorkspaceCacheFile? _workspaceCache;
 
+    private bool _workspaceCacheDirty;
+
+    private sealed record FileSnapshot(string Path, string? Content, int ContentHash, bool Exists);
+
+    private sealed class FileSnapshotCache
+    {
+        private readonly ConcurrentDictionary<string, Task<FileSnapshot>> _snapshots = new(StringComparer.OrdinalIgnoreCase);
+
+        public async Task<FileSnapshot> GetAsync(string filePath, CancellationToken cancellationToken = default)
+        {
+            string normalizedPath = NormalizeCachePath(filePath);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Task<FileSnapshot> snapshotTask = _snapshots.GetOrAdd(normalizedPath, ReadSnapshotAsync);
+
+            FileSnapshot snapshot = await snapshotTask;
+            cancellationToken.ThrowIfCancellationRequested();
+            return snapshot;
+        }
+
+        private static async Task<FileSnapshot> ReadSnapshotAsync(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                    return new FileSnapshot(path, null, 0, Exists: false);
+
+                string content = await File.ReadAllTextAsync(path);
+                int hash = WorkspaceCacheManager.GetDeterministicHashCode(content);
+                return new FileSnapshot(path, content, hash, Exists: true);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to read file snapshot for {Path}", path);
+                return new FileSnapshot(path, null, 0, Exists: false);
+            }
+        }
+    }
+
+    private sealed class IndexingContext(WorkspaceCacheFile? workspaceCache)
+    {
+        public WorkspaceCacheFile? WorkspaceCache { get; } = workspaceCache;
+        public FileSnapshotCache FileSnapshots { get; } = new();
+    }
+
     private static readonly Lazy<string> ServerBuildIdentity = new(CreateServerBuildIdentity);
 
     private static string CurrentServerVersion => ServerBuildIdentity.Value;
@@ -65,6 +110,100 @@ public partial class ScriptManager
 
         byte[] hash = SHA256.HashData(File.ReadAllBytes(path));
         return $"{fileName}:{Convert.ToHexString(hash)}";
+    }
+
+    private static string NormalizeCachePath(string path)
+    {
+        if (path.Length >= 3 && path[0] == '/' && char.IsLetter(path[1]) && path[2] == ':')
+            path = path[1..];
+
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch
+        {
+            return path;
+        }
+    }
+
+    private static bool TryComputeContentHash(string filePath, out int hash)
+    {
+        hash = 0;
+        try
+        {
+            if (!File.Exists(filePath))
+                return false;
+
+            string content = File.ReadAllText(filePath);
+            hash = WorkspaceCacheManager.GetDeterministicHashCode(content);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<Dictionary<string, int>> BuildDependencyContentHashesAsync(
+        IEnumerable<string> dependencies,
+        FileSnapshotCache? snapshotCache,
+        CancellationToken cancellationToken = default)
+    {
+        var hashes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string dependency in dependencies)
+        {
+            string path = NormalizeCachePath(dependency);
+            if (snapshotCache is not null)
+            {
+                FileSnapshot snapshot = await snapshotCache.GetAsync(path, cancellationToken);
+                if (snapshot.Exists)
+                    hashes[snapshot.Path] = snapshot.ContentHash;
+            }
+            else if (TryComputeContentHash(path, out int hash))
+            {
+                hashes[path] = hash;
+            }
+        }
+
+        return hashes;
+    }
+
+    private static async Task<(bool IsCurrent, string? ChangedDependency)> DependencyContentHashesAreCurrentAsync(
+        CachedScriptData cachedData,
+        FileSnapshotCache? snapshotCache,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var (cachedPath, cachedHash) in cachedData.DependencyContentHashes)
+        {
+            string path = NormalizeCachePath(cachedPath);
+            int currentHash;
+            bool exists;
+
+            if (snapshotCache is not null)
+            {
+                FileSnapshot snapshot = await snapshotCache.GetAsync(path, cancellationToken);
+                exists = snapshot.Exists;
+                currentHash = snapshot.ContentHash;
+            }
+            else
+            {
+                exists = TryComputeContentHash(path, out currentHash);
+            }
+
+            if (!exists || cachedHash != currentHash)
+                return (false, path);
+        }
+
+        foreach (string dependency in cachedData.Dependencies)
+        {
+            string path = NormalizeCachePath(dependency);
+            if (!cachedData.DependencyContentHashes.ContainsKey(path))
+                return (false, path);
+        }
+
+        return (true, null);
     }
 
     private ConcurrentDictionary<Uri, CachedScript> Scripts { get; } = new(UriComparer.OrdinalIgnoreCase);
@@ -122,7 +261,7 @@ public partial class ScriptManager
         _notifier = notifier;
     }
 
-    private async Task EnsureParsedAsync(Uri docUri, Script script, string? languageId, CancellationToken cancellationToken)
+    private async Task EnsureParsedAsync(Uri docUri, Script script, string? languageId, CancellationToken cancellationToken, string? knownContent = null)
     {
         var gate = _parseLocks.GetOrAdd(docUri, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken);
@@ -131,7 +270,7 @@ public partial class ScriptManager
             if (!script.Parsed)
             {
                 string path = UriHelper.GetLocalPath(docUri);
-                string content = await File.ReadAllTextAsync(path, cancellationToken);
+                string content = knownContent ?? await File.ReadAllTextAsync(path, cancellationToken);
                 await script.ParseAsync(content);
             }
         }
@@ -157,10 +296,9 @@ public partial class ScriptManager
 
     private void CleanupLocksForUri(Uri uri)
     {
-        if (_parseLocks.TryRemove(uri, out var parseLock))
-            parseLock.Dispose();
-        if (_analysisLocks.TryRemove(uri, out var analysisLock))
-            analysisLock.Dispose();
+        // SemaphoreSlim has no safe "dispose when nobody is about to wait" primitive.
+        // These locks are tiny and keyed by URI, so keep them for the manager lifetime
+        // instead of risking disposal while editor and indexing work overlap.
     }
 
     private async Task PublishDiagnosticsAsync(Uri uri, Script script, CancellationToken cancellationToken = default)
@@ -182,25 +320,47 @@ public partial class ScriptManager
     /// Safe to call at any time — serializes a snapshot of all parsed scripts.
     /// </summary>
     public async Task SaveWorkspaceCacheAsync()
+        => await SaveWorkspaceCacheAsync(snapshotCache: null, CancellationToken.None);
+
+    private async Task SaveWorkspaceCacheAsync(FileSnapshotCache? snapshotCache, CancellationToken cancellationToken)
     {
         try
         {
+            if (!_workspaceCacheDirty)
+            {
+                Log.Debug("Workspace cache save skipped: no dirty scripts");
+                return;
+            }
+
             string cacheFilePath = WorkspaceCacheManager.GetCacheFilePath();
-            var scripts = new Dictionary<string, CachedScriptData>(StringComparer.OrdinalIgnoreCase);
+            WorkspaceCacheFile? existingCache = _workspaceCache;
+            if (existingCache is null && File.Exists(cacheFilePath))
+            {
+                existingCache = await WorkspaceCacheManager.LoadAsync(cacheFilePath, CurrentServerVersion);
+            }
+
+            var scripts = existingCache?.Scripts
+                .Where(kv => File.Exists(NormalizeCachePath(kv.Key)))
+                .ToDictionary(kv => NormalizeCachePath(kv.Key), kv => kv.Value, StringComparer.OrdinalIgnoreCase)
+                ?? new Dictionary<string, CachedScriptData>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var kvp in Scripts)
             {
-                string filePath = UriHelper.GetLocalPath(kvp.Key);
+                string filePath = NormalizeCachePath(UriHelper.GetLocalPath(kvp.Key));
                 var cached = kvp.Value;
                 var script = cached.Script;
 
                 if (!script.Parsed || script.Failed || script.DefinitionsTable is null)
                     continue;
 
-                var data = ExtractCacheData(filePath, script, cached.LastContentHash);
+                if (!cached.WorkspaceCacheDirty && scripts.ContainsKey(filePath))
+                    continue;
+
+                var data = await ExtractCacheDataAsync(filePath, script, cached.LastContentHash, snapshotCache, cancellationToken);
                 if (data is not null)
                 {
                     scripts[filePath] = data;
+                    cached.WorkspaceCacheDirty = false;
                 }
             }
 
@@ -213,6 +373,8 @@ public partial class ScriptManager
             };
 
             await WorkspaceCacheManager.SaveAsync(cacheFilePath, cacheFile);
+            _workspaceCache = cacheFile;
+            _workspaceCacheDirty = false;
         }
         catch (Exception ex)
         {
@@ -223,7 +385,12 @@ public partial class ScriptManager
     /// <summary>
     /// Extracts a CachedScriptData DTO from a parsed script for serialization.
     /// </summary>
-    private static CachedScriptData? ExtractCacheData(string filePath, Script script, int contentHash)
+    private static async Task<CachedScriptData?> ExtractCacheDataAsync(
+        string filePath,
+        Script script,
+        int contentHash,
+        FileSnapshotCache? snapshotCache,
+        CancellationToken cancellationToken = default)
     {
         var defTable = script.DefinitionsTable;
         if (defTable is null) return null;
@@ -279,7 +446,29 @@ public partial class ScriptManager
                 ))
                 .ToList();
 
+            var dependencies = defTable.Dependencies
+                .Select(u => NormalizeCachePath(u.LocalPath))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
             var macroPaths = script.GetMacroSourcePaths();
+
+            var cachedReferences = script.References
+                .SelectMany(kv => kv.Value.Select(range => new CachedReference(
+                    kv.Key.Kind,
+                    kv.Key.Namespace,
+                    kv.Key.Name,
+                    kv.Key.ClassName,
+                    kv.Key.ScopeId,
+                    range.Start.Line,
+                    range.Start.Character,
+                    range.End.Line,
+                    range.End.Character)))
+                .ToList();
+
+            var cachedGlobalFields = script.ExtractGlobalFieldAccesses()
+                .Select(field => new CachedGlobalFieldAccess(field.OwnerName, field.FieldName))
+                .ToList();
 
             return new CachedScriptData
             {
@@ -289,14 +478,22 @@ public partial class ScriptManager
                 CurrentNamespace = defTable.CurrentNamespace,
                 ExportedFunctions = defTable.ExportedFunctions.ToList(),
                 ExportedClasses = defTable.ExportedClasses.ToList(),
-                Dependencies = defTable.Dependencies.Select(u => u.LocalPath).ToList(),
+                Dependencies = dependencies,
+                DependencyContentHashes = await BuildDependencyContentHashesAsync(dependencies.Concat(
+                    macroPaths.Values
+                        .Where(path => !string.IsNullOrWhiteSpace(path))
+                        .Select(path => path!)),
+                    snapshotCache,
+                    cancellationToken),
                 FunctionLocations = funcLocations,
                 ClassLocations = classLocations,
                 FunctionParameters = funcParams,
                 FunctionFlags = funcFlags,
                 FunctionDocs = funcDocs,
                 MacroDefinitions = macroPaths.ToDictionary(kv => kv.Key, kv => kv.Value),
-                Diagnostics = cachedDiags
+                Diagnostics = cachedDiags,
+                References = cachedReferences,
+                GlobalFieldAccesses = cachedGlobalFields
             };
         }
         catch (Exception ex)

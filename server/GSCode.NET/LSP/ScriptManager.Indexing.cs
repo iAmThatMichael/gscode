@@ -30,6 +30,7 @@ public partial class ScriptManager
             _workspaceCache = UseWorkspaceCache
                 ? await WorkspaceCacheManager.LoadAsync(cacheFilePath, CurrentServerVersion)
                 : null;
+            var indexingContext = new IndexingContext(_workspaceCache);
 
             var filesList = Directory
                 .EnumerateFiles(rootDirectory, "*.*", SearchOption.AllDirectories)
@@ -71,7 +72,7 @@ public partial class ScriptManager
 #if DEBUG
                         Log.Information("Indexing {File}", rel);
 #endif
-                        var result = await IndexFileAsync(file, rootDirectory, cancellationToken);
+                        var result = await IndexFileAsync(file, rootDirectory, indexingContext, cancellationToken);
                         switch (result)
                         {
                             case CacheResult.Hit:               Interlocked.Increment(ref cacheHits); break;
@@ -112,7 +113,7 @@ public partial class ScriptManager
             // Save updated cache to disk
             if (UseWorkspaceCache)
             {
-                await SaveWorkspaceCacheAsync();
+                await SaveWorkspaceCacheAsync(indexingContext.FileSnapshots, cancellationToken);
             }
 
             // Signal that all files (and their #insert'd GSH macros) are now in the cache.
@@ -139,11 +140,9 @@ public partial class ScriptManager
             foreach (var kv in Scripts)
                 kv.Value.Script.ReleaseCachedMacroPaths();
 
-            // Release parse and analysis semaphores for indexed files. Editor-opened files have
-            // their locks cleaned up via RemoveEditor; indexed-only files are never removed that
-            // way, so without this they leak one SemaphoreSlim per file for the server lifetime.
-            foreach (var kv in Scripts)
-                CleanupLocksForUri(kv.Key);
+            // Parse/analysis locks may still be in use by open editors or another workspace-root
+            // indexing task. Keep them for the server lifetime; editor locks are still removed
+            // when an editor document closes.
         }
     }
 
@@ -152,7 +151,11 @@ public partial class ScriptManager
     /// <summary>
     /// Indexes a single file. Returns the cache result for telemetry.
     /// </summary>
-    private async Task<CacheResult> IndexFileAsync(string filePath, string rootDirectory, CancellationToken cancellationToken)
+    private async Task<CacheResult> IndexFileAsync(
+        string filePath,
+        string rootDirectory,
+        IndexingContext indexingContext,
+        CancellationToken cancellationToken)
     {
         string ext = Path.GetExtension(filePath);
         string languageId = string.Equals(ext, ".csc", StringComparison.OrdinalIgnoreCase) ? "csc" : "gsc";
@@ -166,11 +169,12 @@ public partial class ScriptManager
         // Try to restore from persistent cache before parsing
         CacheResult cacheResult;
         bool needsAnalysis = false;
-        if (_workspaceCache is null)
+        FileSnapshot? fileSnapshot = null;
+        if (indexingContext.WorkspaceCache is null)
         {
             cacheResult = CacheResult.MissNoCache;
         }
-        else if (!_workspaceCache.Scripts.TryGetValue(filePath, out var cachedData))
+        else if (!indexingContext.WorkspaceCache.Scripts.TryGetValue(filePath, out var cachedData))
         {
             Log.Debug("CACHE_MISS (not_in_cache): {File} | full path: {FullPath}", relPath, filePath);
             cacheResult = CacheResult.MissNotInCache;
@@ -180,85 +184,104 @@ public partial class ScriptManager
             try
             {
                 // Read file content and compute hash
-                string content = await File.ReadAllTextAsync(filePath, cancellationToken);
-                int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
-
-                if (contentHash != cachedData.ContentHash)
+                fileSnapshot = await indexingContext.FileSnapshots.GetAsync(filePath, cancellationToken);
+                if (!fileSnapshot.Exists || fileSnapshot.Content is null)
+                {
+                    Log.Debug("CACHE_MISS (file_unreadable): {File} | full path: {FullPath}", relPath, filePath);
+                    cacheResult = CacheResult.MissHashMismatch;
+                }
+                else if (fileSnapshot.ContentHash != cachedData.ContentHash)
                 {
                     Log.Debug("CACHE_MISS (hash_mismatch): {File} | full path: {FullPath} | disk hash: {DiskHash} | cached hash: {CachedHash}",
-                        relPath, filePath, contentHash, cachedData.ContentHash);
+                        relPath, filePath, fileSnapshot.ContentHash, cachedData.ContentHash);
                     cacheResult = CacheResult.MissHashMismatch;
                 }
                 else
                 {
-                    // Hash matches — attempt restore
-                    var script = new Script(docUri, languageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry);
-                    script.RestoreFromCache(cachedData, ScriptMode.Index);
+                    var dependencyHashStatus = await DependencyContentHashesAreCurrentAsync(
+                        cachedData,
+                        indexingContext.FileSnapshots,
+                        cancellationToken);
 
-                    if (script.Parsed && !script.Failed)
+                    if (!dependencyHashStatus.IsCurrent)
                     {
-                        var cached = Scripts.GetOrAdd(docUri, _ => new CachedScript
-                        {
-                            Type = CachedScriptType.Dependency,
-                            Script = script
-                        });
-
-                        if (cached.Script != script)
-                        {
-                            // Another task already registered this URI — our cache-restored script
-                            // object is discarded; work with the already-registered one instead.
-                            if (cached.Script.Analysed)
-                            {
-                                // Fully analysed — another indexer task won the race and will publish.
-                                Log.Debug("CACHE_HIT (race_won): {File} — another task already registered and analysed this URI", relPath);
-                                return CacheResult.Hit;
-                            }
-                            if (cached.Script.Parsed)
-                            {
-                                // Already parsed (e.g. AddDependencyAsync ran first). The work is done —
-                                // populate registries from the winning script and fall through so analysis
-                                // runs below and generates fresh diagnostics for this file.
-                                Log.Debug("CACHE_HIT (race_parsed): {File} — URI already parsed by dependency resolution, reusing", relPath);
-                                cached.LastContentHash = contentHash;
-                                cached.LastParsedAt = DateTime.UtcNow;
-                                PopulateSymbolRegistry(filePath, cached.Script);
-                                PopulateFieldRegistry(filePath, cached.Script);
-                                cacheResult = CacheResult.Hit;
-                                needsAnalysis = true;
-                            }
-                            else
-                            {
-                                // Registered but not yet parsed — wait for the in-progress parse
-                                // (AddDependencyAsync holds EnsureParsedAsync) then reuse.
-                                Log.Debug("CACHE_HIT (race_wait): {File} — waiting for in-progress parse to complete", relPath);
-                                await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken);
-                                cached.LastContentHash = contentHash;
-                                cached.LastParsedAt = DateTime.UtcNow;
-                                PopulateSymbolRegistry(filePath, cached.Script);
-                                PopulateFieldRegistry(filePath, cached.Script);
-                                cacheResult = CacheResult.Hit;
-                                needsAnalysis = true;
-                            }
-
-                        }
-                        else
-                        {
-                            cached.LastContentHash = contentHash;
-                            cached.LastParsedAt = DateTime.UtcNow;
-
-                            // Populate global registries from restored data
-                            PopulateSymbolRegistry(filePath, script);
-                            PopulateFieldRegistry(filePath, script);
-
-                            Log.Debug("CACHE_HIT: {File}", relPath);
-                            cacheResult = CacheResult.Hit;
-                        }
+                        Log.Debug("CACHE_MISS (dependency_hash_mismatch): {File} | changed dependency: {Dependency}",
+                            relPath, dependencyHashStatus.ChangedDependency ?? "(unknown)");
+                        cacheResult = CacheResult.MissHashMismatch;
                     }
                     else
                     {
-                        Log.Debug("CACHE_MISS (restore_failed): {File} — RestoreFromCache returned Parsed={Parsed} Failed={Failed}",
-                            relPath, script.Parsed, script.Failed);
-                        cacheResult = CacheResult.MissRestoreFailed;
+                        // Hash matches; attempt restore.
+                        var script = new Script(docUri, languageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry);
+                        script.RestoreFromCache(cachedData, ScriptMode.Index);
+
+                        if (script.Parsed && !script.Failed)
+                        {
+                            var cached = Scripts.GetOrAdd(docUri, _ => new CachedScript
+                            {
+                                Type = CachedScriptType.Dependency,
+                                Script = script
+                            });
+
+                            if (cached.Script != script)
+                            {
+                                // Another task already registered this URI; our cache-restored script
+                                // object is discarded, so work with the already-registered one instead.
+                                if (cached.Script.Analysed)
+                                {
+                                    // Fully analysed; another indexer task won the race and will publish.
+                                    Log.Debug("CACHE_HIT (race_won): {File} — another task already registered and analysed this URI", relPath);
+                                    return CacheResult.Hit;
+                                }
+                                if (cached.Script.Parsed)
+                                {
+                                    // Already parsed (e.g. AddDependencyAsync ran first). The work is done;
+                                    // populate registries from the winning script and fall through so analysis
+                                    // runs below and generates fresh diagnostics for this file.
+                                    Log.Debug("CACHE_HIT (race_parsed): {File} — URI already parsed by dependency resolution, reusing", relPath);
+                                    cached.LastContentHash = fileSnapshot.ContentHash;
+                                    cached.LastParsedAt = DateTime.UtcNow;
+                                    cached.WorkspaceCacheDirty = false;
+                                    PopulateSymbolRegistry(filePath, cached.Script);
+                                    PopulateFieldRegistry(filePath, cached.Script);
+                                    cacheResult = CacheResult.Hit;
+                                    needsAnalysis = true;
+                                }
+                                else
+                                {
+                                    // Registered but not yet parsed; wait for the in-progress parse
+                                    // (AddDependencyAsync holds EnsureParsedAsync) then reuse.
+                                    Log.Debug("CACHE_HIT (race_wait): {File} — waiting for in-progress parse to complete", relPath);
+                                    await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken, fileSnapshot.Content);
+                                    cached.LastContentHash = fileSnapshot.ContentHash;
+                                    cached.LastParsedAt = DateTime.UtcNow;
+                                    cached.WorkspaceCacheDirty = false;
+                                    PopulateSymbolRegistry(filePath, cached.Script);
+                                    PopulateFieldRegistry(filePath, cached.Script);
+                                    cacheResult = CacheResult.Hit;
+                                    needsAnalysis = true;
+                                }
+                            }
+                            else
+                            {
+                                cached.LastContentHash = fileSnapshot.ContentHash;
+                                cached.LastParsedAt = DateTime.UtcNow;
+                                cached.WorkspaceCacheDirty = false;
+
+                                // Populate global registries from restored data.
+                                PopulateSymbolRegistry(filePath, script);
+                                PopulateFieldRegistry(filePath, script);
+
+                                Log.Debug("CACHE_HIT: {File}", relPath);
+                                cacheResult = CacheResult.Hit;
+                            }
+                        }
+                        else
+                        {
+                            Log.Debug("CACHE_MISS (restore_failed): {File} — RestoreFromCache returned Parsed={Parsed} Failed={Failed}",
+                                relPath, script.Parsed, script.Failed);
+                            cacheResult = CacheResult.MissRestoreFailed;
+                        }
                     }
                 }
             }
@@ -292,15 +315,14 @@ public partial class ScriptManager
             }
             else
             {
-                await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken);
+                fileSnapshot ??= await indexingContext.FileSnapshots.GetAsync(filePath, cancellationToken);
+                await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken, fileSnapshot.Content);
 
-                // Compute and store content hash for future cache saves
-                try
-                {
-                    string content = await File.ReadAllTextAsync(filePath, cancellationToken);
-                    cached.LastContentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
-                }
-                catch { /* Non-fatal — hash will remain 0 */ }
+                cached.LastContentHash = fileSnapshot.Exists
+                    ? fileSnapshot.ContentHash
+                    : 0;
+                cached.WorkspaceCacheDirty = true;
+                _workspaceCacheDirty = true;
 
                 // Populate global symbol registry
                 bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
@@ -322,7 +344,7 @@ public partial class ScriptManager
         // Parse and register dependencies
         foreach (Uri dep in dependencies)
         {
-            await AddDependencyAsync(docUri, dep, languageId);
+            await AddDependencyAsync(docUri, dep, languageId, indexingContext, cancellationToken);
         }
 
         var indexingMode = GSCode.Parser.Configuration.CompletionConfiguration.WorkspaceIndexingMode;

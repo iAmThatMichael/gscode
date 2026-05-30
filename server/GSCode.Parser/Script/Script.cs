@@ -57,6 +57,10 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
     // Sense.MacroDefinitions is unavailable (i.e. preprocessing was skipped on cache restore).
     private IReadOnlyDictionary<string, string?>? _cachedMacroSourcePaths;
 
+    // Preserved global field accesses from cache restore. Restored index-mode scripts do
+    // not keep a token stream, so ExtractGlobalFieldAccesses falls back to this snapshot.
+    private IReadOnlyList<(string OwnerName, string FieldName)>? _cachedGlobalFieldAccesses;
+
     /// <summary>
     /// Returns a snapshot of macro name -> source file path for all macros discovered during preprocessing.
     /// Source file path is null for macros defined directly in this script (non-GSH).
@@ -145,6 +149,7 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         // ParseAsync is never called again, so this reset does not affect them.)
         Analysed = false;
         Failed = false;
+        _cachedGlobalFieldAccesses = null;
 
         // Guard: reject files that exceed ushort range limits for TokenRange
         {
@@ -454,6 +459,9 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         var results = new List<(string, string)>();
         if (!Parsed) return results;
 
+        if (Sense.Tokens.Count == 0)
+            return _cachedGlobalFieldAccesses?.ToList() ?? results;
+
         foreach (Token token in Sense.Tokens.GetAll())
         {
             // We're looking for the dot in:  Identifier("level") → Dot → Identifier("fieldName")
@@ -476,6 +484,7 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
             results.Add((ownerToken.Lexeme.ToLowerInvariant(), fieldToken.Lexeme));
         }
 
+        _cachedGlobalFieldAccesses = results.ToList();
         return results;
     }
 }

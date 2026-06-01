@@ -155,6 +155,50 @@ export async function activate(context: ExtensionContext) {
     // client can be deactivated on extension deactivation
     await client.start();
 
+    // Bridge command: the language server sends gscode.showReferences (with plain JSON
+    // args) instead of editor.action.showReferences directly, because VS Code validates
+    // the latter's arguments with instanceof checks that raw JSON objects can never pass.
+    // The command receives symbol info (ns, name, kind) and requests references directly.
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "gscode.showReferences",
+            async (
+                uriStr: string,
+                position: { line: number; character: number },
+                symbolInfo?: { ns: string; name: string; kind: string }
+            ) => {
+                console.log("[gscode.showReferences] Called with:", { uriStr, position, symbolInfo });
+                try {
+                    const uri = vscode.Uri.parse(uriStr);
+                    const pos = new vscode.Position(position.line, position.character);
+
+                    let locations: vscode.Location[] = [];
+
+                    // First, try vscode.executeReferenceProvider with the exact position
+                    console.log("[gscode.showReferences] Requesting references from server via executeReferenceProvider...");
+                    locations = await vscode.commands.executeCommand(
+                        "vscode.executeReferenceProvider",
+                        uri,
+                        pos
+                    ) || [];
+
+                    console.log(`[gscode.showReferences] Got ${locations.length} references`);
+
+                    if (locations.length === 0) {
+                        console.log("[gscode.showReferences] No results from executeReferenceProvider");
+                    }
+
+                    console.log("[gscode.showReferences] Executing editor.action.showReferences with:", { uri: uri.toString(), pos, locationsCount: locations.length });
+
+                    // Pass the fetched references to the built-in command
+                    await vscode.commands.executeCommand("editor.action.showReferences", uri, pos, locations);
+                } catch (err) {
+                    console.error("[gscode.showReferences] Error:", err);
+                }
+            }
+        )
+    );
+
     // Status bar item — only shown when workspace indexing is active
     if (workspaceIndexingMode !== "off") {
         const outputChannel = clientOptions.outputChannel as vscode.OutputChannel;

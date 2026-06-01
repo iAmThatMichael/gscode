@@ -62,6 +62,28 @@ public sealed class DocumentTokensLibrary
             return -1;
         }
 
+        // Check if the token at this index actually contains the position.
+        // Binary search returns the token that *starts* at or before the position,
+        // but we need the token whose range actually contains the position.
+        Token tokenAtIndex = TokenList[index];
+        if (tokenAtIndex.TokenRange.StartLine == location.Line &&
+            tokenAtIndex.TokenRange.EndChar > location.Character &&
+            tokenAtIndex.TokenRange.StartChar <= location.Character)
+        {
+            // Position is within this token's range, great
+        }
+        else if (index + 1 < TokenList.Count)
+        {
+            // Try the next token if the current one doesn't contain the position
+            Token nextToken = TokenList[index + 1];
+            if (nextToken.TokenRange.StartLine == location.Line &&
+                nextToken.TokenRange.StartChar <= location.Character &&
+                nextToken.TokenRange.EndChar > location.Character)
+            {
+                index = index + 1;
+            }
+        }
+
         // If we landed on a preprocessor-expanded token (body of a macro expansion), scan outward
         // for a real source token that covers the requested position. Argument tokens may be
         // ordered after the expansion body tokens in the linked list even though they appear
@@ -75,7 +97,7 @@ public sealed class DocumentTokensLibrary
                 if (t.IsFromPreprocessor) continue;
                 // Stop if we've gone past the requested line
                 if (t.TokenRange.StartLine > location.Line) break;
-                if (t.TokenRange.StartLine == location.Line && t.TokenRange.StartChar <= location.Character)
+                if (t.TokenRange.StartLine == location.Line && t.TokenRange.StartChar <= location.Character && t.TokenRange.EndChar > location.Character)
                     return i;
             }
             // Scan backward for a source token
@@ -84,7 +106,7 @@ public sealed class DocumentTokensLibrary
                 Token t = TokenList[i];
                 if (t.IsFromPreprocessor) continue;
                 if (t.TokenRange.StartLine < location.Line) break;
-                if (t.TokenRange.StartLine == location.Line && t.TokenRange.StartChar <= location.Character)
+                if (t.TokenRange.StartLine == location.Line && t.TokenRange.StartChar <= location.Character && t.TokenRange.EndChar > location.Character)
                     return i;
             }
         }

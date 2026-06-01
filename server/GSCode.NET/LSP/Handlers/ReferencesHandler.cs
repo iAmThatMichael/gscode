@@ -19,7 +19,10 @@ internal class ReferencesHandler(
     public override async Task<LocationContainer?> Handle(ReferenceParams request, CancellationToken cancellationToken)
     {
         Script? script = scriptManager.GetParsedEditor(request.TextDocument);
-        if (script is null) return new LocationContainer();
+        if (script is null) 
+        {
+            return new LocationContainer();
+        }
 
         // Try dot-field references first — must run before local variable check so dot-preceded
         // identifiers aren't incorrectly matched as locals.
@@ -41,10 +44,15 @@ internal class ReferencesHandler(
         var localRefs = await script.GetLocalVariableReferencesAsync(
             request.Position, request.Context?.IncludeDeclaration == true, cancellationToken);
         if (localRefs.Count > 0)
+        {
             return new LocationContainer(localRefs.Select(r => new Location { Uri = request.TextDocument.Uri.ToUri(), Range = r }));
+        }
 
         var qid = await script.GetQualifiedIdentifierAtAsync(request.Position, cancellationToken);
-        if (qid is null) return new LocationContainer();
+        if (qid is null) 
+        {
+            return new LocationContainer();
+        }
 
         string ns = qid.Value.qualifier ?? (script.DefinitionsTable?.CurrentNamespace ?? "");
         string name = qid.Value.name;

@@ -145,15 +145,16 @@ internal class CodeLensHandler(
 
         string label = count == 1 ? "1 reference" : $"{count} references";
 
-        // Clicking the lens triggers VS Code's built-in references view via
-        // editor.action.showReferences. We pass an empty locations array; VS Code
-        // calls textDocument/references itself to fill the panel.
+        // Clicking the lens triggers a custom command registered in the VS Code extension.
+        // The extension revives the raw JSON args into proper vscode.Uri / vscode.Position
+        // types and then calls editor.action.showReferences. We also pass the symbol info
+        // (namespace, name, kind) so the extension can fetch references without re-analyzing.
         return request with
         {
             Command = new Command
             {
                 Title     = label,
-                Name      = "editor.action.showReferences",
+                Name      = "gscode.showReferences",
                 Arguments = new JArray
                 {
                     uri,
@@ -162,7 +163,12 @@ internal class CodeLensHandler(
                         line      = request.Range.Start.Line,
                         character = request.Range.Start.Character
                     }),
-                    new JArray()
+                    JObject.FromObject(new
+                    {
+                        ns   = ns,
+                        name = name,
+                        kind = kind
+                    })
                 }
             }
         };

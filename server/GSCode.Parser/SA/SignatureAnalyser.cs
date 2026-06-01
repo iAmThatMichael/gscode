@@ -78,7 +78,10 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         }
 
         // Record class location for go-to-definition
-        DefinitionsTable.AddClassLocation(DefinitionsTable.CurrentNamespace, name, Sense.ScriptPath, nameToken.TokenRange);
+        string classFilePath = nameToken.IsFromPreprocessor && nameToken.InsertSourcePath is string insertPath
+            ? insertPath
+            : Sense.ScriptPath;
+        DefinitionsTable.AddClassLocation(DefinitionsTable.CurrentNamespace, name, classFilePath, nameToken.TokenRange);
 
         // Add class to definitions table for CFG and RDA analysis
         DefinitionsTable.AddClass(scrClass, classDefn);
@@ -137,9 +140,9 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         scrClass.Methods.Add(function);
 
         var flags = BuildFunctionFlags(functionDefn, function.Private);
-        RegisterFunctionInNamespace(DefinitionsTable.CurrentNamespace, name, nameToken.TokenRange, function, doc, flags);
+        RegisterFunctionInNamespace(DefinitionsTable.CurrentNamespace, name, nameToken, function, doc, flags);
         // Also register under the class name as its own qualifier so ClassName::Method() resolves
-        RegisterFunctionInNamespace(scrClass.Name, name, nameToken.TokenRange, function, doc, flags);
+        RegisterFunctionInNamespace(scrClass.Name, name, nameToken, function, doc, flags);
 
         Sense.AddSenseToken(nameToken, new ScrMethodSymbol(nameToken, function, scrClass));
         RegisterParameterSenseTokens(parameters, functionDefn.Parameters);
@@ -241,7 +244,7 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         DefinitionsTable.AddFunction(function, functionDefn);
 
         var flags = BuildFunctionFlags(functionDefn, function.Private);
-        RegisterFunctionInNamespace(DefinitionsTable.CurrentNamespace, name, nameToken.TokenRange, function, function.DocComment, flags);
+        RegisterFunctionInNamespace(DefinitionsTable.CurrentNamespace, name, nameToken, function, function.DocComment, flags);
 
         Sense.AddSenseToken(nameToken, new ScrFunctionSymbol(nameToken, function));
         RegisterParameterSenseTokens(parameters, functionDefn.Parameters);
@@ -277,10 +280,13 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         return flags;
     }
 
-    private void RegisterFunctionInNamespace(string ns, string name, TokenRange nameTokenRange,
+    private void RegisterFunctionInNamespace(string ns, string name, Token nameToken,
         ScrFunction function, string? doc, IEnumerable<string> flags)
     {
-        DefinitionsTable.AddFunctionLocation(ns, name, Sense.ScriptPath, nameTokenRange);
+        string filePath = nameToken.IsFromPreprocessor && nameToken.InsertSourcePath is string insertPath
+            ? insertPath
+            : Sense.ScriptPath;
+        DefinitionsTable.AddFunctionLocation(ns, name, filePath, nameToken.TokenRange);
         DefinitionsTable.RecordFunctionParameters(ns, name, (function.Overloads[0].Parameters ?? []).Select(a => a.Name));
         DefinitionsTable.RecordFunctionFlags(ns, name, flags);
         DefinitionsTable.RecordFunctionDoc(ns, name, doc);

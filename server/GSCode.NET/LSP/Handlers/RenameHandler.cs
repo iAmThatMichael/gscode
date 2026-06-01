@@ -64,8 +64,8 @@ internal class RenameHandler(
         var qid = await script.GetQualifiedIdentifierAtAsync(request.Position, cancellationToken);
         if (qid is null) return null;
 
-        string ns = qid.Value.qualifier ?? (script.DefinitionsTable?.CurrentNamespace ?? "");
-        string name = qid.Value.name;
+        string ns = (qid.Value.qualifier ?? (script.DefinitionsTable?.CurrentNamespace ?? "")).ToLowerInvariant();
+        string name = qid.Value.name.ToLowerInvariant();
 
         var keys = new[]
         {

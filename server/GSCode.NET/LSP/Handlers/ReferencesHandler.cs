@@ -54,8 +54,8 @@ internal class ReferencesHandler(
             return new LocationContainer();
         }
 
-        string ns = qid.Value.qualifier ?? (script.DefinitionsTable?.CurrentNamespace ?? "");
-        string name = qid.Value.name;
+        string ns = (qid.Value.qualifier ?? (script.DefinitionsTable?.CurrentNamespace ?? "")).ToLowerInvariant();
+        string name = qid.Value.name.ToLowerInvariant();
 
         var keys = new[]
         {

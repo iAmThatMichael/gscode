@@ -27,7 +27,7 @@ public partial class Script
             if (senseDef is ScrFunctionSymbol or ScrClassSymbol)
             {
                 var kind = senseDef is ScrFunctionSymbol ? SymbolKindSA.Function : SymbolKindSA.Class;
-                AddRef(new SymbolKey(kind, GetEffectiveNamespace(), token.Lexeme), token.Range);
+                AddRef(new SymbolKey(kind, GetEffectiveNamespace(), token.Lexeme.ToLowerInvariant()), token.Range);
                 continue;
             }
 
@@ -47,9 +47,9 @@ public partial class Script
             if (IsBuiltinFunction(name)) continue;
 
             // Resolve to a namespace
-            string resolvedNamespace = qual ?? GetEffectiveNamespace();
+            string resolvedNamespace = (qual ?? GetEffectiveNamespace()).ToLowerInvariant();
             // Index as function reference for now (method support can be added later)
-            AddRef(new SymbolKey(SymbolKindSA.Function, resolvedNamespace, name), token.Range);
+            AddRef(new SymbolKey(SymbolKindSA.Function, resolvedNamespace, name.ToLowerInvariant()), token.Range);
         }
 
         // Second pass: index dot-field accesses (.foo) as Field symbols keyed by name only.

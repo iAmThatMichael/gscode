@@ -44,4 +44,33 @@ public sealed class CompletionOptions
     /// Default is Off for better startup performance.
     /// </summary>
     public IndexingMode WorkspaceIndexingMode { get; set; } = IndexingMode.Off;
+
+    /// <summary>
+    /// Whether to run the lightweight signature-only index of all game scripts at startup
+    /// (workspace folders plus the shared raw folder). This is what makes every namespace
+    /// known to completions and #using quick fixes, independent of WorkspaceIndexingMode.
+    /// </summary>
+    public bool IndexGameScripts { get; set; } = true;
+
+    /// <summary>
+    /// Controls when a warning is shown for saving files inside a protected raw folder.
+    /// Stock (default) warns only for scripts that shipped with the game's mod tools,
+    /// so user-owned shared scripts kept in share/raw stay quiet.
+    /// </summary>
+    public RawFileWarningMode RawFileWarningMode { get; set; } = RawFileWarningMode.Stock;
+}
+
+/// <summary>
+/// When to warn about saving a file inside a protected raw folder.
+/// </summary>
+public enum RawFileWarningMode
+{
+    /// <summary>Never warn.</summary>
+    Off,
+
+    /// <summary>Warn only when the file is a stock script shipped with the mod tools.</summary>
+    Stock,
+
+    /// <summary>Warn for any file inside a protected raw folder.</summary>
+    All
 }

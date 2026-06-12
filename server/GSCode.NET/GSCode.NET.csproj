@@ -22,6 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Resources\t7_stock_scripts.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="API\t7_api_csc.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

@@ -193,7 +193,7 @@ public partial class ScriptManager
         }
 
         // Merge symbols from dependencies (filtering, deduplication, conversion to relative paths)
-        var (mergeFuncLocs, mergeClassLocs) = await MergeDependencySymbolsAsync(dependencies, filePath, cancellationToken);
+        var (mergeFuncLocs, mergeClassLocs) = MergeDependencySymbols(dependencies, filePath);
 
         // Merge + analyse under this script's analysis lock
         await WithAnalysisLockAsync(documentUri, async () =>

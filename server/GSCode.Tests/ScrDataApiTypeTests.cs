@@ -10,6 +10,7 @@ using Xunit;
 
 namespace GSCode.Tests;
 
+[Collection("ApiLibrary")]
 public class ScrDataApiTypeTests
 {
     [Fact]

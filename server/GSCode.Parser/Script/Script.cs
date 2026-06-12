@@ -223,6 +223,7 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
         {
             sense.SetDefinitionsTable(DefinitionsTable);
             sense.SetGlobalFieldProvider(globalFieldProvider);
+            sense.SetWorkspaceSymbolProvider(GlobalSymbolProvider);
         }
 
         SignatureAnalyser signatureAnalyser = new(RootNode!, DefinitionsTable, Sense);
@@ -343,10 +344,33 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
     }
 
     /// <summary>
-    /// Frees the per-script location dictionaries after the global symbol registry has been
-    /// populated. Call on dependency scripts in Index mode once PopulateSymbolRegistry has run.
+    /// Releases parse-time memory (token stream, AST, analysis dictionaries) for Index-mode
+    /// scripts that will not be semantically analysed — dependency scripts and signature-only
+    /// indexed game scripts. Mirrors the compaction that <see cref="DoAnalyseAsync"/> performs
+    /// at the end of a full Index-mode analysis. Exported symbols, own location data, and the
+    /// reference index survive, so registry population, cache saves, and go-to-definition keep
+    /// working.
     /// </summary>
-    public void StripLocationData() => DefinitionsTable?.StripLocationData();
+    public void CompactForSignatureIndex()
+    {
+        if (Sense is null || Sense.IsEditorMode || !Parsed)
+        {
+            return;
+        }
+
+        // Snapshot token-derived data the workspace cache save still needs after tokens are gone.
+        ExtractGlobalFieldAccesses();
+
+        Sense.Tokens.Clear();
+        DefinitionsTable?.StripAnalysisData();
+        DefinitionsTable?.StripAstReferences();
+        RootNode = null;
+
+        // Signature-only scripts never publish diagnostics; drop the parse-time ones.
+        // The reference index (_references) is intentionally kept — it powers
+        // workspace-wide Find All References into unopened scripts.
+        Sense.Diagnostics.Clear();
+    }
 
 
     public async Task<List<Diagnostic>> GetDiagnosticsAsync(CancellationToken cancellationToken)

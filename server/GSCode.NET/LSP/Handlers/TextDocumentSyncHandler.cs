@@ -87,19 +87,42 @@ internal class TextDocumentSyncHandler(
 
     public override Task<Unit> Handle(DidSaveTextDocumentParams request, CancellationToken ct)
     {
-        if (!CompletionConfiguration.AllowRawFolderWrites)
+        // Legacy escape hatch: allowRawFolderWrites=true behaves like warning mode "off".
+        var warningMode = CompletionConfiguration.RawFileWarningMode;
+        if (warningMode == RawFileWarningMode.Off || CompletionConfiguration.AllowRawFolderWrites)
         {
-            string path = request.TextDocument.Uri.ToUri().LocalPath;
-            if (IsInProtectedRawFolder(path))
+            return Unit.Task;
+        }
+
+        string path = request.TextDocument.Uri.ToUri().LocalPath;
+        string? rawRoot = GetContainingRawRoot(path);
+        if (rawRoot is null)
+        {
+            return Unit.Task;
+        }
+
+        // In Stock mode, only scripts that shipped with the mod tools warrant a warning —
+        // user-owned shared scripts kept inside the raw folder stay quiet.
+        if (warningMode == RawFileWarningMode.Stock)
+        {
+            string relativePath = Path.GetRelativePath(rawRoot, Path.GetFullPath(path));
+            if (!StockScripts.IsStockScript(relativePath))
             {
-                Log.Warning("File saved in protected raw folder: {Path}", path);
-                facade.SendNotification("gscode/rawFolderWriteWarning", new { path });
+                return Unit.Task;
             }
         }
+
+        Log.Warning("Stock/raw file saved in protected raw folder: {Path}", path);
+        facade.SendNotification("gscode/rawFolderWriteWarning", new { path });
         return Unit.Task;
     }
 
-    private static bool IsInProtectedRawFolder(string filePath)
+    /// <summary>
+    /// Returns the protected raw root folder that contains <paramref name="filePath"/>,
+    /// or null when the file is outside all known raw roots. Roots checked: the configured
+    /// custom raw path, then TA_GAME_PATH/share/raw and TA_TOOLS_PATH/share/raw.
+    /// </summary>
+    private static string? GetContainingRawRoot(string filePath)
     {
         try
         {
@@ -109,22 +132,23 @@ internal class TextDocumentSyncHandler(
             if (!string.IsNullOrEmpty(custom))
             {
                 string nc = Path.GetFullPath(custom).Replace('/', '\\').ToLowerInvariant();
-                if (norm.StartsWith(nc)) return true;
+                if (norm.StartsWith(nc)) return Path.GetFullPath(custom);
             }
 
-            string? taGame = Environment.GetEnvironmentVariable("TA_GAME_PATH");
-            if (!string.IsNullOrEmpty(taGame))
+            foreach (string envVar in new[] { "TA_GAME_PATH", "TA_TOOLS_PATH" })
             {
-                string shareRaw = Path.Combine(taGame, "share", "raw");
-                if (Directory.Exists(shareRaw))
-                {
-                    string ns = Path.GetFullPath(shareRaw).Replace('/', '\\').ToLowerInvariant();
-                    if (norm.StartsWith(ns)) return true;
-                }
+                string? basePath = Environment.GetEnvironmentVariable(envVar);
+                if (string.IsNullOrEmpty(basePath)) continue;
+
+                string shareRaw = Path.Combine(basePath, "share", "raw");
+                if (!Directory.Exists(shareRaw)) continue;
+
+                string ns = Path.GetFullPath(shareRaw).Replace('/', '\\').ToLowerInvariant();
+                if (norm.StartsWith(ns)) return Path.GetFullPath(shareRaw);
             }
         }
         catch { }
-        return false;
+        return null;
     }
 
     }

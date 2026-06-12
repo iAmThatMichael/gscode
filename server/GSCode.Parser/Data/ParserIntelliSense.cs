@@ -71,6 +71,12 @@ internal sealed class ParserIntelliSense
     /// </summary>
     public bool SilentSenseTokens { get; set; } = false;
 
+    /// <summary>
+    /// Number of functions whose type flow analysis hit the worklist iteration limit
+    /// before converging. Non-zero means diagnostics for those functions may be incomplete.
+    /// </summary>
+    public int TypeFlowIterationLimitHits { get; set; } = 0;
+
     // ── Editor-only (null/empty in Index mode) ──
     // These support IDE presentation features and are not needed during indexing.
     /// <summary>
@@ -151,6 +157,16 @@ internal sealed class ParserIntelliSense
     {
         if (Completions is null) return;
         Completions.GlobalFieldProvider = provider;
+    }
+
+    /// <summary>
+    /// Sets the workspace symbol provider used for namespace and cross-script function
+    /// completions (all namespaces in the game/workspace, not just #using'd ones).
+    /// </summary>
+    public void SetWorkspaceSymbolProvider(SA.ISymbolLocationProvider? provider)
+    {
+        if (Completions is null) return;
+        Completions.WorkspaceSymbols = provider;
     }
 
     /// <summary>

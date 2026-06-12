@@ -1,5 +1,6 @@
 using GSCode.Data;
 using GSCode.Parser;
+using GSCode.Parser.Util;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
@@ -46,10 +47,10 @@ internal sealed class CodeActionHandler(
 
         foreach (Diagnostic diagnostic in request.Context.Diagnostics)
         {
-            if (!diagnostic.Code.HasValue || !diagnostic.Code.Value.IsLong)
+            // Diagnostic codes round-trip through the client and may come back as either a
+            // number or a string depending on the client's serialisation — accept both.
+            if (!TryGetErrorCode(diagnostic, out GSCErrorCodes errorCode))
                 continue;
-
-            GSCErrorCodes errorCode = (GSCErrorCodes)(int)diagnostic.Code.Value.Long;
 
             CodeAction? action = errorCode switch
             {
@@ -167,6 +168,20 @@ internal sealed class CodeActionHandler(
             if (errorCode == GSCErrorCodes.UnknownNamespace)
             {
                 var usingActions = CreateAddUsingForNamespaceActions(
+                    request.TextDocument, diagnostic, content);
+
+                foreach (var usingAction in usingActions)
+                {
+                    actions.Add(usingAction);
+                }
+            }
+
+            // NamespaceDoesNotContainFunction: the namespace is known (some file providing it
+            // is imported), but the called function lives in a different file that contributes
+            // to the same namespace — offer to add a #using for the file(s) defining it.
+            if (errorCode == GSCErrorCodes.NamespaceDoesNotContainFunction)
+            {
+                var usingActions = CreateAddUsingForNamespacedFunctionActions(
                     request.TextDocument, diagnostic, content);
 
                 foreach (var usingAction in usingActions)
@@ -587,54 +602,127 @@ internal sealed class CodeActionHandler(
     private List<CodeAction> CreateAddUsingForNamespaceActions(
         TextDocumentIdentifier document, Diagnostic diagnostic, string content)
     {
-        var results = new List<CodeAction>();
-
         if (string.IsNullOrEmpty(content))
         {
-            return results;
+            return [];
         }
 
         // The diagnostic range covers the namespace identifier token
         string? namespaceName = GetTextInRange(content, diagnostic.Range);
         if (string.IsNullOrEmpty(namespaceName))
         {
-            return results;
+            return [];
         }
 
         // Try to extract the function name that follows the namespace token (e.g. "init" from "util::init()").
-        // When present, restrict suggestions to files that export the exact ns::function — this prevents
-        // offering a #using for a file that happens to share the namespace but doesn't define the function.
-        // Fall back to namespace-only search when no qualified member can be extracted.
+        // When present, prefer files that export the exact ns::function — this prevents
+        // offering a #using for a file that happens to share the namespace but doesn't define
+        // the function. Fall back to namespace-only search when the exact lookup finds nothing
+        // (or no qualified member could be extracted) so the user is never left with no fix.
         string? functionName = TryExtractQualifiedFunctionName(content, diagnostic.Range.End);
 
         List<string> filePaths = functionName is not null
             ? scriptManager.SymbolRegistry.FindFilesForNamespacedFunction(namespaceName, functionName)
-            : scriptManager.SymbolRegistry.FindFilesForNamespace(namespaceName);
+            : [];
+
+        if (filePaths.Count == 0)
+        {
+            filePaths = scriptManager.SymbolRegistry.FindFilesForNamespace(namespaceName);
+        }
+
+        return BuildAddUsingActions(document, diagnostic, content, filePaths);
+    }
+
+    /// <summary>
+    /// Builds #using quick fixes for a <c>NamespaceDoesNotContainFunction</c> diagnostic:
+    /// the namespace is known via an imported script, but the called function lives in
+    /// another file contributing to the same namespace.
+    /// The diagnostic range covers the function-name token; the namespace identifier sits
+    /// immediately before the <c>::</c> that precedes it.
+    /// </summary>
+    private List<CodeAction> CreateAddUsingForNamespacedFunctionActions(
+        TextDocumentIdentifier document, Diagnostic diagnostic, string content)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return [];
+        }
+
+        string? functionName = GetTextInRange(content, diagnostic.Range);
+        if (string.IsNullOrEmpty(functionName))
+        {
+            return [];
+        }
+
+        string? namespaceName = TryExtractNamespaceBefore(content, diagnostic.Range.Start);
+        if (string.IsNullOrEmpty(namespaceName))
+        {
+            return [];
+        }
+
+        List<string> filePaths = scriptManager.SymbolRegistry.FindFilesForNamespacedFunction(namespaceName, functionName);
+        return BuildAddUsingActions(document, diagnostic, content, filePaths);
+    }
+
+    /// <summary>
+    /// Converts candidate defining files into "Add '#using …'" quick fixes. Filters out
+    /// files of the other VM (a .csc file is never a fix inside a .gsc script), files that
+    /// are already imported, and the document itself. Directives are inserted in
+    /// alphabetical order to match script load order convention.
+    /// </summary>
+    private List<CodeAction> BuildAddUsingActions(
+        TextDocumentIdentifier document, Diagnostic diagnostic, string content, List<string> filePaths)
+    {
+        var results = new List<CodeAction>();
 
         if (filePaths.Count == 0)
         {
             return results;
         }
 
-        // Find the insertion point: after the last existing #using line, or at (0,0)
-        Position insertPosition = FindUsingInsertPosition(content);
-        bool isFirst = filePaths.Count == 1;
+        string documentPath = document.Uri.ToUri().LocalPath;
+        string documentExtension = Path.GetExtension(documentPath);
+        string? documentUsingPath = UsingDirectiveHelper.ConvertToUsingPath(documentPath);
 
-        foreach (string filePath in filePaths)
+        var existingUsings = UsingDirectiveHelper.ExtractUsingsFromContent(content);
+        var seenUsingPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool isFirst = true;
+
+        // Workspace/mod files sort before shared-raw files so the closest definition is preferred.
+        var orderedPaths = filePaths
+            .OrderByDescending(p => WorkspaceBoundaryFilter.IsInToolsRawFolder(p) ? 0 : 1)
+            .ThenBy(p => p, StringComparer.OrdinalIgnoreCase);
+
+        foreach (string filePath in orderedPaths)
         {
-            // Convert the absolute file path to a #using path (e.g. "scripts\zm\utility")
-            string? usingPath = ConvertFilePathToUsingPath(filePath);
-            if (usingPath is null)
+            // Never suggest a script of the other VM
+            if (!string.IsNullOrEmpty(documentExtension)
+                && !filePath.EndsWith(documentExtension, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            string directive = $"#using {usingPath};\n";
+            // Convert the absolute file path to a #using path (e.g. "scripts\zm\utility")
+            string? usingPath = UsingDirectiveHelper.ConvertToUsingPath(filePath);
+            if (usingPath is null || !seenUsingPaths.Add(usingPath))
+            {
+                continue;
+            }
+
+            // Skip the document itself and anything already imported
+            if (string.Equals(usingPath, documentUsingPath, StringComparison.OrdinalIgnoreCase)
+                || UsingDirectiveHelper.ContainsUsing(existingUsings, usingPath))
+            {
+                continue;
+            }
+
+            Position insertPosition = UsingDirectiveHelper.GetAlphabeticalInsertPosition(existingUsings, usingPath);
 
             results.Add(new CodeAction
             {
                 Title = $"Add '#using {usingPath}'",
                 Kind = CodeActionKind.QuickFix,
+                IsPreferred = isFirst,
                 Diagnostics = new Container<Diagnostic>(diagnostic),
                 Edit = new WorkspaceEdit
                 {
@@ -643,82 +731,17 @@ internal sealed class CodeActionHandler(
                             new TextEdit
                             {
                                 Range = new Range { Start = insertPosition, End = insertPosition },
-                                NewText = directive
+                                NewText = $"#using {usingPath};\n"
                             }
                         ]
                     }
                 }
             });
 
-            // Only the first suggestion is marked as preferred
             isFirst = false;
         }
 
         return results;
-    }
-
-    /// <summary>
-    /// Finds the position where a new <c>#using</c> directive should be inserted.
-    /// Returns the start of the line immediately after the last existing <c>#using</c>
-    /// directive, or <c>(0, 0)</c> if none exist.
-    /// </summary>
-    private static Position FindUsingInsertPosition(string content)
-    {
-        string[] lines = content.ReplaceLineEndings("\n").Split('\n');
-        int lastUsingLine = -1;
-
-        for (int i = 0; i < lines.Length; i++)
-        {
-            string trimmed = lines[i].TrimStart();
-            if (trimmed.StartsWith("#using", StringComparison.Ordinal))
-            {
-                lastUsingLine = i;
-            }
-            // Stop scanning once we pass the header area (first non-blank, non-using,
-            // non-comment line that looks like a definition)
-            else if (trimmed.Length > 0
-                && !trimmed.StartsWith("//", StringComparison.Ordinal)
-                && !trimmed.StartsWith("/*", StringComparison.Ordinal))
-            {
-                break;
-            }
-        }
-
-        // Insert after the last #using, or at the very top
-        return lastUsingLine >= 0
-            ? new Position { Line = lastUsingLine + 1, Character = 0 }
-            : new Position { Line = 0, Character = 0 };
-    }
-
-    /// <summary>
-    /// Converts an absolute file path to the <c>#using</c> directive path format.
-    /// Extracts the portion starting from the <c>scripts/</c> directory and removes
-    /// the file extension, producing paths like <c>scripts\zm\utility</c>.
-    /// Returns <see langword="null"/> when the file is not inside a <c>scripts/</c> hierarchy.
-    /// </summary>
-    private static string? ConvertFilePathToUsingPath(string filePath)
-    {
-        string normalised = filePath.Replace('\\', '/');
-        const string marker = "/scripts/";
-        int idx = normalised.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
-
-        if (idx < 0)
-        {
-            return null;
-        }
-
-        // Extract from "scripts/" onward (including the "scripts/" prefix)
-        string relativePath = normalised[(idx + 1)..]; // skip the leading '/'
-
-        // Remove the file extension (.gsc, .csc, .gsh)
-        int dotIndex = relativePath.LastIndexOf('.');
-        if (dotIndex > 0)
-        {
-            relativePath = relativePath[..dotIndex];
-        }
-
-        // Convert to backslash-separated form to match GSC convention
-        return relativePath.Replace('/', '\\');
     }
 
     /// <summary>
@@ -925,6 +948,63 @@ internal sealed class CodeActionHandler(
     /// Returns <c>null</c> when no <c>::identifier</c> is found (e.g. the namespace token
     /// is not followed by a qualified member on the same line).
     /// </summary>
+    /// <summary>
+    /// Extracts the typed <see cref="GSCErrorCodes"/> from a diagnostic, accepting both the
+    /// numeric and string representations of the code (clients round-trip either form).
+    /// </summary>
+    private static bool TryGetErrorCode(Diagnostic diagnostic, out GSCErrorCodes errorCode)
+    {
+        errorCode = default;
+
+        if (!diagnostic.Code.HasValue)
+        {
+            return false;
+        }
+
+        var code = diagnostic.Code.Value;
+        if (code.IsLong)
+        {
+            errorCode = (GSCErrorCodes)(int)code.Long;
+            return true;
+        }
+
+        if (code.IsString && int.TryParse(code.String, out int parsed))
+        {
+            errorCode = (GSCErrorCodes)parsed;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Extracts the namespace identifier that precedes a <c>::</c> ending just before
+    /// <paramref name="memberTokenStart"/>. For example, given <c>util::init()</c> and the
+    /// position of <c>init</c>, this returns <c>"util"</c>.
+    /// </summary>
+    private static string? TryExtractNamespaceBefore(string content, Position memberTokenStart)
+    {
+        string[] lines = content.ReplaceLineEndings("\n").Split('\n');
+
+        int lineIdx = memberTokenStart.Line;
+        if (lineIdx >= lines.Length)
+            return null;
+
+        string line = lines[lineIdx];
+        int col = Math.Min(memberTokenStart.Character, line.Length);
+
+        // Expect "::" immediately before the member token
+        if (col < 2 || line[col - 1] != ':' || line[col - 2] != ':')
+            return null;
+
+        int nameEnd = col - 2;
+        int nameStart = nameEnd;
+        while (nameStart > 0 && (char.IsAsciiLetterOrDigit(line[nameStart - 1]) || line[nameStart - 1] == '_'))
+            nameStart--;
+
+        return nameEnd > nameStart ? line[nameStart..nameEnd] : null;
+    }
+
     private static string? TryExtractQualifiedFunctionName(string content, Position namespaceTokenEnd)
     {
         string[] lines = content.ReplaceLineEndings("\n").Split('\n');

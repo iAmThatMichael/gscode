@@ -189,8 +189,10 @@ internal ref partial struct TypeFlowAnalyser
             }
 
             // Boolean-coercible arguments are allowed for bool parameters via script-style truthy/falsy coercion.
+            // IsExactly: the hint must only fire for parameters declared bool — HasType(Bool) would
+            // also match int/number parameters, whose flag patterns contain the Bool bit.
             ExprNode? argNode = GetCallArgument(call, i);
-            if (expectedType.HasType(ScrDataTypes.Bool)
+            if (expectedType.IsExactly(ScrDataTypes.Bool)
                 && actualType.IsCompatibleWith(ScrDataTypes.Int)
                 && argNode is not null
                 && IsIntLiteral01(argNode, out string? replacement))
@@ -411,7 +413,8 @@ internal ref partial struct TypeFlowAnalyser
                 continue;
             }
 
-            if (expectedType.HasType(ScrDataTypes.Bool)
+            // IsExactly: see ValidateArgumentTypes — int/number parameters contain the Bool bit.
+            if (expectedType.IsExactly(ScrDataTypes.Bool)
                 && actualType.IsCompatibleWith(ScrDataTypes.Int)
                 && IsIntLiteral01(argNode, out string? replacement))
             {
@@ -963,8 +966,8 @@ internal ref partial struct TypeFlowAnalyser
             return false;
         }
 
-        // Check for array size readonly first (it can exist alongside entity failures)
-        bool anyReadOnly = failure.Value.ArraySizeReadOnly;
+        // Check for array/string size readonly first (it can exist alongside entity failures)
+        bool anyReadOnly = failure.Value.SizeFieldReadOnly;
 
         if (failure.Value.EntityFailures is { } entityFailures)
         {
@@ -1025,7 +1028,7 @@ internal ref partial struct TypeFlowAnalyser
                 return false;
             }
         }
-        // Handle array size readonly when there are no entity failures
+        // Handle array/string size readonly when there are no entity failures
         else if (anyReadOnly)
         {
             AddDiagnostic(dotExpr.Right!.Range, GSCErrorCodes.CannotAssignToReadOnlyProperty, fieldName);

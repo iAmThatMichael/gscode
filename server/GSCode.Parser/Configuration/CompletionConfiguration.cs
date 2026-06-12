@@ -55,4 +55,14 @@ public static class CompletionConfiguration
     /// Default is Off for better startup performance. Users can enable Partial or Full as needed.
     /// </summary>
     public static IndexingMode WorkspaceIndexingMode => CompletionOptions.Current.WorkspaceIndexingMode;
+
+    /// <summary>
+    /// Whether the lightweight signature-only index of all game scripts runs at startup.
+    /// </summary>
+    public static bool IndexGameScripts => CompletionOptions.Current.IndexGameScripts;
+
+    /// <summary>
+    /// When to warn about saving files inside a protected raw folder.
+    /// </summary>
+    public static RawFileWarningMode RawFileWarningMode => CompletionOptions.Current.RawFileWarningMode;
 }

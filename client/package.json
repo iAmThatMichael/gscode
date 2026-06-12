@@ -132,6 +132,29 @@
 					"type": "boolean",
 					"default": false,
 					"description": "Allow saving/modifying files in raw folders (default or custom). When disabled, you'll be warned when editing files in protected raw folders to prevent accidental modifications to vanilla game files.",
+					"deprecationMessage": "Use 'gscode.rawFileWarningMode' instead. Setting this to true behaves like rawFileWarningMode: 'off'.",
+					"scope": "window"
+				},
+				"gscode.rawFileWarningMode": {
+					"type": "string",
+					"default": "stock",
+					"enum": [
+						"off",
+						"stock",
+						"all"
+					],
+					"enumDescriptions": [
+						"Never warn when saving files inside a raw folder.",
+						"Warn only when saving stock scripts that shipped with the mod tools. Your own scripts kept in share/raw stay quiet.",
+						"Warn when saving any file inside a protected raw folder."
+					],
+					"description": "Controls when a warning is shown for saving files inside a protected raw folder (share/raw or the custom raw path).",
+					"scope": "window"
+				},
+				"gscode.indexGameScripts": {
+					"type": "boolean",
+					"default": true,
+					"description": "Index every script in the workspace and the game's shared raw folder at startup (signatures only, no diagnostics). Powers namespace autocompletion, cross-script function completion with automatic #using insertion, and #using quick fixes for all scripts available to the map.",
 					"scope": "window"
 				},
 				"gscode.workspaceIndexingMode": {

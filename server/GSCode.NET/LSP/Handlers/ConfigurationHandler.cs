@@ -51,6 +51,13 @@ internal class ConfigurationHandler(ScriptManager scriptManager, LoggingLevelSwi
             // enableWorkspaceCache
             scriptManager.UseWorkspaceCache = gscodeSection["enableWorkspaceCache"]?.Value<bool>() ?? false;
 
+            // indexGameScripts (takes effect on next startup; recorded so logging reflects it)
+            opts.IndexGameScripts = gscodeSection["indexGameScripts"]?.Value<bool>() ?? true;
+
+            // rawFileWarningMode
+            opts.RawFileWarningMode = InitializationOptionsReader.ParseRawFileWarningModeValue(
+                gscodeSection["rawFileWarningMode"]?.Value<string>());
+
             Log.Information("Configuration updated: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}, EnableWorkspaceCache={EnableCache}, LogLevel={LogLevel}",
                 opts.WorkspaceIndexingMode, opts.AllowRawFolderWrites, opts.CustomRawPath ?? "(none)", scriptManager.UseWorkspaceCache, loggingLevelSwitch.MinimumLevel);
         }

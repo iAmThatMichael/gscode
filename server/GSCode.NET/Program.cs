@@ -91,12 +91,16 @@ LanguageServer server = await LanguageServer.From(options =>
 					var customPath   = InitializationOptionsReader.ParseCustomRawPath(initOptions);
 					var allowWrites  = InitializationOptionsReader.ParseAllowRawFolderWrites(initOptions);
 					var enableCache  = InitializationOptionsReader.ParseEnableWorkspaceCache(initOptions);
+					var indexGame    = InitializationOptionsReader.ParseIndexGameScripts(initOptions);
+					var warningMode  = InitializationOptionsReader.ParseRawFileWarningMode(initOptions);
 
 					loggingLevelSwitch.MinimumLevel = InitializationOptionsReader.ParseServerLogLevel(initOptions);
 
 					var completionOpts = CompletionOptions.Current;
 					completionOpts.WorkspaceIndexingMode = indexingMode;
 					completionOpts.AllowRawFolderWrites  = allowWrites;
+					completionOpts.IndexGameScripts      = indexGame;
+					completionOpts.RawFileWarningMode    = warningMode;
 
 					if (customPath is not null)
 					{
@@ -107,8 +111,8 @@ LanguageServer server = await LanguageServer.From(options =>
 
 					sm.UseWorkspaceCache = enableCache;
 
-					Log.Information("Settings: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}, EnableWorkspaceCache={EnableCache}",
-						indexingMode, allowWrites, customPath ?? "(none)", enableCache);
+					Log.Information("Settings: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}, EnableWorkspaceCache={EnableCache}, IndexGameScripts={IndexGame}, RawFileWarningMode={WarningMode}",
+						indexingMode, allowWrites, customPath ?? "(none)", enableCache, indexGame, warningMode);
 				}
 			}
 			catch (Exception ex)
@@ -120,9 +124,12 @@ LanguageServer server = await LanguageServer.From(options =>
 		{
 			try
 			{
-				if (CompletionConfiguration.WorkspaceIndexingMode == IndexingMode.Off)
+				var indexingMode = CompletionConfiguration.WorkspaceIndexingMode;
+				bool indexGameScripts = CompletionConfiguration.IndexGameScripts;
+
+				if (indexingMode == IndexingMode.Off && !indexGameScripts)
 				{
-					Log.Information("Workspace indexing is disabled (IndexingMode=Off).");
+					Log.Information("Indexing is disabled (IndexingMode=Off, IndexGameScripts=false).");
 					return;
 				}
 
@@ -131,42 +138,76 @@ LanguageServer server = await LanguageServer.From(options =>
 				options.RegisterForDisposal(indexingCts);
 				var indexingToken = indexingCts.Token;
 
-				Log.Information("Starting workspace indexing in {Mode} mode", CompletionConfiguration.WorkspaceIndexingMode);
-
-				if (!string.IsNullOrWhiteSpace(CompletionConfiguration.CustomRawPath))
+				// Workspace folders: full/partial analysis per the configured mode, or a
+				// signature-only pass when indexing is Off but game-script indexing is on
+				// (so the registry still learns every namespace in the open map/mod).
+				List<string> workspaceRoots = new();
+				if (request.WorkspaceFolders is not null && request.WorkspaceFolders.Any())
 				{
-					string rawPath = CompletionConfiguration.CustomRawPath;
-					if (Directory.Exists(rawPath))
+					workspaceRoots.AddRange(request.WorkspaceFolders
+						.Select(wf => wf.Uri.ToUri().LocalPath)
+						.Where(Directory.Exists));
+				}
+				else if (request.RootUri is not null && Directory.Exists(request.RootUri.ToUri().LocalPath))
+				{
+					workspaceRoots.Add(request.RootUri.ToUri().LocalPath);
+				}
+
+				// Game raw root: the custom raw path if configured, otherwise the
+				// mod tools' share/raw. Indexed signature-only so every stock namespace is
+				// known to completions and quick fixes without full-analysis cost.
+				string? gameRawRoot = null;
+				if (indexGameScripts)
+				{
+					if (!string.IsNullOrWhiteSpace(CompletionConfiguration.CustomRawPath))
 					{
-						Log.Information("Starting workspace indexing for CustomRawPath: {Root}", rawPath);
-						_ = Task.Run(() => sm.IndexWorkspaceAsync(rawPath, indexingToken), indexingToken);
+						gameRawRoot = CompletionConfiguration.CustomRawPath;
 					}
 					else
 					{
-						Log.Warning("CustomRawPath is set but directory does not exist: {Path}", rawPath);
-					}
-				}
-				else if (request.WorkspaceFolders is not null && request.WorkspaceFolders.Any())
-				{
-					foreach (var wf in request.WorkspaceFolders)
-					{
-						string root = wf.Uri.ToUri().LocalPath;
-						if (Directory.Exists(root))
+						string? toolsPath = Environment.GetEnvironmentVariable("TA_TOOLS_PATH");
+						if (!string.IsNullOrEmpty(toolsPath))
 						{
-							Log.Information("Starting workspace indexing for: {Root}", root);
-							_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), indexingToken);
+							gameRawRoot = Path.Combine(toolsPath, "share", "raw");
 						}
 					}
-				}
-				else if (request.RootUri is not null)
-				{
-					string root = request.RootUri.ToUri().LocalPath;
-					if (Directory.Exists(root))
+
+					if (gameRawRoot is not null && !Directory.Exists(gameRawRoot))
 					{
-						Log.Information("Starting workspace indexing for: {Root}", root);
-						_ = Task.Run(() => sm.IndexWorkspaceAsync(root, indexingToken), indexingToken);
+						Log.Warning("Game raw root does not exist, skipping game script indexing: {Path}", gameRawRoot);
+						gameRawRoot = null;
 					}
 				}
+
+				Log.Information("Starting indexing: mode={Mode}, workspaceRoots={Roots}, gameRawRoot={RawRoot}",
+					indexingMode, string.Join(';', workspaceRoots), gameRawRoot ?? "(none)");
+
+				// Run the roots sequentially in one background task — the workspace cache
+				// file is shared, and parallel root indexing would race on load/save.
+				_ = Task.Run(async () =>
+				{
+					foreach (string root in workspaceRoots)
+					{
+						bool workspaceSignatureOnly = indexingMode == IndexingMode.Off;
+
+						// Avoid double-indexing when the user opened the raw folder itself.
+						if (gameRawRoot is not null &&
+							string.Equals(Path.GetFullPath(root), Path.GetFullPath(gameRawRoot), StringComparison.OrdinalIgnoreCase))
+						{
+							continue;
+						}
+
+						Log.Information("Indexing workspace root ({Profile}): {Root}",
+							workspaceSignatureOnly ? "signature-only" : indexingMode.ToString(), root);
+						await sm.IndexWorkspaceAsync(root, signatureOnly: workspaceSignatureOnly, indexingToken);
+					}
+
+					if (gameRawRoot is not null)
+					{
+						Log.Information("Indexing game scripts (signature-only): {Root}", gameRawRoot);
+						await sm.IndexWorkspaceAsync(gameRawRoot, signatureOnly: true, indexingToken);
+					}
+				}, indexingToken);
 			}
 			catch (Exception ex)
 			{

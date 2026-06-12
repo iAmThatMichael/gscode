@@ -505,6 +505,8 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     /// Used by the code action handler to suggest <c>#using</c> directives for a qualified
     /// call like <c>ns::func()</c> where the namespace is unknown — only files that actually
     /// export the exact function are returned, preventing spurious suggestions.
+    /// Searches every submitted definition (not just the canonical winner) so that a function
+    /// shadowed by a higher-priority override still surfaces all defining files.
     /// </summary>
     /// <param name="namespaceName">The namespace qualifier (case-insensitive).</param>
     /// <param name="functionName">The function name (case-insensitive).</param>
@@ -517,9 +519,12 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         _lock.EnterReadLock();
         try
         {
-            if (_symbols.TryGetValue(key, out var def) && def.Type == ExportedSymbolType.Function)
+            foreach (var fileSymbols in _submittedIndex.Values)
             {
-                result.Add(def.FilePath);
+                if (fileSymbols.TryGetValue(key, out var def) && def.Type == ExportedSymbolType.Function)
+                {
+                    result.Add(def.FilePath);
+                }
             }
         }
         finally
@@ -529,4 +534,100 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
 
         return result.ToList();
     }
+
+    /// <summary>
+    /// Returns the symbols that the given file itself defines (its own submissions),
+    /// regardless of whether they won the cross-file priority race. This is the
+    /// authoritative source for "what does this script export" — unlike a script's
+    /// DefinitionsTable, it is never polluted by merged dependency locations and
+    /// survives per-script location stripping.
+    /// </summary>
+    public List<SymbolDefinition> GetSymbolsDefinedInFile(string filePath)
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            if (_submittedIndex.TryGetValue(filePath, out var fileSymbols))
+            {
+                return fileSymbols.Values.ToList();
+            }
+            return [];
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
+    /// Returns true when the file's extension matches the requested language id
+    /// ("gsc" matches .gsc, "csc" matches .csc). Symbols from the other VM never
+    /// mix: a CSC namespace must not be suggested inside a GSC script.
+    /// </summary>
+    private static bool MatchesLanguage(string filePath, string languageId)
+        => filePath.EndsWith("." + languageId, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Returns all namespaces known across the registry for the given language.
+    /// </summary>
+    public IReadOnlyCollection<string> GetAllNamespaces(string languageId)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        _lock.EnterReadLock();
+        try
+        {
+            foreach (var def in _symbols.Values)
+            {
+                if (MatchesLanguage(def.FilePath, languageId))
+                {
+                    result.Add(def.Namespace);
+                }
+            }
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Returns all functions exported under the given namespace for the given language,
+    /// aggregated across every file that contributes to the namespace.
+    /// </summary>
+    public IReadOnlyList<WorkspaceFunctionInfo> GetFunctionsInNamespace(string ns, string languageId)
+    {
+        var normalizedNs = ns?.ToLowerInvariant() ?? string.Empty;
+        var result = new List<WorkspaceFunctionInfo>();
+
+        _lock.EnterReadLock();
+        try
+        {
+            foreach (var (key, def) in _symbols)
+            {
+                if (def.Type != ExportedSymbolType.Function) continue;
+                if (!string.Equals(key.Qualifier, normalizedNs, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!MatchesLanguage(def.FilePath, languageId)) continue;
+
+                result.Add(new WorkspaceFunctionInfo(
+                    def.Namespace, def.Name, def.FilePath,
+                    def.Parameters, def.Documentation,
+                    def.Symbol as ScrFunction));
+            }
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+
+        return result;
+    }
+
+    IReadOnlyCollection<string> ISymbolLocationProvider.GetAllNamespaces(string languageId)
+        => GetAllNamespaces(languageId);
+
+    IReadOnlyList<WorkspaceFunctionInfo> ISymbolLocationProvider.GetFunctionsInNamespace(string ns, string languageId)
+        => GetFunctionsInNamespace(ns, languageId);
 }

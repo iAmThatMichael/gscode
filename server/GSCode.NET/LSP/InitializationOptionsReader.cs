@@ -46,4 +46,22 @@ internal static class InitializationOptionsReader
 
     public static bool ParseEnableWorkspaceCache(JToken? initOptions)
         => GetGsCodeSection(initOptions)?["enableWorkspaceCache"]?.Value<bool>() ?? false;
+
+    public static bool ParseIndexGameScripts(JToken? initOptions)
+        => GetGsCodeSection(initOptions)?["indexGameScripts"]?.Value<bool>() ?? true;
+
+    public static RawFileWarningMode ParseRawFileWarningMode(JToken? initOptions)
+        => ParseRawFileWarningModeValue(GetGsCodeSection(initOptions)?["rawFileWarningMode"]?.Value<string>());
+
+    /// <summary>
+    /// Shared string→enum mapping for the raw-file warning mode, used by both the
+    /// initialization options and workspace/didChangeConfiguration paths.
+    /// </summary>
+    public static RawFileWarningMode ParseRawFileWarningModeValue(string? value)
+        => value?.ToLowerInvariant() switch
+        {
+            "off"   => RawFileWarningMode.Off,
+            "all"   => RawFileWarningMode.All,
+            _       => RawFileWarningMode.Stock
+        };
 }

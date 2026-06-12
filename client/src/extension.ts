@@ -117,6 +117,8 @@ export async function activate(context: ExtensionContext) {
     const customRawPath = config.get<string>("customRawPath");
     const allowRawFolderWrites = config.get<boolean>("allowRawFolderWrites", false);
     const enableWorkspaceCache = config.get<boolean>("enableWorkspaceCache", false);
+    const indexGameScripts = config.get<boolean>("indexGameScripts", true);
+    const rawFileWarningMode = config.get<string>("rawFileWarningMode", "stock");
 
     // Options to control the language client
     const clientOptions: LanguageClientOptions = {
@@ -138,6 +140,8 @@ export async function activate(context: ExtensionContext) {
                 customRawPath,
                 allowRawFolderWrites,
                 enableWorkspaceCache,
+                indexGameScripts,
+                rawFileWarningMode,
             },
         },
         outputChannel: window.createOutputChannel("GSCode Language Server"),
@@ -155,18 +159,17 @@ export async function activate(context: ExtensionContext) {
     // client can be deactivated on extension deactivation
     await client.start();
 
-    // Handle raw folder write warnings sent by the server
+    // Handle raw folder write warnings sent by the server. The server decides whether the
+    // file warrants a warning (per gscode.rawFileWarningMode); the client just displays it.
     client.onNotification("gscode/rawFolderWriteWarning", async (params: { path: string }) => {
-        const cfg = workspace.getConfiguration("gscode");
-        if (cfg.get<boolean>("allowRawFolderWrites", false)) { return; }
-
         const action = await window.showWarningMessage(
             `You are saving '${path.basename(params.path)}' inside a protected raw folder. Consider working in a separate mod directory to avoid modifying vanilla game files.`,
             "Dismiss",
             "Don't show again"
         );
         if (action === "Don't show again") {
-            await cfg.update("allowRawFolderWrites", true, vscode.ConfigurationTarget.Global);
+            const cfg = workspace.getConfiguration("gscode");
+            await cfg.update("rawFileWarningMode", "off", vscode.ConfigurationTarget.Global);
         }
     });
 
@@ -190,6 +193,8 @@ export async function activate(context: ExtensionContext) {
                             workspaceIndexingMode: updatedConfig.get("workspaceIndexingMode"),
                             serverLogLevel: updatedConfig.get("serverLogLevel"),
                             enableWorkspaceCache: updatedConfig.get("enableWorkspaceCache"),
+                            indexGameScripts: updatedConfig.get("indexGameScripts"),
+                            rawFileWarningMode: updatedConfig.get("rawFileWarningMode"),
                         },
                     },
                 });
@@ -198,7 +203,8 @@ export async function activate(context: ExtensionContext) {
                 if (
                     e.affectsConfiguration("gscode.serverLogLevel") ||
                     e.affectsConfiguration("gscode.workspaceIndexingMode") ||
-                    e.affectsConfiguration("gscode.customRawPath")
+                    e.affectsConfiguration("gscode.customRawPath") ||
+                    e.affectsConfiguration("gscode.indexGameScripts")
                 ) {
                     // Prevent multiple prompts
                     if (pendingReload) {

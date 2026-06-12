@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GSCode.Parser\GSCode.Parser.csproj" />
+    <ProjectReference Include="..\GSCode.NET\GSCode.NET.csproj" />
   </ItemGroup>
 
 </Project>

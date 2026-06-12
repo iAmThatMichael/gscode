@@ -64,9 +64,15 @@ public partial class ScriptManager
             // Populate global symbol registry with dependency's definitions
             bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
 
-            // Location dictionaries are now redundant for dependency scripts — the global
-            // registry serves all workspace-wide lookups from here on.
-            cached.Script.StripLocationData();
+            // Free parse-time memory (tokens, AST, analysis dictionaries) — dependency
+            // scripts are not semantically analysed. Skip under Full workspace indexing,
+            // where the indexer may still analyse this script and needs its AST; the
+            // Full-analysis path performs its own compaction afterwards.
+            if (GSCode.Parser.Configuration.CompletionConfiguration.WorkspaceIndexingMode
+                != GSCode.Parser.Configuration.IndexingMode.Full)
+            {
+                cached.Script.CompactForSignatureIndex();
+            }
 
             cached.ExportedSymbolsChanged = symbolsChanged;
             cached.LastParsedAt = DateTime.UtcNow;
@@ -106,63 +112,61 @@ public partial class ScriptManager
     /// Collects, filters, and deduplicates symbols from a set of dependency URIs.
     /// Returns merged function and class locations ready for DefinitionsTable.
     /// </summary>
-    private async Task<(List<KeyValuePair<(string, string), (string, Range)>> Functions,
-                        List<KeyValuePair<(string, string), (string, Range)>> Classes)>
-        MergeDependencySymbolsAsync(
-            IEnumerable<Uri> dependencies,
-            string filePath,
-            CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Reads each dependency's own submissions from the global symbol registry rather than
+    /// its DefinitionsTable. The table is unreliable for this purpose: it is stripped after
+    /// registry population for dependency scripts, and for workspace-indexed scripts it
+    /// contains locations merged from <em>their</em> dependencies — using it here would leak
+    /// transitive namespaces into the editor script's KnownNamespaces, suppressing the
+    /// "namespace does not exist" diagnostic for scripts that were never #using'd.
+    /// </remarks>
+    private (List<KeyValuePair<(string, string), (string, Range)>> Functions,
+             List<KeyValuePair<(string, string), (string, Range)>> Classes)
+        MergeDependencySymbols(IEnumerable<Uri> dependencies, string filePath)
     {
         string? currentWorkspaceRoot = WorkspaceBoundaryFilter.GetScriptsWorkspaceRoot(filePath);
         bool currentIsInRawFolder = WorkspaceBoundaryFilter.IsInCustomRawFolder(filePath) || WorkspaceBoundaryFilter.IsInToolsRawFolder(filePath);
 
         // Deduplicate inline — first-seen wins, no intermediate lists
-        var uniqueFunctions = new Dictionary<(string, string), (string FilePath, GSCode.Parser.Lexical.TokenRange Range)>();
-        var uniqueClasses   = new Dictionary<(string, string), (string FilePath, GSCode.Parser.Lexical.TokenRange Range)>();
+        var uniqueFunctions = new Dictionary<(string, string), (string FilePath, Range Range)>();
+        var uniqueClasses   = new Dictionary<(string, string), (string FilePath, Range Range)>();
 
         foreach (Uri dependency in dependencies)
         {
-            if (!Scripts.TryGetValue(dependency, out CachedScript? depScript)) continue;
+            string depPath = UriHelper.GetLocalPath(dependency);
 
-            await WithAnalysisLockAsync(dependency, () =>
+            foreach (SymbolDefinition def in _symbolRegistry.GetSymbolsDefinedInFile(depPath))
             {
-                var depTable = depScript.Script.DefinitionsTable;
-                if (depTable is null) return Task.CompletedTask;
-
-                // Visit in-place under the lock — no ToList() copy
-                depTable.VisitFunctionLocations((key, funcFilePath, range) =>
+                if (WorkspaceBoundaryFilter.FilterSymbolLocation(def.FilePath, currentWorkspaceRoot, currentIsInRawFolder)
+                    == WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)
                 {
-                    if (WorkspaceBoundaryFilter.FilterSymbolLocation(funcFilePath, currentWorkspaceRoot, currentIsInRawFolder)
-                        != WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)
-                    {
-                        string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(funcFilePath);
-                        if (relativePath != null)
-                            uniqueFunctions.TryAdd((key.Qualifier, key.SymbolName), (relativePath, range));
-                    }
-                });
+                    continue;
+                }
 
-                depTable.VisitClassLocations((key, classFilePath, range) =>
+                string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(def.FilePath);
+                if (relativePath is null)
                 {
-                    if (WorkspaceBoundaryFilter.FilterSymbolLocation(classFilePath, currentWorkspaceRoot, currentIsInRawFolder)
-                        != WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)
-                    {
-                        string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(classFilePath);
-                        if (relativePath != null)
-                            uniqueClasses.TryAdd((key.Qualifier, key.SymbolName), (relativePath, range));
-                    }
-                });
+                    continue;
+                }
 
-                return Task.CompletedTask;
-            }, cancellationToken);
+                var key = (def.Namespace, def.Name);
+                if (def.Type == ExportedSymbolType.Function)
+                {
+                    uniqueFunctions.TryAdd(key, (relativePath, def.Range.ToRange()));
+                }
+                else if (def.Type == ExportedSymbolType.Class)
+                {
+                    uniqueClasses.TryAdd(key, (relativePath, def.Range.ToRange()));
+                }
+            }
         }
 
-        // ToRange() called only on unique survivors
         var mergeFuncLocs = uniqueFunctions
-            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, (kvp.Value.FilePath, kvp.Value.Range.ToRange())))
+            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, (kvp.Value.FilePath, kvp.Value.Range)))
             .ToList();
 
         var mergeClassLocs = uniqueClasses
-            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, (kvp.Value.FilePath, kvp.Value.Range.ToRange())))
+            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, (kvp.Value.FilePath, kvp.Value.Range)))
             .ToList();
 
         return (mergeFuncLocs, mergeClassLocs);

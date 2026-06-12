@@ -122,6 +122,7 @@ public enum GSCErrorCodes
     ConsumedThreadedCallResult = 3065,
     BrokenFunctionUsage = 3066,
     NamespaceDoesNotContainFunction = 3067,
+    BreakHasNoEffect = 3068,
 
     // 8xxx errors are issued by the IDE for conventions
     UnterminatedRegion = 8000,
@@ -269,6 +270,7 @@ public static class DiagnosticCodes
         { GSCErrorCodes.DevBlockFunctionOutsideDevBlock, new("Function '{0}' can only be used inside developer blocks.", DiagnosticSeverity.Error) },
         { GSCErrorCodes.ConsumedThreadedCallResult, new("Consuming the result of a threaded call is unreliable; if the threaded function blocks, the expression will evaluate to 'undefined'.", DiagnosticSeverity.Warning) },
         { GSCErrorCodes.BrokenFunctionUsage, new("Function '{0}' is marked as broken and should not be used.", DiagnosticSeverity.Warning, new[] { DiagnosticTag.Deprecated }) },
+        { GSCErrorCodes.BreakHasNoEffect, new("The 'break' statement is not inside a loop or switch statement, and has no effect.", DiagnosticSeverity.Information, new[] { DiagnosticTag.Unnecessary }) },
         { GSCErrorCodes.NamespaceDoesNotContainFunction, new("The namespace '{0}' does not contain a function named '{1}'.", DiagnosticSeverity.Error) },
 
         // 8xxx

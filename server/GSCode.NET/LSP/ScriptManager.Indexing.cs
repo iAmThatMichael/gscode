@@ -12,7 +12,20 @@ namespace GSCode.NET.LSP;
 
 public partial class ScriptManager
 {
-    public async Task IndexWorkspaceAsync(string rootDirectory, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Indexes all scripts under a root directory.
+    /// </summary>
+    /// <param name="rootDirectory">Directory to enumerate for .gsc/.csc files.</param>
+    /// <param name="signatureOnly">
+    /// When true, runs a lightweight pass intended for game script roots (share/raw or a
+    /// custom raw folder): each file is parsed and its exported symbols are published to
+    /// the global registry, but its #using dependencies are not chased, no semantic
+    /// analysis runs, and no diagnostics are published — regardless of the configured
+    /// workspace indexing mode. This is what makes every namespace in the game scripts
+    /// known to completions and quick fixes without the cost of full analysis.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task IndexWorkspaceAsync(string rootDirectory, bool signatureOnly = false, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -72,7 +85,7 @@ public partial class ScriptManager
 #if DEBUG
                         Log.Information("Indexing {File}", rel);
 #endif
-                        var result = await IndexFileAsync(file, rootDirectory, indexingContext, cancellationToken);
+                        var result = await IndexFileAsync(file, rootDirectory, indexingContext, signatureOnly, cancellationToken);
                         switch (result)
                         {
                             case CacheResult.Hit:               Interlocked.Increment(ref cacheHits); break;
@@ -155,6 +168,7 @@ public partial class ScriptManager
         string filePath,
         string rootDirectory,
         IndexingContext indexingContext,
+        bool signatureOnly,
         CancellationToken cancellationToken)
     {
         string ext = Path.GetExtension(filePath);
@@ -338,6 +352,21 @@ public partial class ScriptManager
         if (!Scripts.TryGetValue(docUri, out var entry) || entry.Script.DefinitionsTable is null)
             return cacheResult;
 
+        // Signature-only pass (game script roots): the registry has been populated above,
+        // which is all that namespace completions and #using quick fixes need. Skip
+        // dependency chasing, merging, analysis, and diagnostics entirely — every script
+        // in the root is in the file list anyway, so dependency parsing adds nothing.
+        // Compact each script's parse-time memory: token streams and ASTs for thousands of
+        // game scripts would otherwise dwarf the useful symbol data.
+        if (signatureOnly)
+        {
+            if (entry.Type == CachedScriptType.Dependency)
+            {
+                entry.Script.CompactForSignatureIndex();
+            }
+            return cacheResult;
+        }
+
         // Snapshot dependencies to avoid collection modification during enumeration
         var dependencies = entry.Script.Dependencies.ToList();
 
@@ -356,7 +385,7 @@ public partial class ScriptManager
         }
 
         // Merge symbols from dependencies (filtering, deduplication, path conversion)
-        var (mergeFuncLocs, mergeClassLocs) = await MergeDependencySymbolsAsync(dependencies, filePath, cancellationToken);
+        var (mergeFuncLocs, mergeClassLocs) = MergeDependencySymbols(dependencies, filePath);
 
         // Merge definition tables (needed for go-to-definition in both modes)
         await WithAnalysisLockAsync(docUri, async () =>

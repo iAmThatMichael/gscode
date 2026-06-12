@@ -30,11 +30,13 @@ public partial class ScriptManager
             // by SignatureAnalyser via RecordFunctionFlags, not on the ScrFunction instance itself,
             // so we read them from the table here.
             var flags = defTable.GetFunctionFlags(func.Namespace, func.Name);
+            // Always store the absolute path of the defining script: cache-restored tables
+            // carry relative location paths, which would defeat workspace-boundary checks.
             newSymbols.Add(new SymbolDefinition(
                 Namespace: func.Namespace,
                 Name: func.Name,
                 Type: ExportedSymbolType.Function,
-                FilePath: loc?.FilePath ?? filePath,
+                FilePath: filePath,
                 Range: loc?.Range ?? default,
                 Parameters: func.Overloads.FirstOrDefault()?.Parameters?.Select(p => p.Name).ToArray(),
                 Flags: flags,
@@ -51,7 +53,7 @@ public partial class ScriptManager
                 Namespace: currentNamespace,
                 Name: cls.Name,
                 Type: ExportedSymbolType.Class,
-                FilePath: loc?.FilePath ?? filePath,
+                FilePath: filePath,
                 Range: loc?.Range ?? default,
                 Documentation: cls.Description,
                 Symbol: cls

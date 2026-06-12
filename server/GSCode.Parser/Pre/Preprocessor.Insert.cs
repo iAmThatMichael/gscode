@@ -62,7 +62,7 @@ internal ref partial struct Preprocessor
         TokenList? insertTokensResult;
         try
         {
-            insertTokensResult = Sense.GetFileTokens(filePath, path.Range is Range r ? TokenRange.FromRange(r) : null);
+            insertTokensResult = Sense.GetFileTokens(resolvedInsertPath, path.Range is Range r ? TokenRange.FromRange(r) : null);
         }
         catch(Exception ex)
         {

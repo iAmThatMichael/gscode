@@ -90,6 +90,18 @@ public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationPro
     /// </summary>
     public void ReleaseCachedMacroPaths() => _cachedMacroSourcePaths = null;
 
+    /// <summary>
+    /// Drops cached state derived from a script file's on-disk content: its lexed #insert
+    /// token list and any macro definitions attributed to it. Call when a watched file
+    /// changes externally so that scripts which #insert it pick up the new contents on
+    /// their next parse instead of replaying stale cache entries.
+    /// </summary>
+    public static void InvalidateCachedFile(string path)
+    {
+        ParserIntelliSense.InvalidateInsertFile(path);
+        MacroDefinitionCache.Instance.RemoveFileMacros(path);
+    }
+
     // Precomputed function scope data (populated after analysis, before AST disposal)
     private sealed record FunctionScopeInfo(string? FunctionName, Range BodyRange, List<(string Name, Range Range)> Parameters);
     private List<FunctionScopeInfo>? _functionScopes;

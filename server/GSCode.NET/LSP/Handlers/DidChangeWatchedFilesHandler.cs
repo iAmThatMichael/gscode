@@ -17,21 +17,24 @@ internal class DidChangeWatchedFilesHandler(
 
     public override async Task<Unit> Handle(DidChangeWatchedFilesParams request, CancellationToken cancellationToken)
     {
+        bool hasScriptChange = false;
         foreach (var change in request.Changes)
         {
             var path = change.Uri.ToUri().LocalPath;
-            if (IsScriptFile(path))
+            if (!IsScriptFile(path))
             {
-                switch (change.Type)
-                {
-                    case FileChangeType.Created: Log.Information("Script file created: {Path}", path); break;
-                    case FileChangeType.Changed: Log.Information("Script file modified externally: {Path}", path); break;
-                    case FileChangeType.Deleted: Log.Information("Script file deleted: {Path}", path); break;
-                }
+                continue;
             }
+
+            hasScriptChange = true;
+            Log.Information("Script file {ChangeType}: {Path}", change.Type, path);
+
+            // Drop per-file caches (lexed #insert tokens, macro definitions) before
+            // re-parsing, so scripts that #insert the changed file see its new contents
+            // rather than replaying stale cache entries. (#66)
+            Script.InvalidateCachedFile(path);
         }
 
-        bool hasScriptChange = request.Changes.Any(c => IsScriptFile(c.Uri.ToUri().LocalPath));
         if (hasScriptChange)
         {
             Log.Information("Watched script file changed; re-parsing all open editors");

@@ -248,25 +248,38 @@ internal sealed class ParserIntelliSense
     }
 
     /// <summary>
-    /// Cache of lexed token lists for #insert files, keyed by resolved absolute path.
+    /// Cache of lexed token lists for #insert files, keyed by normalized absolute path.
     /// Shared across all ParserIntelliSense instances to avoid re-reading and re-lexing
     /// the same included file for every script that inserts it.
+    /// Keys are normalized with <see cref="ScriptFileResolver.NormalizeFilePathForUri"/> so
+    /// that external file-change notifications (which carry OS-native paths) can invalidate
+    /// entries created from the resolver's mixed-separator output.
     /// </summary>
-    private static readonly ConcurrentDictionary<string, TokenList> _insertTokenCache = new();
+    private static readonly ConcurrentDictionary<string, TokenList> _insertTokenCache = new(StringComparer.OrdinalIgnoreCase);
 
-    public TokenList? GetFileTokens(string dependencyPath, TokenRange? belongToRange = null)
+    /// <summary>
+    /// Drops the cached token list for an inserted file so the next #insert re-reads it from
+    /// disk. Call when the file is changed, created, or deleted externally; otherwise scripts
+    /// that #insert it keep replaying the stale tokens on every re-parse.
+    /// </summary>
+    internal static void InvalidateInsertFile(string path)
+        => _insertTokenCache.TryRemove(ScriptFileResolver.NormalizeFilePathForUri(path), out _);
+
+    /// <summary>
+    /// Reads and lexes an inserted file, given its already-resolved absolute path
+    /// (from <see cref="ResolveInsertPath"/>). Returns null if the file doesn't exist.
+    /// </summary>
+    public TokenList? GetFileTokens(string resolvedPath, TokenRange? belongToRange = null)
     {
-        string? resolvedPath = ParserUtil.GetScriptFilePath(_scriptPath, dependencyPath);
-
-        // Sanity check the result
-        if (resolvedPath is null || !File.Exists(resolvedPath))
+        if (!File.Exists(resolvedPath))
         {
             return null;
         }
 
-        // Cache the lexed tokens by resolved path — clone for each consumer
+        // Cache the lexed tokens by normalized resolved path — clone for each consumer
         // so token linking in the preprocessor doesn't corrupt the cached copy.
-        var cachedTokens = _insertTokenCache.GetOrAdd(resolvedPath, path =>
+        string cacheKey = ScriptFileResolver.NormalizeFilePathForUri(resolvedPath);
+        var cachedTokens = _insertTokenCache.GetOrAdd(cacheKey, path =>
         {
             string contents = File.ReadAllText(path);
             Lexer lexer = new(contents.AsSpan());

@@ -19,7 +19,7 @@ public sealed class MacroDefinitionCache
     public static MacroDefinitionCache Instance => _instance;
 
     /// <summary>
-    /// Cache key: (source file path, macro name, define snippet content)
+    /// Cache key: (source file path, macro name).
     /// This allows the same macro name from different files to coexist.
     /// </summary>
     private readonly ConcurrentDictionary<MacroCacheKey, MacroDefinition> _cache = new();
@@ -47,13 +47,18 @@ public sealed class MacroDefinitionCache
             ? ScriptFileResolver.NormalizeFilePathForUri(sourceFilePath)
             : "<built-in>";
 
-        // Create cache key based on source file and macro name only
-        // DefineSnippet is not included because it may vary due to token ranges
-        // even when the macro content is identical
         MacroCacheKey key = new(cacheFilePath, macroName);
 
-        // Get or add to cache
-        MacroDefinition cached = _cache.GetOrAdd(key, definition);
+        // Reuse the cached instance only while the definition's content is unchanged.
+        // A macro re-defined with a new body (file edited in the editor or changed on
+        // disk) must replace the stale entry, or every consumer keeps expanding the
+        // old tokens and showing the old hover snippet.
+        MacroDefinition cached = _cache.AddOrUpdate(
+            key,
+            definition,
+            (_, existing) => string.Equals(existing.DefineSnippet, definition.DefineSnippet, StringComparison.Ordinal)
+                ? existing
+                : definition);
 
         // Track which file owns this macro (for cleanup).
         // Always lock the set before mutating — the same set instance is shared

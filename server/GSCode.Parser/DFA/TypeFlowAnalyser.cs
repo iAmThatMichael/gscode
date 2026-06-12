@@ -570,17 +570,20 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
     public void AnalyseSwitch(SwitchNode node, SymbolTable symbolTable)
     {
         // Create context for this switch (only once, even if revisited)
-        if (!SwitchContexts.ContainsKey(node))
+        bool firstVisit = !SwitchContexts.TryGetValue(node, out SwitchAnalysisContext? context);
+        if (firstVisit)
         {
-            var context = new SwitchAnalysisContext();
-
-            // Analyze expression ONCE and cache it
-            if (node.Source.Expression is not null)
-            {
-                context.SwitchExpressionType = AnalyseExpr(node.Source.Expression, symbolTable, Sense);
-            }
-
+            context = new SwitchAnalysisContext();
             SwitchContexts[node] = context;
+        }
+
+        // Analyse the expression on the first visit (to cache the subject type for case label
+        // checks) and again on the final non-silent pass: sense tokens and diagnostics are
+        // suppressed during the worklist phase, so skipping the re-run would leave the switch
+        // subject without highlighting or error reporting.
+        if (node.Source.Expression is not null && (firstVisit || !Silent))
+        {
+            context!.SwitchExpressionType = AnalyseExpr(node.Source.Expression, symbolTable, Sense);
         }
     }
 

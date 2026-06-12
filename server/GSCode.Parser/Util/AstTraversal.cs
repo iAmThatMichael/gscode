@@ -72,6 +72,8 @@ internal static class AstTraversal
                 yield return pxe.Operand; break;
             case ConstructorExprNode:
                 break;
+            case DerefExprNode de:
+                yield return de.Inner; break;
             case MethodCallNode mc:
                 if (mc.Target is not null) yield return mc.Target; yield return mc.Arguments; break;
             case FunCallNode fc:
@@ -85,6 +87,10 @@ internal static class AstTraversal
                 yield return ai.Array; if (ai.Index is not null) yield return ai.Index; break;
             case CalledOnNode con:
                 yield return con.On; yield return con.Call; break;
+            case WaittillNode wt:
+                yield return wt.Entity; yield return wt.NotifyCondition; break;
+            case WaittillMatchNode wtm:
+                yield return wtm.Entity; yield return wtm.NotifyName; if (wtm.MatchValue is not null) yield return wtm.MatchValue; break;
             default:
                 break;
         }
@@ -283,3 +289,4 @@ internal static class AstTraversal
         return false;
     }
 }
+

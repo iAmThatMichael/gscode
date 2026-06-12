@@ -204,3 +204,4 @@ internal ref struct ScriptDiagnosticsAnalyser(
         return false;
     }
 }
+

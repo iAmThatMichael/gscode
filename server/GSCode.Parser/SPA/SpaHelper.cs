@@ -85,8 +85,7 @@ public class ScrVariableSymbol : ISenseDefinition
         return new()
         {
             Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent() {
                 Kind = MarkupKind.Markdown,
                 Value = string.Format("```gsc\n/@ {0} @/ {1}\n```",
                    typeValue, IdentifierToken.Lexeme)
@@ -131,8 +130,7 @@ public class ScrParameterSymbol : ISenseDefinition
         return new()
         {
             Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent() {
                 Kind = MarkupKind.Markdown,
                 Value = string.Format("```gsc\n{0}\n```",
                    parameterName)
@@ -175,8 +173,7 @@ public class ScrFieldSymbol : ISenseDefinition
         return new()
         {
             Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent() {
                 Kind = MarkupKind.Markdown,
                 Value = string.Format("```gsc\n(field) /@ {0} @/ {1}\n```",
                    typeValue, IdentifierName)
@@ -220,8 +217,7 @@ public class ScrClassPropertySymbol : ISenseDefinition
         return new()
         {
             Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent() {
                 Kind = MarkupKind.Markdown,
                 Value = string.Format("```gsc\n(property) /@ {0} @/ {1}.{2}\n```",
                    typeValue, ClassSource.Name, IdentifierName)
@@ -252,8 +248,7 @@ public class ScrNamespaceScopeSymbol : ISenseDefinition
         return new()
         {
             Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent() {
                 Kind = MarkupKind.Markdown,
                 Value = string.Format("```gsc\n(namespace) {0}\n```",
                    NamespaceName)
@@ -288,8 +283,7 @@ public class ScrFunctionReferenceSymbol : ISenseDefinition
         return new()
         {
             Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent() {
                 Kind = MarkupKind.Markdown,
                 Value = Source.Documentation
             })
@@ -360,7 +354,7 @@ public class ScrMethodReferenceSymbol : ISenseDefinition
                 Kind = MarkupKind.Markdown,
                 Value = builder.ToString().Trim()
             })
-        };
+    };
     }
 }
 
@@ -386,12 +380,12 @@ public class ScrReservedFunctionSymbol : ISenseDefinition
         return new()
         {
             Range = Range,
-            Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
-            {
+            Contents = new MarkedStringsOrMarkupContent(new MarkupContent() {
                 Kind = MarkupKind.Markdown,
                 // TODO: This is a hack
                 Value = Source?.Documentation ?? "Reserved function"
             })
-        };
+    };
     }
 }
+

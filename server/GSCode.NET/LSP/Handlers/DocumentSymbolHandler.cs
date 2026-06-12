@@ -1,204 +1,115 @@
-using Microsoft.Extensions.Logging;
+using GSCode.Parser;
+using GSCode.Parser.Util;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using Serilog;
 using System.Diagnostics;
-using GSCode.Parser;
-using GSCode.Parser.Lexical;
-using GSCode.Parser.SA;
-using GSCode.Parser.Data;
-using GSCode.Parser.Util;
+using System.Linq;
 
 namespace GSCode.NET.LSP.Handlers;
 
-using LspSymbolKind = OmniSharp.Extensions.LanguageServer.Protocol.Models.SymbolKind;
-
-internal class DocumentSymbolHandler : DocumentSymbolHandlerBase
+internal class DocumentSymbolHandler(
+    ScriptManager scriptManager,
+    TextDocumentSelector documentSelector) : DocumentSymbolHandlerBase
 {
-    private readonly ScriptManager _script_manager;
-    private readonly ILogger<DocumentSymbolHandler> _logger;
-    private readonly TextDocumentSelector _documentSelector;
 
-    public DocumentSymbolHandler(ScriptManager scriptManager,
-        ILogger<DocumentSymbolHandler> logger,
-        TextDocumentSelector documentSelector)
+    public override async Task<SymbolInformationOrDocumentSymbolContainer?> Handle(
+        DocumentSymbolParams request, CancellationToken cancellationToken)
     {
-        _script_manager = scriptManager;
-        _logger = logger;
-        _documentSelector = documentSelector;
-    }
-
-    private static string BuildFunctionLabel(string name, string ns, string[]? parameters, string[]? flags)
-    {
-        string paramText = (parameters is null || parameters.Length == 0) ? "()" : ($"(" + string.Join(", ", parameters) + ")");
-        if (flags is null || flags.Length == 0) return name + paramText;
-        return name + paramText + " [" + string.Join(", ", flags) + "]";
-    }
-
-    public override async Task<SymbolInformationOrDocumentSymbolContainer?> Handle(DocumentSymbolParams request, CancellationToken cancellationToken)
-    {
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return new SymbolInformationOrDocumentSymbolContainer(new Container<SymbolInformationOrDocumentSymbol>());
-        }
-
-        _logger.LogInformation("DocumentSymbol (outline) request received");
+        Log.Information("DocumentSymbol (outline) request received");
         var sw = Stopwatch.StartNew();
-
-        Script? script = _script_manager.GetParsedEditor(request.TextDocument);
+        Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null || script.DefinitionsTable is null)
         {
             sw.Stop();
-            _logger.LogInformation("DocumentSymbol finished in {ElapsedMs} ms: no script or no definitions", sw.ElapsedMilliseconds);
-            return new SymbolInformationOrDocumentSymbolContainer(new Container<SymbolInformationOrDocumentSymbol>());
+            Log.Information("DocumentSymbol finished in {ElapsedMs} ms: no script or no definitions", sw.ElapsedMilliseconds);
+            return new SymbolInformationOrDocumentSymbolContainer();
         }
+        cancellationToken.ThrowIfCancellationRequested();
 
         string currentPath = ScriptFileResolver.NormalizeFilePathForUri(request.TextDocument.Uri.ToUri().LocalPath);
 
-        // Collect by type
-        List<DocumentSymbol> classNodes = new();
+        static string BuildFunctionLabel(string name, string? ns, string[]? parameters, string[]? flags)
+        {
+            string paramStr = parameters is null ? "()" : $"({string.Join(", ", parameters)})";
+            string flagStr = flags is { Length: > 0 } ? $" [{string.Join(", ", flags)}]" : "";
+            return $"{name}{paramStr}{flagStr}";
+        }
+
+        var classNodes = new List<DocumentSymbol>();
         foreach (var kv in script.DefinitionsTable.GetAllClassLocations())
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            var key = kv.Key; var val = kv.Value;
-            string filePath = ScriptFileResolver.NormalizeFilePathForUri(val.FilePath ?? string.Empty);
-            if (!string.Equals(filePath, currentPath, System.StringComparison.OrdinalIgnoreCase))
-                continue;
-
+            string fp = ScriptFileResolver.NormalizeFilePathForUri(kv.Value.FilePath ?? "");
+            if (!string.Equals(fp, currentPath, StringComparison.OrdinalIgnoreCase)) continue;
             classNodes.Add(new DocumentSymbol
             {
-                Name = key.SymbolName,
-                Detail = key.Qualifier,
-                Kind = LspSymbolKind.Class,
-                Range = val.Range.ToRange(),
-                SelectionRange = val.Range.ToRange(),
-                Children = new List<DocumentSymbol>()
+                Name = kv.Key.SymbolName, Detail = kv.Key.Qualifier,
+                Kind = SymbolKind.Class,
+                Range = kv.Value.Range.ToRange(), SelectionRange = kv.Value.Range.ToRange(),
+                Children = new Container<DocumentSymbol>()
             });
         }
 
-        List<DocumentSymbol> functionNodes = new();
+        var functionNodes = new List<DocumentSymbol>();
         foreach (var kv in script.DefinitionsTable.GetAllFunctionLocations())
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            var key = kv.Key; var val = kv.Value;
-            string filePath = ScriptFileResolver.NormalizeFilePathForUri(val.FilePath ?? string.Empty);
-            if (!string.Equals(filePath, currentPath, System.StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            string[]? parameters = script.DefinitionsTable.GetFunctionParameters(key.Qualifier, key.SymbolName);
-            string[]? flags = script.DefinitionsTable.GetFunctionFlags(key.Qualifier, key.SymbolName);
+            string fp = ScriptFileResolver.NormalizeFilePathForUri(kv.Value.FilePath ?? "");
+            if (!string.Equals(fp, currentPath, StringComparison.OrdinalIgnoreCase)) continue;
+            string[]? parameters = script.DefinitionsTable.GetFunctionParameters(kv.Key.Qualifier, kv.Key.SymbolName);
+            string[]? flags = script.DefinitionsTable.GetFunctionFlags(kv.Key.Qualifier, kv.Key.SymbolName);
             functionNodes.Add(new DocumentSymbol
             {
-                Name = BuildFunctionLabel(key.SymbolName, key.Qualifier, parameters, flags),
-                Detail = key.Qualifier,
-                Kind = LspSymbolKind.Function,
-                Range = val.Range.ToRange(),
-                SelectionRange = val.Range.ToRange()
+                Name = BuildFunctionLabel(kv.Key.SymbolName, kv.Key.Qualifier, parameters, flags),
+                Detail = kv.Key.Qualifier,
+                Kind = SymbolKind.Function,
+                Range = kv.Value.Range.ToRange(), SelectionRange = kv.Value.Range.ToRange()
             });
         }
 
-        List<DocumentSymbol> macroNodes = new();
-        if (script.MacroOutlines.Count > 0)
+        var macroNodes = new List<DocumentSymbol>();
+        foreach (var m in script.MacroOutlines)
         {
-            foreach (var m in script.MacroOutlines)
+            cancellationToken.ThrowIfCancellationRequested();
+            macroNodes.Add(new DocumentSymbol
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                string detail = (m.SourceDisplay is null || m.SourceDisplay.Length == 0) ? "#define" : m.SourceDisplay;
-                macroNodes.Add(new DocumentSymbol
-                {
-                    Name = m.Name,
-                    Detail = detail,
-                    Kind = LspSymbolKind.Constant,
-                    Range = m.Range,
-                    SelectionRange = m.Range
-                });
-            }
+                Name = m.Name,
+                Detail = string.IsNullOrEmpty(m.SourceDisplay) ? "#define" : m.SourceDisplay,
+                Kind = SymbolKind.Constant,
+                Range = m.Range, SelectionRange = m.Range
+            });
         }
 
-        // Build grouped root nodes (separates by type).
-        // Groups are added in the desired display order: Classes → Functions → Macros.
-        // Each group uses a fixed synthetic range anchored to a stable line index (0, 1, 2)
-        // so that clients which re-sort root symbols by Range.Start respect the intended order
-        // rather than hoisting Macros above Functions because #defines appear earlier in the file.
-        List<DocumentSymbol> root = new(capacity: 3);
+        var root = new List<DocumentSymbol>(3);
+        Range AnchorAt(int line) => new Range { Start = new Position { Line = line, Character = 0 }, End = new Position { Line = line, Character = 0 } };
 
         if (classNodes.Count > 0)
         {
-            if (classNodes.Count > 1)
-            {
-                classNodes.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase));
-            }
-            var anchor = new Range(new Position(0, 0), new Position(0, 0));
-            root.Add(new DocumentSymbol
-            {
-                Name = "Classes",
-                Kind = LspSymbolKind.Namespace,
-                Range = anchor,
-                SelectionRange = anchor,
-                Children = classNodes
-            });
+            classNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            root.Add(new DocumentSymbol { Name = "Classes", Kind = SymbolKind.Namespace, Range = AnchorAt(0), SelectionRange = AnchorAt(0), Children = new Container<DocumentSymbol>(classNodes) });
         }
-
         if (functionNodes.Count > 0)
         {
-            if (functionNodes.Count > 1)
-            {
-                functionNodes.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase));
-            }
-            var anchor = new Range(new Position(1, 0), new Position(1, 0));
-            root.Add(new DocumentSymbol
-            {
-                Name = "Functions",
-                Kind = LspSymbolKind.Namespace,
-                Range = anchor,
-                SelectionRange = anchor,
-                Children = functionNodes
-            });
+            functionNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            root.Add(new DocumentSymbol { Name = "Functions", Kind = SymbolKind.Namespace, Range = AnchorAt(1), SelectionRange = AnchorAt(1), Children = new Container<DocumentSymbol>(functionNodes) });
         }
-
         if (macroNodes.Count > 0)
         {
-            if (macroNodes.Count > 1)
-            {
-                macroNodes.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase));
-            }
-            var anchor = new Range(new Position(2, 0), new Position(2, 0));
-            root.Add(new DocumentSymbol
-            {
-                Name = "Macros",
-                Kind = LspSymbolKind.Namespace,
-                Range = anchor,
-                SelectionRange = anchor,
-                Children = macroNodes
-            });
+            macroNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            root.Add(new DocumentSymbol { Name = "Macros", Kind = SymbolKind.Namespace, Range = AnchorAt(2), SelectionRange = AnchorAt(2), Children = new Container<DocumentSymbol>(macroNodes) });
         }
 
-        int totalSymbols = classNodes.Count + functionNodes.Count + macroNodes.Count;
         sw.Stop();
-        _logger.LogInformation("DocumentSymbol finished in {ElapsedMs} ms: {Count} symbols", sw.ElapsedMilliseconds, totalSymbols);
-
-        var union = new List<SymbolInformationOrDocumentSymbol>(root.Count);
-        for (int i = 0; i < root.Count; i++)
-        {
-            union.Add(new SymbolInformationOrDocumentSymbol(root[i]));
-        }
-        return new SymbolInformationOrDocumentSymbolContainer(new Container<SymbolInformationOrDocumentSymbol>(union));
+        int totalSymbols = root.Sum(s => s.Children?.Count() ?? 0);
+        Log.Information("DocumentSymbol finished in {ElapsedMs} ms: {Count} symbols", sw.ElapsedMilliseconds, totalSymbols);
+        return new SymbolInformationOrDocumentSymbolContainer(
+            root.Select(s => new SymbolInformationOrDocumentSymbol(s)));
     }
 
-    protected override DocumentSymbolRegistrationOptions CreateRegistrationOptions(DocumentSymbolCapability capability, ClientCapabilities clientCapabilities)
-    {
-        return new DocumentSymbolRegistrationOptions()
-        {
-            DocumentSelector = _documentSelector
-        };
-    }
+    protected override DocumentSymbolRegistrationOptions CreateRegistrationOptions(
+        DocumentSymbolCapability capability, ClientCapabilities clientCapabilities)
+        => new() { DocumentSelector = documentSelector };
 }

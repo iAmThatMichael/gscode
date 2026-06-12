@@ -1,209 +1,154 @@
-using GSCode.Parser.Configuration;
+using GSCode.Parser;
+using GSCode.Parser.Util;
 using MediatR;
-using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server.Capabilities;
-using System.Collections.Immutable;
+using GSCode.Parser.Configuration;
+using Serilog;
 using System.Diagnostics;
+using System.IO;
 
 namespace GSCode.NET.LSP.Handlers;
 
-public class TextDocumentSyncHandler : ITextDocumentSyncHandler
+internal class TextDocumentSyncHandler(
+    ILanguageServerFacade facade,
+    ScriptManager scriptManager,
+    TextDocumentSelector documentSelector)
+    : TextDocumentSyncHandlerBase
 {
-    private readonly ILanguageServerFacade _facade;
-    private readonly ScriptManager _scriptManager;
-    private readonly ILogger<TextDocumentSyncHandler> _logger;
-    private readonly TextDocumentSelector _documentSelector;
 
-    public TextDocumentSyncHandler(ILanguageServerFacade facade, 
-        ScriptManager scriptManager,
-        ILogger<TextDocumentSyncHandler> logger,
-        TextDocumentSelector documentSelector)
-    {
-        _facade = facade;
-        _scriptManager = scriptManager;
-        _logger = logger;
-        _documentSelector = documentSelector;
-    }
+    public override TextDocumentAttributes GetTextDocumentAttributes(DocumentUri uri)
+        => new(uri, "gsc");
 
-    public TextDocumentSyncKind Change { get; } = TextDocumentSyncKind.Incremental;
-
-    public TextDocumentChangeRegistrationOptions GetRegistrationOptions(TextSynchronizationCapability capability, ClientCapabilities clientCapabilities)
-    {
-        return new()
+    protected override TextDocumentSyncRegistrationOptions CreateRegistrationOptions(
+        TextSynchronizationCapability capability, ClientCapabilities clientCapabilities)
+        => new()
         {
-            DocumentSelector = _documentSelector,
-            SyncKind = Change
+            DocumentSelector = documentSelector,
+            Change = TextDocumentSyncKind.Incremental,
+            Save = new SaveOptions { IncludeText = false }
         };
-    }
 
-    public TextDocumentAttributes GetTextDocumentAttributes(DocumentUri uri)
+    public TextDocumentChangeRegistrationOptions GetRegistrationOptions(
+        TextSynchronizationCapability capability, ClientCapabilities clientCapabilities)
+        => new()
+        {
+            DocumentSelector = documentSelector,
+            SyncKind = TextDocumentSyncKind.Incremental
+        };
+
+    public override async Task<Unit> Handle(DidOpenTextDocumentParams request, CancellationToken ct)
     {
-        return new(uri, "gsc");
+        Log.Information("Document opened");
+        var sw = Stopwatch.StartNew();
+        var diags = await scriptManager.AddEditorAsync(request.TextDocument, ct);
+        facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
+        {
+            Uri = request.TextDocument.Uri,
+            Diagnostics = new Container<Diagnostic>(diags)
+        });
+        sw.Stop();
+        Log.Information("Document open processed in {ElapsedMs} ms with {DiagCount} diagnostics",
+            sw.ElapsedMilliseconds, diags.Count());
+        return Unit.Value;
     }
 
-    public async Task<Unit> Handle(DidChangeTextDocumentParams request, CancellationToken cancellationToken)
+    public override async Task<Unit> Handle(DidChangeTextDocumentParams request, CancellationToken ct)
     {
         var changeType = request.ContentChanges.Any(c => c.Range == null) ? "Full" : "Incremental";
-        var changeCount = request.ContentChanges.Count();
-        _logger.LogInformation("Document changed ({ChangeType}, {ChangeCount} change(s))", changeType, changeCount);
-
+        Log.Information("Document changed ({ChangeType}, {ChangeCount} change(s))",
+            changeType, request.ContentChanges.Count());
         var sw = Stopwatch.StartNew();
-
-        IEnumerable<Diagnostic> results = await _scriptManager.UpdateEditorAsync(
-            request.TextDocument, request.ContentChanges, cancellationToken);
-
-        // Omit Version — if the parse took time and the user kept typing, the document
-        // version has advanced past the one in request.TextDocument.Version.  VS Code
-        // discards publishDiagnostics notifications whose version < current, leaving
-        // stale squiggles on screen.  Omitting it tells the client "always accept."
-        _facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams()
+        var diags = await scriptManager.UpdateEditorAsync(request.TextDocument, request.ContentChanges, ct);
+        facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
         {
-            Diagnostics = new Container<Diagnostic>(results.ToArray()),
-            Uri = request.TextDocument.Uri
+            Uri = request.TextDocument.Uri,
+            Diagnostics = new Container<Diagnostic>(diags)
         });
-
         sw.Stop();
-        _logger.LogInformation("Document change processed in {ElapsedMs} ms with {DiagCount} diagnostics",
-            sw.ElapsedMilliseconds, results.Count());
+        Log.Information("Document change processed in {ElapsedMs} ms with {DiagCount} diagnostics",
+            sw.ElapsedMilliseconds, diags.Count());
         return Unit.Value;
     }
 
-    public async Task<Unit> Handle(DidOpenTextDocumentParams request, CancellationToken cancellationToken)
+    public override Task<Unit> Handle(DidCloseTextDocumentParams request, CancellationToken ct)
     {
-        _logger.LogInformation("Document opened");
+        Log.Information("Document closed");
         var sw = Stopwatch.StartNew();
-        IEnumerable<Diagnostic> resultingDiagnostics = await _scriptManager.AddEditorAsync(request.TextDocument, cancellationToken);
-
-        _facade.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams()
-        {
-            Diagnostics = resultingDiagnostics.ToArray(),
-            Uri = request.TextDocument.Uri
-        });
+        scriptManager.RemoveEditor(request.TextDocument);
         sw.Stop();
-        _logger.LogInformation("Document open processed in {ElapsedMs} ms with {DiagCount} diagnostics", sw.ElapsedMilliseconds, resultingDiagnostics.Count());
-        return Unit.Value;
-    }
-
-    public Task<Unit> Handle(DidCloseTextDocumentParams request, CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("Document closed");
-        var sw = Stopwatch.StartNew();
-        _scriptManager.RemoveEditor(request.TextDocument);
-        sw.Stop();
-        _logger.LogInformation("Document close processed in {ElapsedMs} ms", sw.ElapsedMilliseconds);
+        Log.Information("Document close processed in {ElapsedMs} ms", sw.ElapsedMilliseconds);
         return Unit.Task;
     }
 
-    public Task<Unit> Handle(DidSaveTextDocumentParams request, CancellationToken cancellationToken)
+    public override Task<Unit> Handle(DidSaveTextDocumentParams request, CancellationToken ct)
     {
-        // Check if write protection is enabled
-        if (!CompletionConfiguration.AllowRawFolderWrites)
+        // Legacy escape hatch: allowRawFolderWrites=true behaves like warning mode "off".
+        var warningMode = CompletionConfiguration.RawFileWarningMode;
+        if (warningMode == RawFileWarningMode.Off || CompletionConfiguration.AllowRawFolderWrites)
         {
-            string filePath = GetLocalPath(request.TextDocument.Uri);
-            if (IsInProtectedRawFolder(filePath))
-            {
-                _logger.LogWarning("File saved in protected raw folder: {Path}. Consider setting gscode.allowRawFolderWrites to false or working in a separate mod directory.", filePath);
+            return Unit.Task;
+        }
 
-                // Send custom notification so the client can show a dismissible warning
-                // with a "Don't show again" action that toggles gscode.allowRawFolderWrites.
-                _facade.SendNotification("gscode/rawFolderWriteWarning", new
-                {
-                    path = filePath
-                });
+        string path = request.TextDocument.Uri.ToUri().LocalPath;
+        string? rawRoot = GetContainingRawRoot(path);
+        if (rawRoot is null)
+        {
+            return Unit.Task;
+        }
+
+        // In Stock mode, only scripts that shipped with the mod tools warrant a warning —
+        // user-owned shared scripts kept inside the raw folder stay quiet.
+        if (warningMode == RawFileWarningMode.Stock)
+        {
+            string relativePath = Path.GetRelativePath(rawRoot, Path.GetFullPath(path));
+            if (!StockScripts.IsStockScript(relativePath))
+            {
+                return Unit.Task;
             }
         }
+
+        Log.Warning("Stock/raw file saved in protected raw folder: {Path}", path);
+        facade.SendNotification("gscode/rawFolderWriteWarning", new { path });
         return Unit.Task;
     }
 
-    private string GetLocalPath(DocumentUri uri)
+    /// <summary>
+    /// Returns the protected raw root folder that contains <paramref name="filePath"/>,
+    /// or null when the file is outside all known raw roots. Roots checked: the configured
+    /// custom raw path, then TA_GAME_PATH/share/raw and TA_TOOLS_PATH/share/raw.
+    /// </summary>
+    private static string? GetContainingRawRoot(string filePath)
     {
         try
         {
-            if (Uri.TryCreate(uri.ToString(), UriKind.Absolute, out Uri? parsedUri) && parsedUri.IsFile)
-            {
-                return parsedUri.LocalPath;
-            }
-            else if (uri.ToString().StartsWith("/") && uri.ToString().Length > 2 && uri.ToString()[2] == ':')
-            {
-                // Handle URI-style path like "/g:/..." -> "G:\..."
-                return uri.ToString().Substring(1).Replace('/', '\\');
-            }
-            return uri.ToString();
-        }
-        catch
-        {
-            return uri.ToString();
-        }
-    }
+            string norm = Path.GetFullPath(filePath).Replace('/', '\\').ToLowerInvariant();
 
-    private bool IsInProtectedRawFolder(string filePath)
-    {
-        try
-        {
-            // Normalize path for comparison
-            string normalizedPath = Path.GetFullPath(filePath).Replace('/', '\\').ToLowerInvariant();
-
-            // Check if file is in custom raw path
-            string? customRawPath = CompletionConfiguration.CustomRawPath;
-            if (!string.IsNullOrEmpty(customRawPath))
+            string? custom = CompletionConfiguration.CustomRawPath;
+            if (!string.IsNullOrEmpty(custom))
             {
-                string normalizedCustomPath = Path.GetFullPath(customRawPath).Replace('/', '\\').ToLowerInvariant();
-                if (normalizedPath.StartsWith(normalizedCustomPath))
-                {
-                    return true;
-                }
+                string nc = Path.GetFullPath(custom).Replace('/', '\\').ToLowerInvariant();
+                if (norm.StartsWith(nc)) return Path.GetFullPath(custom);
             }
 
-            // Check if file is in TA_GAME_PATH\share\raw
-            string? taGamePath = Environment.GetEnvironmentVariable("TA_GAME_PATH");
-            if (!string.IsNullOrEmpty(taGamePath) && Directory.Exists(taGamePath))
+            foreach (string envVar in new[] { "TA_GAME_PATH", "TA_TOOLS_PATH" })
             {
-                string shareRawPath = Path.Combine(taGamePath, "share", "raw");
-                if (Directory.Exists(shareRawPath))
-                {
-                    string normalizedShareRawPath = Path.GetFullPath(shareRawPath).Replace('/', '\\').ToLowerInvariant();
-                    if (normalizedPath.StartsWith(normalizedShareRawPath))
-                    {
-                        return true;
-                    }
-                }
+                string? basePath = Environment.GetEnvironmentVariable(envVar);
+                if (string.IsNullOrEmpty(basePath)) continue;
+
+                string shareRaw = Path.Combine(basePath, "share", "raw");
+                if (!Directory.Exists(shareRaw)) continue;
+
+                string ns = Path.GetFullPath(shareRaw).Replace('/', '\\').ToLowerInvariant();
+                if (norm.StartsWith(ns)) return Path.GetFullPath(shareRaw);
             }
-
-            return false;
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error checking if file is in protected raw folder: {Path}", filePath);
-            return false;
-        }
+        catch { }
+        return null;
     }
 
-    TextDocumentOpenRegistrationOptions IRegistration<TextDocumentOpenRegistrationOptions, TextSynchronizationCapability>.GetRegistrationOptions(TextSynchronizationCapability capability, ClientCapabilities clientCapabilities)
-    {
-        return new()
-        {
-            DocumentSelector = _documentSelector
-        };
     }
-
-    TextDocumentCloseRegistrationOptions IRegistration<TextDocumentCloseRegistrationOptions, TextSynchronizationCapability>.GetRegistrationOptions(TextSynchronizationCapability capability, ClientCapabilities clientCapabilities)
-    {
-        return new()
-        {
-            DocumentSelector = _documentSelector
-        };
-    }
-
-    TextDocumentSaveRegistrationOptions IRegistration<TextDocumentSaveRegistrationOptions, TextSynchronizationCapability>.GetRegistrationOptions(TextSynchronizationCapability capability, ClientCapabilities clientCapabilities)
-    {
-        return new()
-        {
-            DocumentSelector = _documentSelector
-        };
-    }
-}

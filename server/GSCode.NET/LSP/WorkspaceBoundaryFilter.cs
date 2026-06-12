@@ -9,6 +9,15 @@ namespace GSCode.NET.LSP;
 /// </summary>
 public static class WorkspaceBoundaryFilter
 {
+    // Cached TA_TOOLS_PATH shared/raw prefix — read once at startup; the env var is set
+    // before the server process starts and does not change at runtime.
+    internal static readonly string? ToolsRawPath = GetToolsRawPath();
+
+    private static string? GetToolsRawPath()
+    {
+        var p = Environment.GetEnvironmentVariable("TA_TOOLS_PATH");
+        return string.IsNullOrEmpty(p) ? null : NormalizePathForComparison(Path.Combine(p, "share", "raw"));
+    }
     /// <summary>
     /// Result of filtering a symbol location.
     /// </summary>
@@ -171,17 +180,11 @@ public static class WorkspaceBoundaryFilter
     /// </summary>
     public static bool IsInToolsRawFolder(string filePath)
     {
-        if (string.IsNullOrEmpty(filePath))
-            return false;
-
-        string? toolsPath = Environment.GetEnvironmentVariable("TA_TOOLS_PATH");
-        if (string.IsNullOrEmpty(toolsPath))
+        if (string.IsNullOrEmpty(filePath) || ToolsRawPath is null)
             return false;
 
         string normalizedFile = NormalizePathForComparison(filePath);
-        string rawPath = NormalizePathForComparison(Path.Combine(toolsPath, "share", "raw"));
-
-        return normalizedFile.StartsWith(rawPath, StringComparison.OrdinalIgnoreCase);
+        return normalizedFile.StartsWith(ToolsRawPath, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

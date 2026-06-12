@@ -4,7 +4,6 @@ using GSCode.Parser.DFA;
 using GSCode.Parser.SPA;
 using GSCode.Parser.SPA.Logic.Analysers;
 using GSCode.Parser.SPA.Logic.Components;
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;

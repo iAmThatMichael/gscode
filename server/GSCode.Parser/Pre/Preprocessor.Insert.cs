@@ -97,8 +97,10 @@ internal ref partial struct Preprocessor
             return;
         }
 
-        // Mark all inserted tokens as from preprocessor to prevent duplicate semantic highlights
-        MarkTokenListAsPreprocessor(insertTokens);
+        // Mark all inserted tokens as from preprocessor to prevent duplicate semantic highlights,
+        // and stamp each one with the resolved GSH path so the macro attributor can read it
+        // directly instead of guessing via host-file line-number comparisons.
+        MarkTokenListAsPreprocessor(insertTokens, resolvedInsertPath);
 
         // Otherwise, it's a unique instance so connect its boundaries (exc. the SOF and EOF) to the insert directive
         ConnectTokens(insertToken.Previous!, insertTokens.Start!.Next!);
@@ -135,9 +137,11 @@ internal ref partial struct Preprocessor
     }
 
     /// <summary>
-    /// Marks all tokens in a token list as originating from preprocessor expansion.
+    /// Marks all tokens in a token list as originating from preprocessor expansion,
+    /// and stamps each with the resolved insert source path so macro attribution can
+    /// read it directly from the token instead of inferring it from line numbers.
     /// </summary>
-    private static void MarkTokenListAsPreprocessor(TokenList tokenList)
+    private static void MarkTokenListAsPreprocessor(TokenList tokenList, string? insertSourcePath)
     {
         if (tokenList.Start is null || tokenList.End is null)
             return;
@@ -146,6 +150,7 @@ internal ref partial struct Preprocessor
         while (current is not null)
         {
             current.Token.IsFromPreprocessor = true;
+            current.Token.InsertSourcePath = insertSourcePath;
             if (current == tokenList.End)
                 break;
             current = current.Next!;

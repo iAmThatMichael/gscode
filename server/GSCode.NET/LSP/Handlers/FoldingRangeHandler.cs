@@ -1,50 +1,31 @@
 using GSCode.Parser;
-using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
-using System;
-using System.Collections.Generic;
+using Serilog;
+using System.Diagnostics;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace GSCode.NET.LSP.Handlers;
 
-internal class FoldingRangeHandler(ILanguageServerFacade facade,
+internal class FoldingRangeHandler(
     ScriptManager scriptManager,
-    ILogger<FoldingRangeHandler> logger,
     TextDocumentSelector documentSelector) : FoldingRangeHandlerBase
 {
-    private readonly ILanguageServerFacade _facade = facade;
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly ILogger<FoldingRangeHandler> _logger = logger;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
 
-    public override async Task<Container<FoldingRange>?> Handle(
-        FoldingRangeRequestParam request,
-        CancellationToken cancellationToken
-    )
+    public override async Task<Container<FoldingRange>?> Handle(FoldingRangeRequestParam request, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Folding range request received, processing...");
-        Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
-
-        Container<FoldingRange> result = new();
-
-        if (script is not null)
-        {
-            result = new Container<FoldingRange>(await script.GetFoldingRangesAsync(cancellationToken));
-        }
-
-        _logger.LogInformation("Folding range request processed. FoldingRange being sent: {result}", result.Count());
-        return result;
+        Log.Information("Folding range request received, processing...");
+        Script? script = scriptManager.GetParsedEditor(request.TextDocument);
+        if (script is null) return new Container<FoldingRange>();
+        var ranges = await script.GetFoldingRangesAsync(cancellationToken);
+        var result = ranges.ToArray();
+        Log.Information("Folding range request processed. FoldingRanges: {Count}", result.Length);
+        return new Container<FoldingRange>(result);
     }
 
-    protected override FoldingRangeRegistrationOptions CreateRegistrationOptions(FoldingRangeCapability capability, ClientCapabilities clientCapabilities)
-    {
-        return new FoldingRangeRegistrationOptions {
-            DocumentSelector = _documentSelector
-        };
-    }
+    protected override FoldingRangeRegistrationOptions CreateRegistrationOptions(
+        FoldingRangeCapability capability, ClientCapabilities clientCapabilities)
+        => new() { DocumentSelector = documentSelector };
 }

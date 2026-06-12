@@ -21,6 +21,9 @@ class Program
         [Option('i', "index", Required = false, HelpText = "Indexes the provided directory (mimics workspace indexing).")]
         public string Index { get; set; } = default!;
 
+        [Option('s', "signature-only", Required = false, HelpText = "With --index: run the lightweight signature-only pass used for game script roots.")]
+        public bool SignatureOnly { get; set; }
+
         [Option('b', "benchmark", Required = false, HelpText = "Runs a scene shared benchmark ( do not use).")]
         public bool Benchmark { get; set; }
     }
@@ -30,11 +33,11 @@ class Program
         await CommandLine.Parser.Default.ParseArguments<Options>(args)
                .WithParsedAsync<Options>(async o =>
                {
-                   ScriptManager scriptManager = new ScriptManager(new NullLogger<ScriptManager>());
+                   ScriptManager scriptManager = new ScriptManager();
 
                    if (o.Index != null)
                    {
-                       await RunIndexMode(scriptManager, o.Index);
+                       await RunIndexModeAsync(scriptManager, o.Index, o.SignatureOnly);
                        return;
                    }
 
@@ -68,22 +71,22 @@ class Program
                });
     }
 
-    static async Task RunIndexMode(ScriptManager scriptManager, string directory)
+    static async Task RunIndexModeAsync(ScriptManager scriptManager, string directory, bool signatureOnly)
     {
         string fullPath = Path.GetFullPath(directory);
         if (!Directory.Exists(fullPath))
         {
-            Console.Error.WriteLine($"Directory not found: {fullPath}");
+            await Console.Error.WriteLineAsync($"Directory not found: {fullPath}");
             return;
         }
 
-        Console.WriteLine($"Indexing {fullPath}...");
+        Console.WriteLine($"Indexing {fullPath}{(signatureOnly ? " (signature-only)" : "")}...");
         var sw = Stopwatch.StartNew();
 
         var process = Process.GetCurrentProcess();
         long memBefore = process.WorkingSet64;
 
-        await scriptManager.IndexWorkspaceAsync(fullPath);
+        await scriptManager.IndexWorkspaceAsync(fullPath, signatureOnly);
 
         sw.Stop();
 
@@ -99,8 +102,15 @@ class Program
         Console.WriteLine($"Memory before: {memBefore / (1024.0 * 1024.0):F1} MB");
         Console.WriteLine($"Memory after:  {memAfter / (1024.0 * 1024.0):F1} MB");
         Console.WriteLine($"Memory delta:  {(memAfter - memBefore) / (1024.0 * 1024.0):F1} MB");
-        Console.WriteLine();
-        Console.WriteLine("Press any key to exit (attach profiler now if needed).");
-        Console.ReadKey();
+
+        var (functions, classes) = scriptManager.SymbolRegistry.GetCountsByType();
+        Console.WriteLine($"Registry: {functions:N0} functions, {classes:N0} classes, {scriptManager.GetLoadedScriptCount():N0} scripts");
+
+        if (!Console.IsInputRedirected)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Press any key to exit (attach profiler now if needed).");
+            Console.ReadKey();
+        }
     }
 }

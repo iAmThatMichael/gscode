@@ -126,21 +126,33 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
         var perfSw = System.Diagnostics.Stopwatch.StartNew();
 #endif
 
-        Stack<CfgNode> worklist = new();
-        worklist.Push(functionGraph.Start);
+        // Process nodes in reverse post-order: for reducible CFGs (which structured GSC
+        // always produces) this visits a node after as many of its predecessors as possible
+        // per round, converging in roughly (loop nesting depth + 2) passes per node.
+        Dictionary<CfgNode, int> rpoIndex = ComputeReversePostOrder(functionGraph);
+
+        PriorityQueue<CfgNode, int> worklist = new();
+        HashSet<CfgNode> queued = new();
+        worklist.Enqueue(functionGraph.Start, 0);
+        queued.Add(functionGraph.Start);
 
         HashSet<CfgNode> visited = new();
+        Dictionary<CfgNode, int> visitCounts = new();
 
         // Calculate iteration limit based on graph size to prevent infinite loops
-        int totalNodes = CountAllNodes(functionGraph);
+        int totalNodes = rpoIndex.Count;
         int maxIterations = Math.Max(100, totalNodes * 10); // At least 100, or 10x nodes
         int iterations = 0;
 
         while (worklist.Count > 0 && iterations < maxIterations)
         {
             iterations++;
-            CfgNode node = worklist.Pop();
+            CfgNode node = worklist.Dequeue();
+            queued.Remove(node);
             visited.Add(node);
+
+            int visits = visitCounts.GetValueOrDefault(node) + 1;
+            visitCounts[node] = visits;
 
 #if FLAG_PERFORMANCE_TRACKING
             long nodeStart = perfSw.ElapsedTicks;
@@ -166,6 +178,16 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
             timeInMergeSets += perfSw.ElapsedTicks - nodeStart;
             long processStart = perfSw.ElapsedTicks;
 #endif
+
+            // Widening safety net: a node revisited this often means the value lattice is
+            // not settling (or a future change broke monotonicity or value equality).
+            // Coarsen every still-changing variable to a value that can only change a
+            // bounded number of further times, forcing convergence at reduced precision
+            // instead of silently truncating the analysis at the iteration cap.
+            if (visits > WideningVisitThreshold && InSets.TryGetValue(node, out Dictionary<string, ScrVariable>? wideningBase))
+            {
+                WidenInSet(inSet, wideningBase);
+            }
 
             // Check if the in set has changed, if not, then we can skip this node.
             if (InSets.TryGetValue(node, out Dictionary<string, ScrVariable>? currentInSet) && currentInSet.VariableTableEquals(inSet))
@@ -290,7 +312,10 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
 
             foreach (CfgNode successor in node.Outgoing)
             {
-                worklist.Push(successor);
+                if (queued.Add(successor))
+                {
+                    worklist.Enqueue(successor, rpoIndex.GetValueOrDefault(successor, int.MaxValue));
+                }
             }
         }
 
@@ -312,15 +337,14 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
         }
 #endif
 
-        // Check if we hit the iteration limit
-        if (iterations >= maxIterations)
+        // The cap should be unreachable now that value equality and widening force
+        // convergence — if it trips anyway, surface it: the final diagnostics pass below
+        // runs on unstable IN sets, so results for this function may be incomplete.
+        if (worklist.Count > 0)
         {
-            double iterationRatio = (double)iterations / Math.Max(1, totalNodes);
-            if (iterationRatio > 80) // >80 iterations per node suggests genuine convergence issues
-            {
-                Log.Warning("Type flow analysis hit iteration limit ({MaxIterations}) for function {FunctionName} ({NodeCount} nodes, {Iterations} iterations, {IterationRatio:F1}x per node). This may indicate convergence issues.",
-                    maxIterations, function?.Name ?? currentClass?.Name ?? "<anonymous>", totalNodes, iterations, iterationRatio);
-            }
+            Sense.TypeFlowIterationLimitHits++;
+            Log.Warning("Type flow analysis hit its iteration limit ({MaxIterations}) before converging for function {FunctionName} ({NodeCount} nodes). Diagnostics for this function may be incomplete.",
+                maxIterations, function?.Name ?? currentClass?.Name ?? "<anonymous>", totalNodes);
         }
 
         // Now that analysis is done, do one final pass to add diagnostics and sense tokens.
@@ -413,7 +437,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
                 continue;
             }
 
-            inSet[param.Name.Lexeme] = new(param.Name.Lexeme, ScrData.Default, 0, false);
+            inSet[param.Name.Lexeme] = new(param.Name.Lexeme, ScrData.Default, 0, false, DefinitionSource: param);
         }
 
         // Note: Built-in globals (self, level, game, anim) are no longer added to the symbol table.
@@ -546,17 +570,20 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
     public void AnalyseSwitch(SwitchNode node, SymbolTable symbolTable)
     {
         // Create context for this switch (only once, even if revisited)
-        if (!SwitchContexts.ContainsKey(node))
+        bool firstVisit = !SwitchContexts.TryGetValue(node, out SwitchAnalysisContext? context);
+        if (firstVisit)
         {
-            var context = new SwitchAnalysisContext();
-
-            // Analyze expression ONCE and cache it
-            if (node.Source.Expression is not null)
-            {
-                context.SwitchExpressionType = AnalyseExpr(node.Source.Expression, symbolTable, Sense);
-            }
-
+            context = new SwitchAnalysisContext();
             SwitchContexts[node] = context;
+        }
+
+        // Analyse the expression on the first visit (to cache the subject type for case label
+        // checks) and again on the final non-silent pass: sense tokens and diagnostics are
+        // suppressed during the worklist phase, so skipping the re-run would leave the switch
+        // subject without highlighting or error reporting.
+        if (node.Source.Expression is not null && (firstVisit || !Silent))
+        {
+            context!.SwitchExpressionType = AnalyseExpr(node.Source.Expression, symbolTable, Sense);
         }
     }
 
@@ -899,28 +926,77 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
         Sense.AddIdeDiagnostic(range, code, args);
     }
 
-    private static int CountAllNodes(ControlFlowGraph graph)
+    /// <summary>
+    /// Number of visits to a single CFG node before widening kicks in. With reverse
+    /// post-order processing, a well-behaved analysis needs about (loop nesting depth + 2)
+    /// visits per node, so this threshold is only reached when values are not settling.
+    /// </summary>
+    private const int WideningVisitThreshold = 25;
+
+    /// <summary>
+    /// Widens a still-changing variable value to one that can only change a bounded number
+    /// of further times: the type union is kept (it grows monotonically over a finite flag
+    /// set), and all value-level facts (truthiness, sub-types, determinacy) are discarded.
+    /// </summary>
+    internal static ScrData Widen(ScrData previous, ScrData current)
     {
-        HashSet<CfgNode> visited = new();
-        Stack<CfgNode> stack = new();
-        stack.Push(graph.Start);
+        return new ScrData(previous.Type | current.Type, subTypes: null, booleanValue: null,
+            readOnly: previous.ReadOnly && current.ReadOnly)
+        {
+            Indeterminate = true
+        };
+    }
+
+    private static void WidenInSet(Dictionary<string, ScrVariable> inSet, Dictionary<string, ScrVariable> previousInSet)
+    {
+        foreach ((string name, ScrVariable variable) in inSet)
+        {
+            if (!previousInSet.TryGetValue(name, out ScrVariable? previous) || previous is null
+                || previous.Data == variable.Data)
+            {
+                continue;
+            }
+
+            inSet[name] = variable with { Data = Widen(previous.Data, variable.Data) };
+        }
+    }
+
+    /// <summary>
+    /// Computes reverse post-order indices for all nodes reachable from the graph start.
+    /// </summary>
+    private static Dictionary<CfgNode, int> ComputeReversePostOrder(ControlFlowGraph graph)
+    {
+        List<CfgNode> postOrder = new();
+        HashSet<CfgNode> visited = new() { graph.Start };
+        Stack<(CfgNode Node, IEnumerator<CfgNode> Successors)> stack = new();
+        stack.Push((graph.Start, graph.Start.Outgoing.GetEnumerator()));
 
         while (stack.Count > 0)
         {
-            CfgNode node = stack.Pop();
-            if (visited.Add(node))
+            (CfgNode node, IEnumerator<CfgNode> successors) = stack.Peek();
+
+            if (successors.MoveNext())
             {
-                foreach (CfgNode successor in node.Outgoing)
+                CfgNode successor = successors.Current;
+                if (visited.Add(successor))
                 {
-                    if (!visited.Contains(successor))
-                    {
-                        stack.Push(successor);
-                    }
+                    stack.Push((successor, successor.Outgoing.GetEnumerator()));
                 }
+            }
+            else
+            {
+                stack.Pop();
+                postOrder.Add(node);
             }
         }
 
-        return visited.Count;
+        Dictionary<CfgNode, int> rpoIndex = new(postOrder.Count);
+        for (int i = 0; i < postOrder.Count; i++)
+        {
+            rpoIndex[postOrder[postOrder.Count - 1 - i]] = i;
+        }
+
+        return rpoIndex;
     }
 
     /// <summary>

@@ -1,7 +1,5 @@
-using GSCode.Parser.Data;
+﻿using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
-using OmniSharp.Extensions.LanguageServer.Protocol;
-
 namespace GSCode.Tests;
 
 internal static class TestHelper
@@ -43,7 +41,7 @@ internal static class TestHelper
     /// </summary>
     public static ParserIntelliSense CreateDummySense(string langId = "gsc")
     {
-        return new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), langId);
+        return new ParserIntelliSense(0, new Uri("file:///test"), langId);
     }
 
     private static bool IsTrivia(Token token)
@@ -52,3 +50,4 @@ internal static class TestHelper
             or TokenType.Whitespace or TokenType.LineBreak;
     }
 }
+

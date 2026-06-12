@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using CommandLine;
 
-namespace GSCode.NET;
+namespace GSCode.NET.LSP;
 
 // The command line options and associated LSP communication channels code was adapted from Microsoft's Azure Bicep language server, which is licensed under the MIT License.
 // https://github.com/Azure/bicep/blob/main/src/Bicep.LangServer/Program.cs

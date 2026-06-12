@@ -41,3 +41,4 @@ public class BrokenFunctionTests
         Assert.Contains("deprecated", symbol.SemanticTokenModifiers);
     }
 }
+

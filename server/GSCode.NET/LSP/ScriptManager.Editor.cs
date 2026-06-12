@@ -1,9 +1,9 @@
+using Serilog;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using OmniSharp.Extensions.LanguageServer.Protocol;
-using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using System.Linq;
 
@@ -13,54 +13,66 @@ public partial class ScriptManager
 {
     public async Task<IEnumerable<Diagnostic>> AddEditorAsync(TextDocumentItem document, CancellationToken cancellationToken = default)
     {
+        string content;
+        Script script;
+
+        // Hold the editor priority only for the brief cache + lookup, then release
+        // so the indexer dispatch loop is not blocked during the full parse.
         await _editorPriority.WaitAsync(cancellationToken);
         try
         {
-            string content = _cache.AddToCache(document);
-            Script script = GetEditor(document);
-
-            return await ProcessEditorAsync(document.Uri.ToUri(), script, content, cancellationToken);
+            content = _cache.AddToCache(document);
+            script = GetEditor(document);
         }
         finally
         {
             _editorPriority.Release();
         }
+
+        return await ProcessEditorAsync(document.Uri.ToUri(), script, content, cancellationToken);
     }
 
     public async Task<IEnumerable<Diagnostic>> UpdateEditorAsync(OptionalVersionedTextDocumentIdentifier document, IEnumerable<TextDocumentContentChangeEvent> changes, CancellationToken cancellationToken = default)
     {
+        string updatedContent;
+        Script script;
+
         await _editorPriority.WaitAsync(cancellationToken);
         try
         {
-            string updatedContent = _cache.UpdateCache(document, changes);
+            updatedContent = _cache.UpdateCache(document, changes);
 
             // Check if content actually changed using hash comparison
-            var docUri = document.Uri;
-            int contentHash = updatedContent.GetHashCode();
+            var docUri = document.Uri.ToUri();
+            int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(updatedContent);
 
-            if (Scripts.TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
+            if (UseWorkspaceCache &&
+                Scripts.TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
             {
                 // Content unchanged, return cached diagnostics
                 return await cached.Script.GetDiagnosticsAsync(cancellationToken);
             }
 
-            Script script = GetEditor(document);
-
-            return await ProcessEditorAsync(document.Uri.ToUri(), script, updatedContent, cancellationToken);
+            script = GetEditor(document);
         }
         finally
         {
             _editorPriority.Release();
         }
+
+        return await ProcessEditorAsync(document.Uri.ToUri(), script, updatedContent, cancellationToken);
     }
 
     public void RemoveEditor(TextDocumentIdentifier document)
     {
-        DocumentUri documentUri = document.Uri;
+        Uri documentUri = document.Uri.ToUri();
 
         // Remove symbols from global registry when file is closed
-        string filePath = documentUri.ToUri().LocalPath;
+        string filePath = UriHelper.GetLocalPath(documentUri);
         _symbolRegistry.RemoveSymbolsFromFile(filePath);
+
+        // Remove fields from global field registry when file is closed
+        _fieldRegistry.RemoveFieldsFromFile(filePath);
 
         // Clean up cached macro definitions for this file
         GSCode.Parser.Pre.MacroDefinitionCache.Instance.RemoveFileMacros(filePath);
@@ -71,10 +83,11 @@ public partial class ScriptManager
         RemoveDependent(documentUri);
     }
 
+    public Script? GetParsedEditor(Uri uri)
+        => Scripts.TryGetValue(uri, out var script) ? script.Script : null;
+
     public Script? GetParsedEditor(TextDocumentIdentifier document)
-    {
-        return Scripts.TryGetValue(document.Uri, out var script) ? script.Script : null;
-    }
+        => GetParsedEditor(document.Uri.ToUri());
 
     /// <summary>
     /// Re-parses every document that is currently open in the editor and republishes
@@ -90,7 +103,7 @@ public partial class ScriptManager
             .Select(kv => kv.Key)
             .ToList();
 
-        foreach (DocumentUri docUri in editorUris)
+        foreach (Uri docUri in editorUris)
         {
             // Skip if the document was closed while we were iterating
             if (!_cache.TryGetContent(docUri, out string content))
@@ -107,13 +120,12 @@ public partial class ScriptManager
                 }
 
                 IEnumerable<Diagnostic> diags =
-                    await ProcessEditorAsync(docUri.ToUri(), cached.Script, content, cancellationToken);
+                    await ProcessEditorAsync(docUri, cached.Script, content, cancellationToken);
 
-                _facade?.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
+                if (_notifier is not null)
                 {
-                    Uri = docUri,
-                    Diagnostics = new Container<Diagnostic>(diags.ToArray())
-                });
+                    _ = _notifier.PublishDiagnosticsAsync(docUri, diags, cancellationToken);
+                }
             }
             finally
             {
@@ -126,26 +138,30 @@ public partial class ScriptManager
     /// Retrieves the current cached source text for the given document.
     /// Returns false if the document is not open in the editor cache.
     /// </summary>
-    public bool TryGetCachedContent(DocumentUri uri, out string content)
+    public bool TryGetCachedContent(Uri uri, out string content)
         => _cache.TryGetContent(uri, out content);
 
     private async Task<IEnumerable<Diagnostic>> ProcessEditorAsync(Uri documentUri, Script script, string content, CancellationToken cancellationToken = default)
     {
-        string filePath = documentUri.LocalPath;
-        var docUri = DocumentUri.From(documentUri);
-        int contentHash = content.GetHashCode();
+        string filePath = UriHelper.GetLocalPath(documentUri);
+        int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
 
         // Update cached script metadata
-        if (Scripts.TryGetValue(docUri, out var cached))
+        if (Scripts.TryGetValue(documentUri, out var cached))
         {
             cached.LastContentHash = contentHash;
             cached.LastParsedAt = DateTime.UtcNow;
+            cached.WorkspaceCacheDirty = true;
+            _workspaceCacheDirty = true;
         }
 
         await script.ParseAsync(content);
 
         // Populate global symbol registry with this script's definitions (returns true if changed)
         bool symbolsChanged = PopulateSymbolRegistry(filePath, script);
+
+        // Populate global field registry (level.x, world.y, game.z across files)
+        PopulateFieldRegistry(filePath, script);
 
         // Track if exported symbols changed for dependency invalidation
         if (cached is not null)
@@ -155,6 +171,7 @@ public partial class ScriptManager
 
         // Snapshot dependencies to avoid collection modification during enumeration
         var dependencies = script.Dependencies.ToList();
+        Log.Debug("DEPENDENCY_RESOLVE: {FilePath} has {Count} dependencies", filePath, dependencies.Count);
 
         // Parse all dependencies in parallel
         List<Task> dependencyTasks = new();
@@ -168,20 +185,18 @@ public partial class ScriptManager
         List<IExportedSymbol> exportedSymbols = new();
         foreach (Uri dependency in dependencies)
         {
-            var depDoc = DocumentUri.From(dependency);
-            if (Scripts.TryGetValue(depDoc, out CachedScript? cachedScript))
+            if (Scripts.TryGetValue(dependency, out CachedScript? cachedScript))
             {
-                await EnsureParsedAsync(depDoc, cachedScript.Script, script.LanguageId, cancellationToken);
+                await EnsureParsedAsync(dependency, cachedScript.Script, script.LanguageId, cancellationToken);
                 exportedSymbols.AddRange(await cachedScript.Script.IssueExportedSymbolsAsync(cancellationToken));
             }
         }
 
         // Merge symbols from dependencies (filtering, deduplication, conversion to relative paths)
-        var (mergeFuncLocs, mergeClassLocs) = await MergeDependencySymbolsAsync(dependencies, filePath, cancellationToken);
+        var (mergeFuncLocs, mergeClassLocs) = MergeDependencySymbols(dependencies, filePath);
 
         // Merge + analyse under this script's analysis lock
-        var thisDoc = DocumentUri.From(documentUri);
-        await WithAnalysisLockAsync(thisDoc, async () =>
+        await WithAnalysisLockAsync(documentUri, async () =>
         {
             if (script.DefinitionsTable is not null)
             {
@@ -204,16 +219,16 @@ public partial class ScriptManager
         return await script.GetDiagnosticsAsync(cancellationToken);
     }
 
-    private Script GetEditor(TextDocumentIdentifier document) => GetEditorByUri(document.Uri);
+    private Script GetEditor(TextDocumentIdentifier document) => GetEditorByUri(document.Uri.ToUri());
 
-    private Script GetEditor(TextDocumentItem document) => GetEditorByUri(document.Uri, document.LanguageId);
+    private Script GetEditor(TextDocumentItem document) => GetEditorByUri(document.Uri.ToUri(), document.LanguageId);
 
-    private Script GetEditorByUri(DocumentUri uri, string? languageId = null)
+    private Script GetEditorByUri(Uri uri, string? languageId = null)
     {
         var cached = Scripts.GetOrAdd(uri, key => new CachedScript()
         {
             Type = CachedScriptType.Editor,
-            Script = new Script(key, languageId ?? "gsc", _symbolRegistry)
+            Script = new Script(key, languageId ?? "gsc", _symbolRegistry, globalFieldProvider: _fieldRegistry)
         });
 
         // If it was a dependency, upgrade to editor
@@ -222,7 +237,7 @@ public partial class ScriptManager
             var newCached = new CachedScript()
             {
                 Type = CachedScriptType.Editor,
-                Script = new Script(uri, languageId ?? "gsc", _symbolRegistry)
+                Script = new Script(uri, languageId ?? "gsc", _symbolRegistry, globalFieldProvider: _fieldRegistry)
             };
             cached = Scripts.AddOrUpdate(uri, newCached, (_, _) => newCached);
         }
@@ -230,3 +245,4 @@ public partial class ScriptManager
         return cached.Script;
     }
 }
+

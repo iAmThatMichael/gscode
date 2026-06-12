@@ -1,7 +1,6 @@
 using GSCode.Data;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.Util;
-using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -59,7 +58,7 @@ internal sealed class ParserIntelliSense
     /// <summary>
     /// List of dependencies to request from the Language Server.
     /// </summary>
-    public List<DocumentUri> Dependencies { get; } = new();
+    public List<Uri> Dependencies { get; } = new();
 
     /// <summary>
     /// List of diagnostics to push to the editor.
@@ -71,6 +70,12 @@ internal sealed class ParserIntelliSense
     /// worklist phase to prevent incomplete type information from being recorded.
     /// </summary>
     public bool SilentSenseTokens { get; set; } = false;
+
+    /// <summary>
+    /// Number of functions whose type flow analysis hit the worklist iteration limit
+    /// before converging. Non-zero means diagnostics for those functions may be incomplete.
+    /// </summary>
+    public int TypeFlowIterationLimitHits { get; set; } = 0;
 
     // ── Editor-only (null/empty in Index mode) ──
     // These support IDE presentation features and are not needed during indexing.
@@ -105,17 +110,17 @@ internal sealed class ParserIntelliSense
     /// </summary>
     public DocumentCompletionsLibrary? Completions { get; }
 
-    public ParserIntelliSense(int endLine, DocumentUri scriptUri, string languageId, ScriptMode mode = ScriptMode.Editor)
+    public ParserIntelliSense(int endLine, Uri scriptUri, string languageId, ScriptMode mode = ScriptMode.Editor)
     {
         Mode = mode;
-        _scriptPath = scriptUri.Path;
-        ScriptUri = scriptUri.Path;
+        _scriptPath = scriptUri.LocalPath;
+        ScriptUri = scriptUri.LocalPath;
         _languageId = languageId;
 
         if (mode == ScriptMode.Editor)
         {
             HoverLibrary = new(endLine + 1);
-            Completions = new(Tokens, languageId, scriptUri.Path);
+            Completions = new(Tokens, languageId, scriptUri.LocalPath);
         }
     }
 
@@ -143,6 +148,25 @@ internal sealed class ParserIntelliSense
         if (Completions is null) return;
         Completions.DefinitionsTable = definitionsTable;
         Completions.MacroDefinitions = MacroDefinitions;
+    }
+
+    /// <summary>
+    /// Sets the global field provider for cross-file field completions on global objects.
+    /// </summary>
+    public void SetGlobalFieldProvider(IGlobalFieldProvider? provider)
+    {
+        if (Completions is null) return;
+        Completions.GlobalFieldProvider = provider;
+    }
+
+    /// <summary>
+    /// Sets the workspace symbol provider used for namespace and cross-script function
+    /// completions (all namespaces in the game/workspace, not just #using'd ones).
+    /// </summary>
+    public void SetWorkspaceSymbolProvider(SA.ISymbolLocationProvider? provider)
+    {
+        if (Completions is null) return;
+        Completions.WorkspaceSymbols = provider;
     }
 
     /// <summary>
@@ -207,7 +231,7 @@ internal sealed class ParserIntelliSense
 
     public void AddDependency(string scriptPath)
     {
-        Dependencies.Add(new Uri(scriptPath));
+        Dependencies.Add(new Uri(new Uri("file:///"), scriptPath.Replace('\\', '/')));
     }
 
     public string? GetDependencyPath(string dependencyPath, Range sourceRange)

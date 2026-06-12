@@ -102,7 +102,7 @@ internal class ScriptMacro : ISenseDefinition
     /// </summary>
     public string ExpansionSnippet { get; }
 
-    public string SemanticTokenType { get; } = OmniSharp.Extensions.LanguageServer.Protocol.Models.SemanticTokenType.Macro;
+    public string SemanticTokenType { get; } = "macro";
     public string[] SemanticTokenModifiers { get; } = [];
 
     public ScriptMacro(Token source, MacroDefinition defineSource, TokenList expansionTokens)

@@ -186,6 +186,22 @@
 					"scope": "window"
 				}
 			}
+		},
+		"configurationDefaults": {
+			"[gsc]": {
+				"editor.quickSuggestions": {
+					"other": "on",
+					"comments": "off",
+					"strings": "off"
+				}
+			},
+			"[csc]": {
+				"editor.quickSuggestions": {
+					"other": "on",
+					"comments": "off",
+					"strings": "off"
+				}
+			}
 		}
 	},
 	"scripts": {

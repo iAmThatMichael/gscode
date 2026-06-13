@@ -1,4 +1,4 @@
-﻿//using GSCode.Data;
+//using GSCode.Data;
 //using GSCode.Data.Models;
 //using GSCode.Parser.AST.Expressions;
 //using GSCode.Parser.AST.Nodes;
@@ -7,7 +7,7 @@
 //using GSCode.Parser.SPA.Logic.Analysers;
 //using GSCode.Parser.SPA.Logic.Components;
 //using GSCode.Parser.Util;
-//using Microsoft.VisualStudio.LanguageServer.Protocol;
+//using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 //using System.Collections.Generic;
 //using System.Runtime.Intrinsics.X86;
 

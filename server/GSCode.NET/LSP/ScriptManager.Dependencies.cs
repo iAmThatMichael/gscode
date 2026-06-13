@@ -1,49 +1,99 @@
+using Serilog;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Data;
-using OmniSharp.Extensions.LanguageServer.Protocol;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using System.Collections.Concurrent;
 
 namespace GSCode.NET.LSP;
 
 public partial class ScriptManager
 {
-    private async Task<Script> AddDependencyAsync(Uri dependentUri, Uri uri, string languageId)
+    private async Task<Script> AddDependencyAsync(
+        Uri dependentUri,
+        Uri uri,
+        string languageId,
+        IndexingContext? indexingContext = null,
+        CancellationToken cancellationToken = default)
     {
-        var docUri = DocumentUri.From(uri);
         bool isNewDependency = false;
+        string depPath = UriHelper.GetLocalPath(uri);
 
-        var cached = Scripts.GetOrAdd(docUri, key =>
+        var cached = Scripts.GetOrAdd(uri, key =>
         {
             isNewDependency = true;
             return new CachedScript
             {
                 Type = CachedScriptType.Dependency,
-                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index)
+                Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry)
             };
         });
 
         // Only parse if new dependency or not yet parsed
         if (isNewDependency || !cached.Script.Parsed)
         {
-            await EnsureParsedAsync(docUri, cached.Script, languageId, CancellationToken.None);
+            Log.Debug("DEPENDENCY_RESOLVE: {DependencyPath} (new={IsNew}, requested by {DependentUri})",
+                depPath, isNewDependency, UriHelper.GetLocalPath(dependentUri));
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            string filePath = UriHelper.GetLocalPath(uri);
+
+            if (indexingContext is not null)
+            {
+                FileSnapshot snapshot = await indexingContext.FileSnapshots.GetAsync(filePath, cancellationToken);
+                await EnsureParsedAsync(uri, cached.Script, languageId, cancellationToken, snapshot.Content);
+                cached.LastContentHash = snapshot.Exists ? snapshot.ContentHash : 0;
+            }
+            else
+            {
+                await EnsureParsedAsync(uri, cached.Script, languageId, cancellationToken);
+
+                try
+                {
+                    string content = await File.ReadAllTextAsync(filePath, cancellationToken);
+                    cached.LastContentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Failed to compute content hash for dependency {Path}", filePath);
+                }
+            }
+            cached.WorkspaceCacheDirty = true;
+            _workspaceCacheDirty = true;
 
             // Populate global symbol registry with dependency's definitions
-            string filePath = uri.LocalPath;
             bool symbolsChanged = PopulateSymbolRegistry(filePath, cached.Script);
+
+            // Free parse-time memory (tokens, AST, analysis dictionaries) — dependency
+            // scripts are not semantically analysed. Skip under Full workspace indexing,
+            // where the indexer may still analyse this script and needs its AST; the
+            // Full-analysis path performs its own compaction afterwards.
+            if (GSCode.Parser.Configuration.CompletionConfiguration.WorkspaceIndexingMode
+                != GSCode.Parser.Configuration.IndexingMode.Full)
+            {
+                cached.Script.CompactForSignatureIndex();
+            }
 
             cached.ExportedSymbolsChanged = symbolsChanged;
             cached.LastParsedAt = DateTime.UtcNow;
+            sw.Stop();
+
+            Log.Debug("DEPENDENCY_RESOLVE: {DependencyPath} completed in {ElapsedMs} ms (symbolsChanged={Changed})",
+                depPath, sw.ElapsedMilliseconds, symbolsChanged);
+        }
+        else
+        {
+            Log.Debug("DEPENDENCY_RESOLVE: {DependencyPath} already parsed, skipping", depPath);
         }
 
-        cached.Dependents.TryAdd(DocumentUri.From(dependentUri), 0);
+        cached.Dependents.TryAdd(dependentUri, 0);
 
         return cached.Script;
     }
 
-    private void RemoveDependent(DocumentUri dependentUri)
+    private void RemoveDependent(Uri dependentUri)
     {
-        foreach (KeyValuePair<DocumentUri, CachedScript> script in Scripts)
+        foreach (KeyValuePair<Uri, CachedScript> script in Scripts)
         {
             var dependents = script.Value.Dependents;
             if (dependents.TryRemove(dependentUri, out _))
@@ -62,75 +112,64 @@ public partial class ScriptManager
     /// Collects, filters, and deduplicates symbols from a set of dependency URIs.
     /// Returns merged function and class locations ready for DefinitionsTable.
     /// </summary>
-    private async Task<(List<KeyValuePair<(string, string), (string, Range)>> Functions,
-                        List<KeyValuePair<(string, string), (string, Range)>> Classes)>
-        MergeDependencySymbolsAsync(
-            IEnumerable<Uri> dependencies,
-            string filePath,
-            CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// Reads each dependency's own submissions from the global symbol registry rather than
+    /// its DefinitionsTable. The table is unreliable for this purpose: it is stripped after
+    /// registry population for dependency scripts, and for workspace-indexed scripts it
+    /// contains locations merged from <em>their</em> dependencies — using it here would leak
+    /// transitive namespaces into the editor script's KnownNamespaces, suppressing the
+    /// "namespace does not exist" diagnostic for scripts that were never #using'd.
+    /// </remarks>
+    private (List<KeyValuePair<(string, string), (string, Range)>> Functions,
+             List<KeyValuePair<(string, string), (string, Range)>> Classes)
+        MergeDependencySymbols(IEnumerable<Uri> dependencies, string filePath)
     {
         string? currentWorkspaceRoot = WorkspaceBoundaryFilter.GetScriptsWorkspaceRoot(filePath);
         bool currentIsInRawFolder = WorkspaceBoundaryFilter.IsInCustomRawFolder(filePath) || WorkspaceBoundaryFilter.IsInToolsRawFolder(filePath);
 
-        var allFuncLocs = new List<(string Namespace, string Name, string FilePath, Range Range)>();
-        var allClassLocs = new List<(string Namespace, string Name, string FilePath, Range Range)>();
+        // Deduplicate inline — first-seen wins, no intermediate lists
+        var uniqueFunctions = new Dictionary<(string, string), (string FilePath, Range Range)>();
+        var uniqueClasses   = new Dictionary<(string, string), (string FilePath, Range Range)>();
 
         foreach (Uri dependency in dependencies)
         {
-            var depDoc = DocumentUri.From(dependency);
-            if (!Scripts.TryGetValue(depDoc, out CachedScript? depScript)) continue;
+            string depPath = UriHelper.GetLocalPath(dependency);
 
-            await WithAnalysisLockAsync(depDoc, async () =>
+            foreach (SymbolDefinition def in _symbolRegistry.GetSymbolsDefinedInFile(depPath))
             {
-                var depTable = depScript.Script.DefinitionsTable;
-                if (depTable is null) return;
-
-                foreach (var funcLoc in depTable.GetAllFunctionLocations())
+                if (WorkspaceBoundaryFilter.FilterSymbolLocation(def.FilePath, currentWorkspaceRoot, currentIsInRawFolder)
+                    == WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)
                 {
-                    string funcFilePath = funcLoc.Value.FilePath;
-                    if (WorkspaceBoundaryFilter.FilterSymbolLocation(funcFilePath, currentWorkspaceRoot, currentIsInRawFolder)
-                        != WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)
-                    {
-                        string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(funcFilePath);
-                        if (relativePath != null)
-                            allFuncLocs.Add((funcLoc.Key.Qualifier, funcLoc.Key.SymbolName, relativePath, funcLoc.Value.Range.ToRange()));
-                    }
+                    continue;
                 }
 
-                foreach (var classLoc in depTable.GetAllClassLocations())
+                string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(def.FilePath);
+                if (relativePath is null)
                 {
-                    string classFilePath = classLoc.Value.FilePath;
-                    if (WorkspaceBoundaryFilter.FilterSymbolLocation(classFilePath, currentWorkspaceRoot, currentIsInRawFolder)
-                        != WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)
-                    {
-                        string? relativePath = GSCode.Parser.Util.ScriptFileResolver.ConvertToRelativeScriptPath(classFilePath);
-                        if (relativePath != null)
-                            allClassLocs.Add((classLoc.Key.Qualifier, classLoc.Key.SymbolName, relativePath, classLoc.Value.Range.ToRange()));
-                    }
+                    continue;
                 }
 
-                await Task.CompletedTask;
-            }, cancellationToken);
+                var key = (def.Namespace, def.Name);
+                if (def.Type == ExportedSymbolType.Function)
+                {
+                    uniqueFunctions.TryAdd(key, (relativePath, def.Range.ToRange()));
+                }
+                else if (def.Type == ExportedSymbolType.Class)
+                {
+                    uniqueClasses.TryAdd(key, (relativePath, def.Range.ToRange()));
+                }
+            }
         }
 
-        // Deduplicate: first-seen wins
-        var uniqueFunctions = new Dictionary<(string Namespace, string Name), (string FilePath, Range Range)>();
-        var uniqueClasses = new Dictionary<(string Namespace, string Name), (string FilePath, Range Range)>();
-
-        foreach (var func in allFuncLocs)
-            uniqueFunctions.TryAdd((func.Namespace, func.Name), (func.FilePath, func.Range));
-
-        foreach (var cls in allClassLocs)
-            uniqueClasses.TryAdd((cls.Namespace, cls.Name), (cls.FilePath, cls.Range));
-
         var mergeFuncLocs = uniqueFunctions
-            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, kvp.Value))
+            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, (kvp.Value.FilePath, kvp.Value.Range)))
             .ToList();
 
         var mergeClassLocs = uniqueClasses
-            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, kvp.Value))
+            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, (kvp.Value.FilePath, kvp.Value.Range)))
             .ToList();
 
         return (mergeFuncLocs, mergeClassLocs);
     }
 }
+

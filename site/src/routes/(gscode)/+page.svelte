@@ -52,7 +52,7 @@
 			rel="noopener noreferrer"
 		>
 			<Download class="w-5 h-5" />
-			<span>v1.4.1</span>
+			<span>v1.5.0</span>
 		</a>
 	</div>
 </section>

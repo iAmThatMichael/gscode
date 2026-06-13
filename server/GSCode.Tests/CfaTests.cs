@@ -10,7 +10,6 @@ using GSCode.Parser.Data;
 using GSCode.Parser.DFA;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.Lexical;
-using OmniSharp.Extensions.LanguageServer.Protocol;
 using Xunit;
 
 namespace GSCode.Tests;
@@ -37,7 +36,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ""));
 
         Assert.NotNull(cfg.Start);
         Assert.NotNull(cfg.End);
@@ -74,7 +73,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ""));
 
         Assert.NotNull(cfg.Start);
         Assert.NotNull(cfg.End);
@@ -121,7 +120,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ""));
 
         Assert.NotNull(cfg.Start);
         Assert.NotNull(cfg.End);
@@ -311,7 +310,7 @@ public class CfaTests
 
         return ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ""));
     }
 
     // ===== Additional CFA tests =====
@@ -339,7 +338,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ""));
 
         // entry -> while decision
         DecisionNode decision = GetSingleOutgoing<DecisionNode>(cfg.Start);
@@ -385,7 +384,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ""));
 
         // entry -> iteration node
         IterationNode iteration = GetSingleOutgoing<IterationNode>(cfg.Start);
@@ -427,7 +426,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ""));
 
         // entry -> body first (do-while executes body before condition)
         BasicBlock body = GetSingleOutgoing<BasicBlock>(cfg.Start);
@@ -481,7 +480,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ""));
 
         Assert.NotNull(cfg.Start);
         Assert.NotNull(cfg.End);
@@ -516,7 +515,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ""));
 
         // entry -> while decision
         DecisionNode decision = GetSingleOutgoing<DecisionNode>(cfg.Start);
@@ -554,7 +553,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new DocumentUri("", "", "", "", ""), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ""));
 
         // entry -> while decision
         DecisionNode decision = GetSingleOutgoing<DecisionNode>(cfg.Start);
@@ -601,3 +600,5 @@ public class CfaTests
         return Assert.IsType<T>(outgoing);
     }
 }
+
+

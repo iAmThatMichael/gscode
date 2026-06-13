@@ -1,97 +1,70 @@
 using GSCode.Parser.Configuration;
 using MediatR;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Workspace;
-using System.Threading;
-using System.Threading.Tasks;
+using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 
 namespace GSCode.NET.LSP.Handlers;
 
-internal class ConfigurationHandler : DidChangeConfigurationHandlerBase
+internal class ConfigurationHandler(ScriptManager scriptManager, LoggingLevelSwitch loggingLevelSwitch) : DidChangeConfigurationHandlerBase
 {
-    private readonly ILogger<ConfigurationHandler> _logger;
-
-    public ConfigurationHandler(ILogger<ConfigurationHandler> logger)
-    {
-        _logger = logger;
-    }
-
     public override Task<Unit> Handle(DidChangeConfigurationParams request, CancellationToken cancellationToken)
     {
         try
         {
-            // Parse the configuration settings
-            if (request.Settings is JObject settings)
+            var settings = request.Settings as JToken;
+            var gscodeSection = settings?["gscode"];
+            if (gscodeSection is null) return Unit.Task;
+
+            var opts = CompletionOptions.Current;
+
+            // customRawPath — normalise empty strings to null, sync to ScriptManager
+            var customRawPath = gscodeSection["customRawPath"]?.Value<string>();
+            customRawPath = string.IsNullOrWhiteSpace(customRawPath) ? null : customRawPath;
+            opts.CustomRawPath = customRawPath;
+            scriptManager.CustomRawPath = customRawPath;
+
+            // allowRawFolderWrites
+            opts.AllowRawFolderWrites = gscodeSection["allowRawFolderWrites"]?.Value<bool>() ?? false;
+
+            // workspaceIndexingMode
+            var indexingModeStr = gscodeSection["workspaceIndexingMode"]?.Value<string>()?.ToLowerInvariant();
+            opts.WorkspaceIndexingMode = indexingModeStr switch
             {
-                var gscodeSection = settings["gscode"];
-                if (gscodeSection != null)
-                {
-                    // Read customRawPath setting
-                    var customRawPath = gscodeSection["customRawPath"]?.Value<string>();
-                    if (customRawPath != null)
-                    {
-                        _logger.LogInformation("Configuration: Setting customRawPath to {Path}", customRawPath);
-                        CompletionConfiguration.CustomRawPath = customRawPath;
-                    }
-                    else
-                    {
-                        _logger.LogInformation("Configuration: customRawPath not set or null");
-                        CompletionConfiguration.CustomRawPath = null;
-                    }
+                "full"    => IndexingMode.Full,
+                "partial" => IndexingMode.Partial,
+                _         => IndexingMode.Off
+            };
 
-                    // Read allowRawFolderWrites setting
-                    var allowRawFolderWrites = gscodeSection["allowRawFolderWrites"]?.Value<bool>();
-                    if (allowRawFolderWrites.HasValue)
-                    {
-                        _logger.LogInformation("Configuration: Setting allowRawFolderWrites to {Value}", allowRawFolderWrites.Value);
-                        CompletionConfiguration.AllowRawFolderWrites = allowRawFolderWrites.Value;
-                    }
-                    else
-                    {
-                        _logger.LogInformation("Configuration: allowRawFolderWrites not set, using default (false)");
-                        CompletionConfiguration.AllowRawFolderWrites = false;
-                    }
+            // serverLogLevel
+            var logLevelStr = gscodeSection["serverLogLevel"]?.Value<string>()?.ToLowerInvariant();
+            loggingLevelSwitch.MinimumLevel = logLevelStr switch
+            {
+                "messages" => LogEventLevel.Information,
+                "verbose"  => LogEventLevel.Debug,
+                _          => LogEventLevel.Warning   // "off" or unset
+            };
 
-                    // Read workspaceIndexingMode setting (consolidated from enableWorkspaceIndexing)
-                    var indexingMode = gscodeSection["workspaceIndexingMode"]?.Value<string>();
-                    if (!string.IsNullOrEmpty(indexingMode))
-                    {
-                        if (indexingMode.Equals("off", System.StringComparison.OrdinalIgnoreCase))
-                        {
-                            _logger.LogInformation("Configuration: Setting workspaceIndexingMode to Off");
-                            CompletionConfiguration.WorkspaceIndexingMode = IndexingMode.Off;
-                        }
-                        else if (indexingMode.Equals("full", System.StringComparison.OrdinalIgnoreCase))
-                        {
-                            _logger.LogInformation("Configuration: Setting workspaceIndexingMode to Full");
-                            CompletionConfiguration.WorkspaceIndexingMode = IndexingMode.Full;
-                        }
-                        else if (indexingMode.Equals("partial", System.StringComparison.OrdinalIgnoreCase))
-                        {
-                            _logger.LogInformation("Configuration: Setting workspaceIndexingMode to Partial");
-                            CompletionConfiguration.WorkspaceIndexingMode = IndexingMode.Partial;
-                        }
-                        else
-                        {
-                            _logger.LogWarning("Configuration: Invalid workspaceIndexingMode '{Mode}', using default (Off)", indexingMode);
-                            CompletionConfiguration.WorkspaceIndexingMode = IndexingMode.Off;
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogInformation("Configuration: workspaceIndexingMode not set, using default (Off)");
-                        CompletionConfiguration.WorkspaceIndexingMode = IndexingMode.Off;
-                    }
-                }
-            }
+            // enableWorkspaceCache
+            scriptManager.UseWorkspaceCache = gscodeSection["enableWorkspaceCache"]?.Value<bool>() ?? false;
+
+            // indexGameScripts (takes effect on next startup; recorded so logging reflects it)
+            opts.IndexGameScripts = gscodeSection["indexGameScripts"]?.Value<bool>() ?? true;
+
+            // rawFileWarningMode
+            opts.RawFileWarningMode = InitializationOptionsReader.ParseRawFileWarningModeValue(
+                gscodeSection["rawFileWarningMode"]?.Value<string>());
+
+            Log.Information("Configuration updated: IndexingMode={IndexingMode}, AllowRawFolderWrites={AllowWrites}, CustomRawPath={CustomRawPath}, EnableWorkspaceCache={EnableCache}, LogLevel={LogLevel}",
+                opts.WorkspaceIndexingMode, opts.AllowRawFolderWrites, opts.CustomRawPath ?? "(none)", scriptManager.UseWorkspaceCache, loggingLevelSwitch.MinimumLevel);
         }
-        catch (System.Exception ex)
+        catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to process configuration change");
+            Log.Error(ex, "Failed to process configuration change");
         }
-
         return Unit.Task;
     }
 }

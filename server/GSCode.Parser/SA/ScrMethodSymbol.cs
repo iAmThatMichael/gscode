@@ -14,10 +14,12 @@ internal record ScrMethodSymbol(Token NameToken, ScrFunction Source, ScrClass Cl
     public override Hover GetHover() => new()
     {
         Range = Range,
-        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+        Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
         {
             Kind = MarkupKind.Markdown,
             Value = Source.Documentation
         })
     };
 }
+
+

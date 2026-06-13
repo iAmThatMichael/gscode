@@ -10,8 +10,9 @@ namespace GSCode.Parser.Pre;
 
 /// <summary>
 /// Records script defines for semantics & usage.
-/// TokenList fields are mutable so they can be released after preprocessing to allow GC
-/// of LinkedToken chains. Snippet strings are cached eagerly at construction time.
+/// Instances are shared across scripts via <see cref="MacroDefinitionCache"/>, so all
+/// fields must stay valid for the lifetime of the cache entry. Snippet strings are
+/// cached eagerly at construction time.
 /// </summary>
 internal class MacroDefinition : ISenseDefinition
 {
@@ -27,7 +28,8 @@ internal class MacroDefinition : ISenseDefinition
 
     /// <summary>
     /// The expansion tokens for this macro — used during preprocessing for CloneList.
-    /// Released after preprocessing completes.
+    /// Kept alive as long as the definition is cached, since later parses of other
+    /// scripts expand from the same shared instance.
     /// </summary>
     internal TokenList ExpansionTokens { get; private set; }
 
@@ -102,7 +104,7 @@ internal class ScriptMacro : ISenseDefinition
     /// </summary>
     public string ExpansionSnippet { get; }
 
-    public string SemanticTokenType { get; } = OmniSharp.Extensions.LanguageServer.Protocol.Models.SemanticTokenType.Macro;
+    public string SemanticTokenType { get; } = "macro";
     public string[] SemanticTokenModifiers { get; } = [];
 
     public ScriptMacro(Token source, MacroDefinition defineSource, TokenList expansionTokens)

@@ -440,6 +440,15 @@ internal ref partial struct Parser
         // Pass OPENDEVBLOCK
         Advance();
 
+        // The engine tracks the dev section as a flag, not a counter: a '/#' at script root
+        // level while a dev block is already open is a redundant no-op, and the single '#/'
+        // that follows closes the whole section (stock scripts rely on this, e.g.
+        // vehicle_shared.gsc). Don't recurse and demand a matching '#/' of our own.
+        if (!isNewly)
+        {
+            return new DefnDevBlockNode([]);
+        }
+
         // Parse the script list within this dev block
         List<AstNode> scriptDefns = ScriptList();
 

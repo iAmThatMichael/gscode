@@ -2,7 +2,6 @@ using GSCode.Parser.Configuration;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using GSCode.Parser.SPA;
-using OmniSharp.Extensions.JsonRpc;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using Serilog;
 using System;
@@ -34,6 +33,18 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
     public DefinitionsTable? DefinitionsTable { get; set; }
 
     /// <summary>
+    /// Provider for cross-file field names on global objects (level, world, game).
+    /// Set by the host project after workspace indexing is wired up.
+    /// </summary>
+    public IGlobalFieldProvider? GlobalFieldProvider { get; set; }
+
+    /// <summary>
+    /// Workspace-wide symbol provider for namespace and cross-script function completions.
+    /// Knows every namespace in the indexed game scripts, not just #using'd dependencies.
+    /// </summary>
+    public ISymbolLocationProvider? WorkspaceSymbols { get; set; }
+
+    /// <summary>
     /// Macro definitions for completions.
     /// </summary>
     internal Dictionary<string, (Pre.MacroDefinition Definition, string? SourceDisplay)>? MacroDefinitions { get; set; }
@@ -56,10 +67,10 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         if (token is null)
         {
             Log.Warning("GetCompletionsFromPosition: No token found at position {Position}", position);
-            return new CompletionList(isIncomplete: false);
+            return new CompletionList();
         }
 
-        Log.Debug("GetCompletionsFromPosition: Found token '{Lexeme}' type={Type} at position {Position}", 
+        Log.Debug("GetCompletionsFromPosition: Found token '{Lexeme}' type={Type} at {Position}",
             token.Lexeme, token.Type, position);
 
         // Log previous tokens for context
@@ -148,6 +159,8 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
 
         // Now check if there's a namespace qualifier before the identifier
         // (only if we didn't already detect it in Case 2)
+        bool isDotAccess = false;
+        string? dotAccessObject = null;
         if (identifierToken != null && namespaceQualifier == null)
         {
             Token? beforeIdent = identifierToken.PreviousNonWhitespace();
@@ -163,6 +176,32 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                         namespaceQualifier, identifierToken.Lexeme);
                 }
             }
+            else if (beforeIdent?.Type == TokenType.Dot)
+            {
+                isDotAccess = true;
+                // Capture the object before the dot (e.g., "level" in "level.foo")
+                Token? objectToken = beforeIdent.PreviousNonWhitespace();
+                if (objectToken?.Type == TokenType.Identifier)
+                {
+                    dotAccessObject = objectToken.Lexeme;
+                }
+                Log.Information("Detected dot-access context for identifier: {Identifier}, object: {Object}", 
+                    identifierToken.Lexeme, dotAccessObject ?? "(unknown)");
+            }
+        }
+        // Case: cursor is right after a dot with no identifier yet (e.g., "level.|")
+        else if (identifierToken == null && namespaceQualifier == null && prev?.Type == TokenType.Dot)
+        {
+            isDotAccess = true;
+            filter = "";
+            // Capture the object before the dot
+            Token? objectToken = prev.PreviousNonWhitespace();
+            if (objectToken?.Type == TokenType.Identifier)
+            {
+                dotAccessObject = objectToken.Lexeme;
+            }
+            Log.Information("Detected dot-access context (no identifier yet), object: {Object}", 
+                dotAccessObject ?? "(unknown)");
         }
 
         // Handle directive filter prefix
@@ -181,15 +220,22 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         if (!isInsideFunctionBlock && !isDirectiveContext)
         {
             Log.Debug("Returning empty completions (not in function and not directive context)");
-            return new CompletionList(isIncomplete: false);
+            return new CompletionList();
         }
 
-        // For the moment, we'll just support Identifier completions.
+        // For the moment
+        CompletionContextType contextType = isDotAccess
+            ? CompletionContextType.MemberAccess
+            : namespaceQualifier != null
+                ? CompletionContextType.FunctionCall
+                : CompletionContextType.GlobalScope;
+
         CompletionContext context = new()
         {
-            Type = namespaceQualifier != null ? CompletionContextType.FunctionCall : CompletionContextType.GlobalScope,
+            Type = contextType,
             Filter = filter,
             Namespace = namespaceQualifier,
+            ObjectType = dotAccessObject,
             IsDirectiveContext = isDirectiveContext,
             IsInsideFunctionBlock = isInsideFunctionBlock
         };
@@ -212,22 +258,30 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             Log.Debug("Showing directive completions only");
             HashSet<string> seenIdentifiers = new(StringComparer.OrdinalIgnoreCase);
             completions.AddRange(GetDirectiveCompletions(seenIdentifiers, token));
-            return new CompletionList(completions, isIncomplete: false);
+            return new CompletionList(completions.ToArray());
         }
 
         // Otherwise, show normal completions (only when inside a function block)
         Log.Debug("Showing normal completions (insideFunc={IsInsideFunc}, namespace={Namespace})", isInsideFunctionBlock, context.Namespace);
+        HashSet<string>? namespaceNames = null;
         switch (context.Type)
         {
             case CompletionContextType.GlobalScope:
                 completions = GetGlobalScopeCompletions(context);
                 Log.Debug("After GetGlobalScopeCompletions: {Count} completions", completions.Count);
+                completions.AddRange(GetNamespaceCompletions(context, out namespaceNames));
+                Log.Debug("After GetNamespaceCompletions: {Count} completions", completions.Count);
                 break;
             case CompletionContextType.FunctionCall:
                 // Namespace-qualified function call (e.g., namespace::func)
                 completions = GetNamespacedFunctionCompletions(context);
                 Log.Debug("After GetNamespacedFunctionCompletions: {Count} completions", completions.Count);
                 break;
+            case CompletionContextType.MemberAccess:
+                // Dot-access (e.g., level.foo) — only field/property completions, no functions/macros/directives
+                completions = GetDotAccessCompletions(context);
+                Log.Debug("After GetDotAccessCompletions: {Count} completions", completions.Count);
+                return new CompletionList(completions.ToArray());
         }
 
         // Get the completions from the definition.
@@ -236,14 +290,14 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         // But skip this for namespace-qualified contexts (we only want namespace functions there)
         if (context.Type != CompletionContextType.FunctionCall || string.IsNullOrEmpty(context.Namespace))
         {
-            var fileScopeCompletions = GetFileScopeCompletions(context);
+            var fileScopeCompletions = GetFileScopeCompletions(context, namespaceNames);
             Log.Debug("GetFileScopeCompletions returned {Count} completions", fileScopeCompletions.Count);
             completions.AddRange(fileScopeCompletions);
         }
 
         Log.Debug("Returning total of {Count} completions", completions.Count);
         // return token.SenseDefinition?.GetCompletions();
-        return new CompletionList(completions, isIncomplete: false);
+        return new CompletionList(completions.ToArray());
     }
 
     private bool IsInsideFunctionBlock(Token token)
@@ -363,6 +417,55 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         return completions;
     }
 
+    /// <summary>
+    /// Returns completion items for all namespaces known across the workspace and game
+    /// scripts, so a namespace can be typed (and then auto-imported via its functions)
+    /// without already being #using'd. Also reports the namespace name set so identifier
+    /// scavenging can skip them.
+    /// </summary>
+    private List<CompletionItem> GetNamespaceCompletions(CompletionContext context, out HashSet<string> namespaceNames)
+    {
+        namespaceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        List<CompletionItem> completions = new();
+
+        if (!context.IsInsideFunctionBlock || WorkspaceSymbols is null)
+        {
+            return completions;
+        }
+
+        IReadOnlyCollection<string> namespaces;
+        try
+        {
+            namespaces = WorkspaceSymbols.GetAllNamespaces(_languageId);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "GetNamespaceCompletions: workspace provider failed");
+            return completions;
+        }
+
+        foreach (string ns in namespaces)
+        {
+            if (!namespaceNames.Add(ns))
+            {
+                continue;
+            }
+
+            completions.Add(new CompletionItem()
+            {
+                Label = ns,
+                Kind = CompletionItemKind.Module,
+                InsertText = ns,
+                Detail = "namespace",
+                SortText = "2_" + ns.ToLowerInvariant(),
+                CommitCharacters = new Container<string>(":")
+            });
+        }
+
+        Log.Debug("GetNamespaceCompletions: {Count} namespaces", completions.Count);
+        return completions;
+    }
+
     private List<CompletionItem> GetNamespacedFunctionCompletions(CompletionContext context)
     {
         List<CompletionItem> completions = new();
@@ -371,6 +474,19 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         if (string.IsNullOrEmpty(context.Namespace))
         {
             Log.Warning("GetNamespacedFunctionCompletions: Namespace is null or empty");
+            return completions;
+        }
+
+        // sys:: exposes the built-in API functions
+        if (string.Equals(context.Namespace, "sys", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (ScrFunction apiFunction in _scriptAnalyserData?.GetApiFunctions(string.Empty) ?? [])
+            {
+                if (seenIdentifiers.Add(apiFunction.Name))
+                {
+                    completions.Add(CreateCompletionItem(apiFunction, namespaceAlreadyTyped: true));
+                }
+            }
             return completions;
         }
 
@@ -442,12 +558,181 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             }
         }
 
-        Log.Information("Found {MatchCount} namespace matches, returning {Count} namespaced functions for {Namespace}", 
+        // Workspace-wide: functions exported by this namespace anywhere in the indexed game
+        // scripts, even when the defining script isn't #using'd yet. Selecting one of these
+        // auto-inserts the missing #using directive (kept in alphabetical order).
+        AddWorkspaceNamespaceFunctionCompletions(context.Namespace!, completions, seenIdentifiers);
+
+        Log.Information("Found {MatchCount} namespace matches, returning {Count} namespaced functions for {Namespace}",
             matchCount, completions.Count, context.Namespace);
         return completions;
     }
 
-    private List<CompletionItem> GetFileScopeCompletions(CompletionContext context)
+    /// <summary>
+    /// Appends completions for namespace functions sourced from the workspace-wide symbol
+    /// provider. Functions whose defining script isn't already #using'd get an
+    /// <see cref="CompletionItem.AdditionalTextEdits"/> that inserts the directive.
+    /// </summary>
+    private void AddWorkspaceNamespaceFunctionCompletions(
+        string ns, List<CompletionItem> completions, HashSet<string> seenIdentifiers)
+    {
+        if (WorkspaceSymbols is null)
+        {
+            return;
+        }
+
+        IReadOnlyList<WorkspaceFunctionInfo> workspaceFunctions;
+        try
+        {
+            workspaceFunctions = WorkspaceSymbols.GetFunctionsInNamespace(ns, _languageId);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Workspace function completions failed for namespace {Namespace}", ns);
+            return;
+        }
+
+        if (workspaceFunctions.Count == 0)
+        {
+            return;
+        }
+
+        var existingUsings = GetExistingUsings();
+        string? currentUsingPath = ScriptPath is not null
+            ? Util.UsingDirectiveHelper.ConvertToUsingPath(ScriptPath)
+            : null;
+
+        foreach (WorkspaceFunctionInfo info in workspaceFunctions)
+        {
+            if (seenIdentifiers.Contains(info.Name))
+            {
+                continue;
+            }
+
+            string? usingPath = Util.UsingDirectiveHelper.ConvertToUsingPath(info.FilePath);
+            if (usingPath is null)
+            {
+                continue;
+            }
+
+            CompletionItem item = info.Function is not null
+                ? CreateCompletionItem(info.Function, namespaceAlreadyTyped: true)
+                : CreateWorkspaceFunctionItem(info);
+
+            bool isCurrentScript = currentUsingPath is not null
+                && string.Equals(usingPath, currentUsingPath, StringComparison.OrdinalIgnoreCase);
+
+            if (!isCurrentScript && !Util.UsingDirectiveHelper.ContainsUsing(existingUsings, usingPath))
+            {
+                Position insertPosition = Util.UsingDirectiveHelper.GetAlphabeticalInsertPosition(existingUsings, usingPath);
+                item = item with
+                {
+                    Detail = $"{item.Detail} — adds #using {usingPath}",
+                    AdditionalTextEdits = new TextEditContainer(new TextEdit
+                    {
+                        Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range()
+                        {
+                            Start = insertPosition,
+                            End = insertPosition
+                        },
+                        NewText = $"#using {usingPath};\n"
+                    })
+                };
+            }
+
+            completions.Add(item);
+            seenIdentifiers.Add(info.Name);
+        }
+    }
+
+    /// <summary>
+    /// Builds a completion item from registry metadata when no live <see cref="ScrFunction"/>
+    /// is available (e.g. symbols restored from the workspace cache).
+    /// </summary>
+    private static CompletionItem CreateWorkspaceFunctionItem(WorkspaceFunctionInfo info)
+    {
+        string insertText;
+        if (info.Parameters is { Length: > 0 })
+        {
+            var paramSnippets = info.Parameters
+                .Select((p, i) => $"${{{i + 1}:{(string.IsNullOrEmpty(p) ? $"param{i + 1}" : p)}}}");
+            insertText = $"{info.Name}({string.Join(", ", paramSnippets)}$0)";
+        }
+        else
+        {
+            insertText = $"{info.Name}($0)";
+        }
+
+        return new CompletionItem()
+        {
+            Label = info.Name,
+            Detail = $"function {info.Name}()",
+            FilterText = info.Name,
+            Documentation = info.Documentation is not null
+                ? new MarkupContent() { Kind = MarkupKind.Markdown, Value = info.Documentation }
+                : null,
+            InsertText = insertText,
+            InsertTextFormat = InsertTextFormat.Snippet,
+            Kind = CompletionItemKind.Function,
+            SortText = "0_" + info.Name.ToLowerInvariant()
+        };
+    }
+
+    /// <summary>
+    /// Extracts the existing <c>#using</c> directives from the token stream, in document order.
+    /// Cached per parse — the token stream is immutable for the lifetime of this library.
+    /// </summary>
+    private List<Util.UsingDirectiveHelper.UsingDirective> GetExistingUsings()
+    {
+        if (_cachedUsings is not null)
+        {
+            return _cachedUsings;
+        }
+
+        var result = new List<Util.UsingDirectiveHelper.UsingDirective>();
+
+        foreach (Token token in Tokens.GetAll())
+        {
+            if (token.Type != TokenType.Using)
+            {
+                continue;
+            }
+
+            int line = token.Range.Start.Line;
+            StringBuilder pathBuilder = new();
+
+            Token? current = token.Next;
+            while (current is not null
+                && current.Range.Start.Line == line
+                && current.Type != TokenType.Semicolon
+                && current.Type != TokenType.LineBreak
+                && current.Type != TokenType.Eof)
+            {
+                if (current.Type == TokenType.Backslash || current.Lexeme == "\\" || current.Lexeme == "/")
+                {
+                    pathBuilder.Append('\\');
+                }
+                else if (current.Type == TokenType.Identifier)
+                {
+                    pathBuilder.Append(current.Lexeme);
+                }
+                current = current.Next;
+            }
+
+            string path = pathBuilder.ToString();
+            if (path.Length > 0)
+            {
+                result.Add(new Util.UsingDirectiveHelper.UsingDirective(path, line));
+            }
+        }
+
+        _cachedUsings = result;
+        return result;
+    }
+
+    private List<Util.UsingDirectiveHelper.UsingDirective>? _cachedUsings;
+
+    private List<CompletionItem> GetFileScopeCompletions(CompletionContext context, HashSet<string>? excludedIdentifiers = null)
     {
         List<CompletionItem> completions = new();
         // Use case-sensitive comparison so "default" keyword and "DEFAULT" macro are both shown
@@ -533,6 +818,12 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         {
             if (token.Type == TokenType.Identifier && !seenIdentifiers.Contains(token.Lexeme))
             {
+                // Skip identifiers already offered as namespace completions
+                if (excludedIdentifiers is not null && excludedIdentifiers.Contains(token.Lexeme))
+                {
+                    continue;
+                }
+
                 // Skip identifiers that are API function names to avoid duplicates
                 if (_scriptAnalyserData?.GetApiFunction(token.Lexeme) is not null)
                 {
@@ -586,6 +877,94 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         return completions;
     }
 
+    /// <summary>
+    /// Returns only field/property completions for dot-access contexts (e.g., <c>level.foo</c>).
+    /// Functions, macros, directives, and keywords are excluded — they cannot be accessed via dot notation.
+    /// For tracked global objects (level, world, game), cross-file fields from the workspace are merged in.
+    /// </summary>
+    private List<CompletionItem> GetDotAccessCompletions(CompletionContext context)
+    {
+        List<CompletionItem> completions = new();
+        HashSet<string> seenIdentifiers = new(StringComparer.OrdinalIgnoreCase);
+
+        // 1. If the object is a tracked global (level/world/game), merge cross-file fields first.
+        //    These get priority sorting so they appear at the top.
+        bool isTrackedGlobal = context.ObjectType is not null
+            && GlobalFieldProvider is not null
+            && GlobalFieldProvider.IsTrackedOwner(context.ObjectType);
+
+        if (isTrackedGlobal)
+        {
+            var globalFields = GlobalFieldProvider!.GetFieldNames(context.ObjectType!);
+            Log.Debug("GetDotAccessCompletions: Merging {Count} global fields for '{Owner}'", globalFields.Count, context.ObjectType);
+
+            foreach (string fieldName in globalFields)
+            {
+                if (seenIdentifiers.Contains(fieldName))
+                    continue;
+
+                completions.Add(new CompletionItem()
+                {
+                    Kind = CompletionItemKind.Field,
+                    Label = fieldName,
+                    InsertText = fieldName,
+                    Detail = $"{context.ObjectType} field",
+                    SortText = "1_" + fieldName.ToLowerInvariant()
+                });
+                seenIdentifiers.Add(fieldName);
+            }
+        }
+
+        // 2. Collect every identifier that appears immediately after a dot in the current file's token stream.
+        //    For non-global objects (self, structs, etc.) this is the only source.
+        //    For globals, this adds any fields not yet seen from the workspace scan.
+        foreach (Token token in Tokens.GetAll())
+        {
+            if (token.Type != TokenType.Identifier)
+            {
+                continue;
+            }
+
+            Token? before = token.PreviousNonWhitespace();
+            if (before?.Type != TokenType.Dot)
+            {
+                continue;
+            }
+
+            string name = token.Lexeme;
+
+            if (seenIdentifiers.Contains(name))
+            {
+                continue;
+            }
+
+            // Skip identifiers that are API functions — they are callable, not fields
+            if (_scriptAnalyserData?.GetApiFunction(name) is not null)
+            {
+                continue;
+            }
+
+            // Skip macro names — macros cannot be dot-accessed
+            if (MacroDefinitions is not null && MacroDefinitions.ContainsKey(name))
+            {
+                continue;
+            }
+
+            completions.Add(new CompletionItem()
+            {
+                Kind = CompletionItemKind.Field,
+                Label = name,
+                InsertText = name,
+                SortText = "1_" + name.ToLowerInvariant()
+            });
+            seenIdentifiers.Add(name);
+        }
+
+        Log.Debug("GetDotAccessCompletions: Returning {Count} field completions (global={IsGlobal}, object={Object})", 
+            completions.Count, isTrackedGlobal, context.ObjectType ?? "(none)");
+        return completions;
+    }
+
     private CompletionItem CreateMacroCompletionItem(string macroName, Pre.MacroDefinition macroDef, string? sourceDisplay = null)
     {
         // Generate snippet-formatted insert text for macros
@@ -626,26 +1005,15 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             documentation += $"\n\n{macroDef.Documentation}";
         }
 
-        // Build labelDetails to show source file (like namespace badge for functions)
-        CompletionItemLabelDetails? labelDetails = null;
-        if (!string.IsNullOrEmpty(sourceDisplay))
-        {
-            labelDetails = new CompletionItemLabelDetails
-            {
-                Description = sourceDisplay  // Shows like "shared/shared.gsh" on the right
-            };
-        }
-
         return new CompletionItem()
         {
             Label = macroName,
-            LabelDetails = labelDetails,
-            Detail = detail,
-            Documentation = new StringOrMarkupContent(new MarkupContent()
+            Detail = sourceDisplay != null ? $"{detail} — {sourceDisplay}" : detail,
+            Documentation = new MarkupContent()
             {
                 Kind = MarkupKind.Markdown,
                 Value = documentation
-            }),
+            },
             InsertText = insertText,
             InsertTextFormat = InsertTextFormat.Snippet,
             Kind = CompletionItemKind.Constant,
@@ -709,11 +1077,10 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
             insertText += "($0)";
         }
 
-        // Build detail and labelDetails for better differentiation
+        // Build detail for better differentiation
         string label;
         string detail;
         string? filterText = null;
-        CompletionItemLabelDetails? labelDetails = null;
         CompletionItemKind kind;
         string sortPrefix;
 
@@ -721,20 +1088,19 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         {
             // Functions from other namespaces - show namespace::function in label and "function foo()" in detail
             label = $"{function.Namespace}::{function.Name}";
-            detail = $"function {function.Name}()";
+            detail = $"function {function.Name}() — {function.Namespace}";
             filterText = function.Name;  // Filter only on function name, not the namespace prefix
-            labelDetails = new CompletionItemLabelDetails
-            {
-                Description = function.Namespace  // Shows on right side like "util"
-            };
             kind = CompletionItemKind.Method;  // Different icon than local functions
             sortPrefix = "2_";  // Sort after local/API functions
         }
         else if (namespaceAlreadyTyped)
         {
-            // User already typed namespace::, so just show the function name
+            // User already typed namespace::, so just show the function name.
+            // Use Description (API functions) when available, otherwise a generic prototype.
             label = function.Name;
-            detail = $"function {function.Name}()";
+            detail = !string.IsNullOrEmpty(function.Description)
+                ? function.Description
+                : $"function {function.Name}()";
             filterText = function.Name;  // Filter on function name only
             kind = CompletionItemKind.Function;
             sortPrefix = "0_";  // Sort first
@@ -766,19 +1132,18 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
         return new CompletionItem()
         {
             Label = label,
-            LabelDetails = labelDetails,
             Detail = detail,
             FilterText = filterText,  // Set FilterText to control VS Code's fuzzy matching
-            Documentation = new StringOrMarkupContent(new MarkupContent()
+            Documentation = new MarkupContent()
             {
                 Kind = MarkupKind.Markdown,
                 Value = function.Documentation
-            }),
+            },
             InsertText = insertText,
             InsertTextFormat = InsertTextFormat.Snippet,
-            Kind = CompletionItemKind.Function,
+            Kind = kind,
             // Add sorting information to keep API functions organized
-            SortText = function.Name.ToLowerInvariant(),
+            SortText = $"{sortPrefix}{function.Name.ToLowerInvariant()}",
             // Add commit characters to automatically complete when typing these
             //CommitCharacters = new Container<string>(new[] { "(", ")", ";" })
         };
@@ -1165,14 +1530,13 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, str
                     Kind = CompletionItemKind.Keyword,
                     InsertText = insertText,
                     InsertTextFormat = InsertTextFormat.Snippet,
-                    InsertTextMode = InsertTextMode.AdjustIndentation,
                     FilterText = directive.Label.TrimStart('#'),
                     Detail = directive.Detail,
-                    Documentation = new StringOrMarkupContent(new MarkupContent()
+                    Documentation = new MarkupContent()
                     {
                         Kind = MarkupKind.Markdown,
                         Value = directive.Documentation
-                    }),
+                    },
                     SortText = directive.Label
                 });
                 seenIdentifiers.Add(directive.Label);

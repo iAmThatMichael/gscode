@@ -6,8 +6,9 @@ namespace GSCode.Parser.AST;
 
 internal ref partial struct Parser
 {
-    // Tokens that can start a statement. Break/Continue are included but require a
-    // context check — see the explicit guards inside StmtList.
+    // Tokens that can start a statement. Continue is included but requires a context
+    // check — see the explicit guard inside StmtList. Break parses anywhere (no-op
+    // outside loops/switches).
     private static readonly FrozenSet<TokenType> s_stmtFirstSet = new HashSet<TokenType>
     {
         // Control flow
@@ -42,8 +43,8 @@ internal ref partial struct Parser
 
         while (s_stmtFirstSet.Contains(CurrentTokenType))
         {
-            // Break and Continue are only valid in specific contexts
-            if (CurrentTokenType == TokenType.Break && !InLoopOrSwitch()) break;
+            // Continue is only valid inside a loop. Break is tolerated anywhere
+            // (the engine treats it as a no-op outside loops/switches) — see Stmt.
             if (CurrentTokenType == TokenType.Continue && !InLoop()) break;
 
             AstNode? statement = Stmt();
@@ -87,7 +88,7 @@ internal ref partial struct Parser
             TokenType.Const => ConstStmt(),
             TokenType.OpenDevBlock => FunDevBlock(),
             TokenType.OpenBrace => BraceBlockWithOptionalCall(),
-            TokenType.Break when InLoopOrSwitch() => ControlFlowActionStmt(AstNodeType.BreakStmt),
+            TokenType.Break => BreakStmt(),
             TokenType.Continue when InLoop() => ControlFlowActionStmt(AstNodeType.ContinueStmt),
             TokenType.Semicolon => EmptyStmt(),
             TokenType.Identifier or TokenType.Thread or TokenType.OpenBracket => ExprStmt(),
@@ -617,6 +618,24 @@ internal ref partial struct Parser
         }
 
         return new(value);
+    }
+
+    /// <summary>
+    /// Parses a break statement. Outside of a loop or switch, the engine treats break as a
+    /// no-op, so it's tolerated but flagged as having no effect.
+    /// </summary>
+    /// <remarks>
+    /// BreakStmt := BREAK SEMICOLON
+    /// </remarks>
+    /// <returns></returns>
+    private ControlFlowActionNode BreakStmt()
+    {
+        if (!InLoopOrSwitch())
+        {
+            AddError(GSCErrorCodes.BreakHasNoEffect);
+        }
+
+        return ControlFlowActionStmt(AstNodeType.BreakStmt);
     }
 
     /// <summary>

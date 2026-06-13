@@ -1,102 +1,56 @@
+using GSCode.Parser;
+using GSCode.Parser.Util;
 using MediatR;
-using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using OmniSharp.Extensions.LanguageServer.Protocol.Server;
 using OmniSharp.Extensions.LanguageServer.Protocol.Workspace;
+using Serilog;
+using System.IO;
+using System.Linq;
 
 namespace GSCode.NET.LSP.Handlers;
 
-public class DidChangeWatchedFilesHandler : DidChangeWatchedFilesHandlerBase
+internal class DidChangeWatchedFilesHandler(
+    ScriptManager scriptManager) : DidChangeWatchedFilesHandlerBase
 {
-    private readonly ILogger<DidChangeWatchedFilesHandler> _logger;
-    private readonly ScriptManager _scriptManager;
-
-    public DidChangeWatchedFilesHandler(
-        ILogger<DidChangeWatchedFilesHandler> logger,
-        ScriptManager scriptManager)
-    {
-        _logger = logger;
-        _scriptManager = scriptManager;
-    }
 
     public override async Task<Unit> Handle(DidChangeWatchedFilesParams request, CancellationToken cancellationToken)
     {
-        bool needsEditorReparse = false;
-
+        bool hasScriptChange = false;
         foreach (var change in request.Changes)
         {
-            var path = change.Uri.GetFileSystemPath();
+            var path = change.Uri.ToUri().LocalPath;
             if (!IsScriptFile(path))
             {
                 continue;
             }
 
-            switch (change.Type)
-            {
-                case FileChangeType.Created:
-                    // A new file appeared — it may satisfy a previously-unresolvable #using
-                    // in one or more open editor scripts. Because the file was missing at
-                    // parse time it was never tracked as a dependency, so we have no targeted
-                    // dependents list to invalidate. Re-parse all open editors instead.
-                    _logger.LogInformation("Script file created: {Path}", path);
-                    needsEditorReparse = true;
-                    break;
+            hasScriptChange = true;
+            Log.Information("Script file {ChangeType}: {Path}", change.Type, path);
 
-                case FileChangeType.Changed:
-                    // Only act on files that are NOT open in the editor; those are handled
-                    // by the DidChange notification. For external dependency changes we
-                    // re-parse open editors so they pick up the updated exports.
-                    _logger.LogInformation("Script file modified externally: {Path}", path);
-                    needsEditorReparse = true;
-                    break;
-
-                case FileChangeType.Deleted:
-                    // A dependency was removed — any open editor that #uses it should now
-                    // receive a MissingUsingFile diagnostic.
-                    _logger.LogInformation("Script file deleted: {Path}", path);
-                    needsEditorReparse = true;
-                    break;
-            }
+            // Drop per-file caches (lexed #insert tokens, macro definitions) before
+            // re-parsing, so scripts that #insert the changed file see its new contents
+            // rather than replaying stale cache entries. (#66)
+            Script.InvalidateCachedFile(path);
         }
 
-        if (needsEditorReparse)
+        if (hasScriptChange)
         {
-            await _scriptManager.ReparseAllOpenEditorsAsync(cancellationToken);
+            Log.Information("Watched script file changed; re-parsing all open editors");
+            await scriptManager.ReparseAllOpenEditorsAsync(cancellationToken);
         }
 
         return Unit.Value;
     }
 
-    protected override DidChangeWatchedFilesRegistrationOptions CreateRegistrationOptions(DidChangeWatchedFilesCapability capability, ClientCapabilities clientCapabilities)
-    {
-        return new DidChangeWatchedFilesRegistrationOptions
-        {
-            Watchers = new Container<OmniSharp.Extensions.LanguageServer.Protocol.Models.FileSystemWatcher>(
-                new OmniSharp.Extensions.LanguageServer.Protocol.Models.FileSystemWatcher
-                {
-                    GlobPattern = "**/*.gsc",
-                    Kind = WatchKind.Create | WatchKind.Change | WatchKind.Delete
-                },
-                new OmniSharp.Extensions.LanguageServer.Protocol.Models.FileSystemWatcher
-                {
-                    GlobPattern = "**/*.csc",
-                    Kind = WatchKind.Create | WatchKind.Change | WatchKind.Delete
-                },
-                new OmniSharp.Extensions.LanguageServer.Protocol.Models.FileSystemWatcher
-                {
-                    GlobPattern = "**/*.gsh",
-                    Kind = WatchKind.Create | WatchKind.Change | WatchKind.Delete
-                }
-            )
-        };
-    }
+    protected override DidChangeWatchedFilesRegistrationOptions CreateRegistrationOptions(
+        DidChangeWatchedFilesCapability capability, ClientCapabilities clientCapabilities)
+        => new();
 
     private static bool IsScriptFile(string path)
     {
-        if (string.IsNullOrEmpty(path))
-            return false;
-
-        var extension = Path.GetExtension(path).ToLowerInvariant();
-        return extension == ".gsc" || extension == ".csc" || extension == ".gsh";
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        return ext is ".gsc" or ".csc" or ".gsh";
     }
 }

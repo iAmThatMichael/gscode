@@ -15,10 +15,12 @@ internal record ScrClassMemberSymbol(Token NameToken, ScrMember Source, ScrClass
     public Hover GetHover() => new()
     {
         Range = Range,
-        Contents = new MarkedStringsOrMarkupContent(new MarkupContent
+        Contents = new MarkedStringsOrMarkupContent(new MarkupContent()
         {
             Kind = MarkupKind.Markdown,
             Value = Source.Documentation
         })
     };
 }
+
+

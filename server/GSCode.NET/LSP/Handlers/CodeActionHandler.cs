@@ -1,10 +1,11 @@
 using GSCode.Data;
 using GSCode.Parser;
-using Microsoft.Extensions.Logging;
+using GSCode.Parser.Util;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using OmniSharp.Extensions.LanguageServer.Protocol.Server;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -13,44 +14,43 @@ namespace GSCode.NET.LSP.Handlers;
 
 internal sealed class CodeActionHandler(
     ScriptManager scriptManager,
-    ILogger<CodeActionHandler> logger,
     TextDocumentSelector documentSelector) : CodeActionHandlerBase
 {
-    private readonly ScriptManager _scriptManager = scriptManager;
-    private readonly ILogger<CodeActionHandler> _logger = logger;
-    private readonly TextDocumentSelector _documentSelector = documentSelector;
-
     protected override CodeActionRegistrationOptions CreateRegistrationOptions(
         CodeActionCapability capability, ClientCapabilities clientCapabilities)
         => new()
         {
-            DocumentSelector = _documentSelector,
+            DocumentSelector = documentSelector,
             ResolveProvider = true,
             CodeActionKinds = new Container<CodeActionKind>(
                 CodeActionKind.QuickFix,
                 CodeActionKind.SourceOrganizeImports)
         };
 
-    // Resolve handler — edits are included eagerly so nothing extra is needed here
     public override Task<CodeAction> Handle(CodeAction request, CancellationToken cancellationToken)
         => Task.FromResult(request);
 
-    public override async Task<CommandOrCodeActionContainer> Handle(
+    public override async Task<CommandOrCodeActionContainer?> Handle(
         CodeActionParams request, CancellationToken cancellationToken)
     {
-        var actions = new List<CommandOrCodeAction>();
+        var actions = await GetCodeActionsAsync(request, cancellationToken);
+        return new CommandOrCodeActionContainer(actions.Select(a => new CommandOrCodeAction(a)));
+    }
+
+    private async Task<CodeAction[]> GetCodeActionsAsync(
+        CodeActionParams request, CancellationToken cancellationToken)
+    {
+        var actions = new List<CodeAction>();
 
         // Pre-fetch cached document text once — only needed by a subset of fixes
-        _scriptManager.TryGetCachedContent(request.TextDocument.Uri, out string content);
+        scriptManager.TryGetCachedContent(request.TextDocument.Uri.ToUri(), out string content);
 
         foreach (Diagnostic diagnostic in request.Context.Diagnostics)
         {
-            if (!diagnostic.Code.HasValue || !diagnostic.Code.Value.IsLong)
-            {
+            // Diagnostic codes round-trip through the client and may come back as either a
+            // number or a string depending on the client's serialisation — accept both.
+            if (!TryGetErrorCode(diagnostic, out GSCErrorCodes errorCode))
                 continue;
-            }
-
-            GSCErrorCodes errorCode = (GSCErrorCodes)(int)diagnostic.Code.Value.Long;
 
             CodeAction? action = errorCode switch
             {
@@ -145,7 +145,7 @@ internal sealed class CodeActionHandler(
 
             if (action is not null)
             {
-                actions.Add(new CommandOrCodeAction(action));
+                actions.Add(action);
             }
 
             // MissingUsingFile gets a second option: create the file at its expected path
@@ -157,7 +157,7 @@ internal sealed class CodeActionHandler(
 
                 if (createAction is not null)
                 {
-                    actions.Add(new CommandOrCodeAction(createAction));
+                    actions.Add(createAction);
                 }
             }
 
@@ -172,7 +172,21 @@ internal sealed class CodeActionHandler(
 
                 foreach (var usingAction in usingActions)
                 {
-                    actions.Add(new CommandOrCodeAction(usingAction));
+                    actions.Add(usingAction);
+                }
+            }
+
+            // NamespaceDoesNotContainFunction: the namespace is known (some file providing it
+            // is imported), but the called function lives in a different file that contributes
+            // to the same namespace — offer to add a #using for the file(s) defining it.
+            if (errorCode == GSCErrorCodes.NamespaceDoesNotContainFunction)
+            {
+                var usingActions = CreateAddUsingForNamespacedFunctionActions(
+                    request.TextDocument, diagnostic, content);
+
+                foreach (var usingAction in usingActions)
+                {
+                    actions.Add(usingAction);
                 }
             }
         }
@@ -185,11 +199,11 @@ internal sealed class CodeActionHandler(
 
         if (bulkAction is not null)
         {
-            actions.Add(new CommandOrCodeAction(bulkAction));
+            actions.Add(bulkAction);
         }
 
-        _logger.LogDebug("CodeActionHandler produced {Count} action(s) for {Uri}", actions.Count, request.TextDocument.Uri);
-        return new CommandOrCodeActionContainer(actions);
+        Serilog.Log.Debug("CodeActionHandler produced {Count} action(s) for {Uri}", actions.Count, request.TextDocument.Uri);
+        return actions.ToArray();
     }
 
     // -------------------------------------------------------------------------
@@ -211,18 +225,15 @@ internal sealed class CodeActionHandler(
         {
             Title = title,
             Kind = CodeActionKind.QuickFix,
-            IsPreferred = isPreferred,
             Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [document.Uri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
                             // (line, 0) → (line+1, 0) removes the line and its newline
-                            Range = new Range(new Position(line, 0), new Position(line + 1, 0)),
+                            Range = new Range { Start = new Position { Line = line, Character = 0 }, End = new Position { Line = line + 1, Character = 0 } },
                             NewText = string.Empty
                         }
                     ]
@@ -242,17 +253,14 @@ internal sealed class CodeActionHandler(
         {
             Title = title,
             Kind = CodeActionKind.QuickFix,
-            IsPreferred = isPreferred,
             Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [document.Uri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
-                            Range = new Range(position, position),
+                            Range = new Range { Start = position, End = position },
                             NewText = text
                         }
                     ]
@@ -273,13 +281,10 @@ internal sealed class CodeActionHandler(
         {
             Title = title,
             Kind = CodeActionKind.QuickFix,
-            IsPreferred = isPreferred,
             Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [document.Uri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -319,9 +324,7 @@ internal sealed class CodeActionHandler(
             Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [document.Uri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -363,9 +366,7 @@ internal sealed class CodeActionHandler(
             Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [document.Uri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
@@ -404,13 +405,11 @@ internal sealed class CodeActionHandler(
             Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [document.Uri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
-                            Range = new Range(endOfFile, endOfFile),
+                            Range = new Range { Start = endOfFile, End = endOfFile },
                             NewText = "\n/* endregion */"
                         }
                     ]
@@ -428,7 +427,7 @@ internal sealed class CodeActionHandler(
     private async Task<CodeAction?> TryCreateRemoveAllUnusedUsingsActionAsync(
         TextDocumentIdentifier document, CancellationToken cancellationToken)
     {
-        Script? script = _scriptManager.GetParsedEditor(document);
+        Script? script = scriptManager.GetParsedEditor(document);
         if (script is null)
         {
             return null;
@@ -437,8 +436,8 @@ internal sealed class CodeActionHandler(
         List<Diagnostic> allDiagnostics = await script.GetDiagnosticsAsync(cancellationToken);
 
         List<Diagnostic> unusedUsings = allDiagnostics
-            .Where(d => d.Code.HasValue
-                && d.Code.Value.IsLong
+            .Where(d => d.Code is not null
+                && d.Code.HasValue && d.Code.Value.IsLong
                 && (GSCErrorCodes)(int)d.Code.Value.Long == GSCErrorCodes.UnusedUsing)
             .ToList();
 
@@ -449,28 +448,26 @@ internal sealed class CodeActionHandler(
 
         // One delete-line edit per unused using, sorted descending by line so that
         // removing a higher line does not shift the positions of lower ones.
-        IEnumerable<TextEdit> edits = unusedUsings
+        TextEdit[] edits = unusedUsings
             .OrderByDescending(d => d.Range.Start.Line)
             .Select(d =>
             {
                 int line = d.Range.Start.Line;
                 return new TextEdit
                 {
-                    Range = new Range(new Position(line, 0), new Position(line + 1, 0)),
+                    Range = new Range { Start = new Position { Line = line, Character = 0 }, End = new Position { Line = line + 1, Character = 0 } },
                     NewText = string.Empty
                 };
-            });
+            }).ToArray();
 
         return new CodeAction
         {
             Title = $"Remove all unused #using directives ({unusedUsings.Count})",
             Kind = CodeActionKind.SourceOrganizeImports,
-            Diagnostics = new Container<Diagnostic>(unusedUsings),
+            Diagnostics = unusedUsings.ToArray(),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [document.Uri] = edits
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] = edits
                 }
             }
         };
@@ -509,25 +506,24 @@ internal sealed class CodeActionHandler(
             deleteLen++;
         }
 
-        Position deleteEnd = new(
-            diagnostic.Range.Start.Line,
-            diagnostic.Range.Start.Character + deleteLen);
+        Position deleteEnd = new()
+        {
+            Line = diagnostic.Range.Start.Line,
+            Character = diagnostic.Range.Start.Character + deleteLen
+        };
 
         return new CodeAction
         {
             Title = "Remove 'thread' from call",
             Kind = CodeActionKind.QuickFix,
-            IsPreferred = true,
             Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [document.Uri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
-                            Range = new Range(diagnostic.Range.Start, deleteEnd),
+                            Range = new Range { Start = diagnostic.Range.Start, End = deleteEnd },
                             NewText = string.Empty
                         }
                     ]
@@ -578,13 +574,11 @@ internal sealed class CodeActionHandler(
             Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [document.Uri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
-                            Range = new Range(endOfFile, endOfFile),
+                            Range = new Range { Start = endOfFile, End = endOfFile },
                             NewText = stub
                         }
                     ]
@@ -608,41 +602,121 @@ internal sealed class CodeActionHandler(
     private List<CodeAction> CreateAddUsingForNamespaceActions(
         TextDocumentIdentifier document, Diagnostic diagnostic, string content)
     {
-        var results = new List<CodeAction>();
-
         if (string.IsNullOrEmpty(content))
         {
-            return results;
+            return [];
         }
 
         // The diagnostic range covers the namespace identifier token
         string? namespaceName = GetTextInRange(content, diagnostic.Range);
         if (string.IsNullOrEmpty(namespaceName))
         {
-            return results;
+            return [];
         }
 
-        // Query the global symbol registry for files that export this namespace
-        List<string> filePaths = _scriptManager.SymbolRegistry.FindFilesForNamespace(namespaceName);
+        // Try to extract the function name that follows the namespace token (e.g. "init" from "util::init()").
+        // When present, prefer files that export the exact ns::function — this prevents
+        // offering a #using for a file that happens to share the namespace but doesn't define
+        // the function. Fall back to namespace-only search when the exact lookup finds nothing
+        // (or no qualified member could be extracted) so the user is never left with no fix.
+        string? functionName = TryExtractQualifiedFunctionName(content, diagnostic.Range.End);
+
+        List<string> filePaths = functionName is not null
+            ? scriptManager.SymbolRegistry.FindFilesForNamespacedFunction(namespaceName, functionName)
+            : [];
+
+        if (filePaths.Count == 0)
+        {
+            filePaths = scriptManager.SymbolRegistry.FindFilesForNamespace(namespaceName);
+        }
+
+        return BuildAddUsingActions(document, diagnostic, content, filePaths);
+    }
+
+    /// <summary>
+    /// Builds #using quick fixes for a <c>NamespaceDoesNotContainFunction</c> diagnostic:
+    /// the namespace is known via an imported script, but the called function lives in
+    /// another file contributing to the same namespace.
+    /// The diagnostic range covers the function-name token; the namespace identifier sits
+    /// immediately before the <c>::</c> that precedes it.
+    /// </summary>
+    private List<CodeAction> CreateAddUsingForNamespacedFunctionActions(
+        TextDocumentIdentifier document, Diagnostic diagnostic, string content)
+    {
+        if (string.IsNullOrEmpty(content))
+        {
+            return [];
+        }
+
+        string? functionName = GetTextInRange(content, diagnostic.Range);
+        if (string.IsNullOrEmpty(functionName))
+        {
+            return [];
+        }
+
+        string? namespaceName = TryExtractNamespaceBefore(content, diagnostic.Range.Start);
+        if (string.IsNullOrEmpty(namespaceName))
+        {
+            return [];
+        }
+
+        List<string> filePaths = scriptManager.SymbolRegistry.FindFilesForNamespacedFunction(namespaceName, functionName);
+        return BuildAddUsingActions(document, diagnostic, content, filePaths);
+    }
+
+    /// <summary>
+    /// Converts candidate defining files into "Add '#using …'" quick fixes. Filters out
+    /// files of the other VM (a .csc file is never a fix inside a .gsc script), files that
+    /// are already imported, and the document itself. Directives are inserted in
+    /// alphabetical order to match script load order convention.
+    /// </summary>
+    private List<CodeAction> BuildAddUsingActions(
+        TextDocumentIdentifier document, Diagnostic diagnostic, string content, List<string> filePaths)
+    {
+        var results = new List<CodeAction>();
+
         if (filePaths.Count == 0)
         {
             return results;
         }
 
-        // Find the insertion point: after the last existing #using line, or at (0,0)
-        Position insertPosition = FindUsingInsertPosition(content);
-        bool isFirst = filePaths.Count == 1;
+        string documentPath = document.Uri.ToUri().LocalPath;
+        string documentExtension = Path.GetExtension(documentPath);
+        string? documentUsingPath = UsingDirectiveHelper.ConvertToUsingPath(documentPath);
 
-        foreach (string filePath in filePaths)
+        var existingUsings = UsingDirectiveHelper.ExtractUsingsFromContent(content);
+        var seenUsingPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool isFirst = true;
+
+        // Workspace/mod files sort before shared-raw files so the closest definition is preferred.
+        var orderedPaths = filePaths
+            .OrderByDescending(p => WorkspaceBoundaryFilter.IsInToolsRawFolder(p) ? 0 : 1)
+            .ThenBy(p => p, StringComparer.OrdinalIgnoreCase);
+
+        foreach (string filePath in orderedPaths)
         {
-            // Convert the absolute file path to a #using path (e.g. "scripts\zm\utility")
-            string? usingPath = ConvertFilePathToUsingPath(filePath);
-            if (usingPath is null)
+            // Never suggest a script of the other VM
+            if (!string.IsNullOrEmpty(documentExtension)
+                && !filePath.EndsWith(documentExtension, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            string directive = $"#using {usingPath};\n";
+            // Convert the absolute file path to a #using path (e.g. "scripts\zm\utility")
+            string? usingPath = UsingDirectiveHelper.ConvertToUsingPath(filePath);
+            if (usingPath is null || !seenUsingPaths.Add(usingPath))
+            {
+                continue;
+            }
+
+            // Skip the document itself and anything already imported
+            if (string.Equals(usingPath, documentUsingPath, StringComparison.OrdinalIgnoreCase)
+                || UsingDirectiveHelper.ContainsUsing(existingUsings, usingPath))
+            {
+                continue;
+            }
+
+            Position insertPosition = UsingDirectiveHelper.GetAlphabeticalInsertPosition(existingUsings, usingPath);
 
             results.Add(new CodeAction
             {
@@ -652,89 +726,22 @@ internal sealed class CodeActionHandler(
                 Diagnostics = new Container<Diagnostic>(diagnostic),
                 Edit = new WorkspaceEdit
                 {
-                    Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                    {
-                        [document.Uri] =
+                    Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                         [
                             new TextEdit
                             {
-                                Range = new Range(insertPosition, insertPosition),
-                                NewText = directive
+                                Range = new Range { Start = insertPosition, End = insertPosition },
+                                NewText = $"#using {usingPath};\n"
                             }
                         ]
                     }
                 }
             });
 
-            // Only the first suggestion is marked as preferred
             isFirst = false;
         }
 
         return results;
-    }
-
-    /// <summary>
-    /// Finds the position where a new <c>#using</c> directive should be inserted.
-    /// Returns the start of the line immediately after the last existing <c>#using</c>
-    /// directive, or <c>(0, 0)</c> if none exist.
-    /// </summary>
-    private static Position FindUsingInsertPosition(string content)
-    {
-        string[] lines = content.ReplaceLineEndings("\n").Split('\n');
-        int lastUsingLine = -1;
-
-        for (int i = 0; i < lines.Length; i++)
-        {
-            string trimmed = lines[i].TrimStart();
-            if (trimmed.StartsWith("#using", StringComparison.Ordinal))
-            {
-                lastUsingLine = i;
-            }
-            // Stop scanning once we pass the header area (first non-blank, non-using,
-            // non-comment line that looks like a definition)
-            else if (trimmed.Length > 0
-                && !trimmed.StartsWith("//", StringComparison.Ordinal)
-                && !trimmed.StartsWith("/*", StringComparison.Ordinal))
-            {
-                break;
-            }
-        }
-
-        // Insert after the last #using, or at the very top
-        return lastUsingLine >= 0
-            ? new Position(lastUsingLine + 1, 0)
-            : new Position(0, 0);
-    }
-
-    /// <summary>
-    /// Converts an absolute file path to the <c>#using</c> directive path format.
-    /// Extracts the portion starting from the <c>scripts/</c> directory and removes
-    /// the file extension, producing paths like <c>scripts\zm\utility</c>.
-    /// Returns <see langword="null"/> when the file is not inside a <c>scripts/</c> hierarchy.
-    /// </summary>
-    private static string? ConvertFilePathToUsingPath(string filePath)
-    {
-        string normalised = filePath.Replace('\\', '/');
-        const string marker = "/scripts/";
-        int idx = normalised.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
-
-        if (idx < 0)
-        {
-            return null;
-        }
-
-        // Extract from "scripts/" onward (including the "scripts/" prefix)
-        string relativePath = normalised[(idx + 1)..]; // skip the leading '/'
-
-        // Remove the file extension (.gsc, .csc, .gsh)
-        int dotIndex = relativePath.LastIndexOf('.');
-        if (dotIndex > 0)
-        {
-            relativePath = relativePath[..dotIndex];
-        }
-
-        // Convert to backslash-separated form to match GSC convention
-        return relativePath.Replace('/', '\\');
     }
 
     /// <summary>
@@ -788,7 +795,7 @@ internal sealed class CodeActionHandler(
         string newFilePath = Path.GetFullPath(
             Path.Combine(basePath, qualifiedRelative.Replace('/', Path.DirectorySeparatorChar)));
 
-        DocumentUri newFileUri = DocumentUri.FromFileSystemPath(newFilePath);
+        Uri newFileUri = new Uri(newFilePath);
         string fileName = Path.GetFileName(newFilePath);
 
         return new CodeAction
@@ -799,13 +806,11 @@ internal sealed class CodeActionHandler(
             Edit = new WorkspaceEdit
             {
                 DocumentChanges = new Container<WorkspaceEditDocumentChange>(
-                    // 1. Create the empty file (no-op if it already exists)
                     new WorkspaceEditDocumentChange(new CreateFile
                     {
                         Uri = newFileUri,
                         Options = new CreateFileOptions { IgnoreIfExists = true }
-                    })
-                )
+                    }))
             }
         };
     }
@@ -861,23 +866,20 @@ internal sealed class CodeActionHandler(
         int lastLineIndex = lines.Length - 1;
         int lastLineLength = lines[lastLineIndex].Length;
 
-        Position endOfFile = new(lastLineIndex, lastLineLength);
+        Position endOfFile = new() { Line = lastLineIndex, Character = lastLineLength };
 
         return new CodeAction
         {
             Title = $"Add missing '{lineText}'",
             Kind = CodeActionKind.QuickFix,
-            IsPreferred = isPreferred,
             Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [document.Uri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         new TextEdit
                         {
-                            Range = new Range(endOfFile, endOfFile),
+                            Range = new Range { Start = endOfFile, End = endOfFile },
                             NewText = $"\n{lineText}"
                         }
                     ]
@@ -917,26 +919,116 @@ internal sealed class CodeActionHandler(
             Diagnostics = new Container<Diagnostic>(diagnostic),
             Edit = new WorkspaceEdit
             {
-                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>>
-                {
-                    [document.Uri] =
+                Changes = new Dictionary<DocumentUri, IEnumerable<TextEdit>> { [document.Uri] =
                     [
                         // 1. Delete the misplaced line (including its newline)
                         new TextEdit
                         {
-                            Range = new Range(new Position(diagLine, 0), new Position(diagLine + 1, 0)),
+                            Range = new Range { Start = new Position { Line = diagLine, Character = 0 }, End = new Position { Line = diagLine + 1, Character = 0 } },
                             NewText = string.Empty
                         },
                         // 2. Insert it before the first character of the file
                         new TextEdit
                         {
-                            Range = new Range(new Position(0, 0), new Position(0, 0)),
+                            Range = new Range { Start = new Position { Line = 0, Character = 0 }, End = new Position { Line = 0, Character = 0 } },
                             NewText = directiveText + "\n"
                         }
                     ]
                 }
             }
         };
+    }
+
+    /// <summary>
+    /// Tries to extract the function-name identifier that follows a <c>::</c> scope-resolution
+    /// operator immediately after the namespace token whose range ends at
+    /// <paramref name="namespaceTokenEnd"/>.
+    /// For example, given source <c>util::init()</c> and a position pointing just past
+    /// <c>util</c>, this returns <c>"init"</c>.
+    /// Returns <c>null</c> when no <c>::identifier</c> is found (e.g. the namespace token
+    /// is not followed by a qualified member on the same line).
+    /// </summary>
+    /// <summary>
+    /// Extracts the typed <see cref="GSCErrorCodes"/> from a diagnostic, accepting both the
+    /// numeric and string representations of the code (clients round-trip either form).
+    /// </summary>
+    private static bool TryGetErrorCode(Diagnostic diagnostic, out GSCErrorCodes errorCode)
+    {
+        errorCode = default;
+
+        if (!diagnostic.Code.HasValue)
+        {
+            return false;
+        }
+
+        var code = diagnostic.Code.Value;
+        if (code.IsLong)
+        {
+            errorCode = (GSCErrorCodes)(int)code.Long;
+            return true;
+        }
+
+        if (code.IsString && int.TryParse(code.String, out int parsed))
+        {
+            errorCode = (GSCErrorCodes)parsed;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Extracts the namespace identifier that precedes a <c>::</c> ending just before
+    /// <paramref name="memberTokenStart"/>. For example, given <c>util::init()</c> and the
+    /// position of <c>init</c>, this returns <c>"util"</c>.
+    /// </summary>
+    private static string? TryExtractNamespaceBefore(string content, Position memberTokenStart)
+    {
+        string[] lines = content.ReplaceLineEndings("\n").Split('\n');
+
+        int lineIdx = memberTokenStart.Line;
+        if (lineIdx >= lines.Length)
+            return null;
+
+        string line = lines[lineIdx];
+        int col = Math.Min(memberTokenStart.Character, line.Length);
+
+        // Expect "::" immediately before the member token
+        if (col < 2 || line[col - 1] != ':' || line[col - 2] != ':')
+            return null;
+
+        int nameEnd = col - 2;
+        int nameStart = nameEnd;
+        while (nameStart > 0 && (char.IsAsciiLetterOrDigit(line[nameStart - 1]) || line[nameStart - 1] == '_'))
+            nameStart--;
+
+        return nameEnd > nameStart ? line[nameStart..nameEnd] : null;
+    }
+
+    private static string? TryExtractQualifiedFunctionName(string content, Position namespaceTokenEnd)
+    {
+        string[] lines = content.ReplaceLineEndings("\n").Split('\n');
+
+        int lineIdx = namespaceTokenEnd.Line;
+        if (lineIdx >= lines.Length)
+            return null;
+
+        string line = lines[lineIdx];
+        int col = namespaceTokenEnd.Character;
+
+        // Expect "::" immediately after the namespace token
+        if (col + 1 >= line.Length || line[col] != ':' || line[col + 1] != ':')
+            return null;
+
+        int nameStart = col + 2;
+        if (nameStart >= line.Length || (!char.IsAsciiLetter(line[nameStart]) && line[nameStart] != '_'))
+            return null;
+
+        int nameEnd = nameStart;
+        while (nameEnd < line.Length && (char.IsAsciiLetterOrDigit(line[nameEnd]) || line[nameEnd] == '_'))
+            nameEnd++;
+
+        return line[nameStart..nameEnd];
     }
 
     /// <summary>
@@ -982,3 +1074,4 @@ internal sealed class CodeActionHandler(
         return sb.ToString();
     }
 }
+

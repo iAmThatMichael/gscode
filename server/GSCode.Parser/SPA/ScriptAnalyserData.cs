@@ -1,27 +1,9 @@
 ﻿using GSCode.Parser.SPA.Models;
-using Newtonsoft.Json;
-using System;
+using System.Text.Json;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Serilog;
 
 namespace GSCode.Parser.SPA;
-
-/// <summary>
-/// GSC symbol types. Not all are applicable in all contexts, e.g. namespaces on a stack frame
-/// </summary>
-file enum ScrSymbolType
-{
-    Unknown,
-    Function,
-    Variable,
-    Namespace,
-    Object
-}
-file record class ScrSymbol();
 
 public class ScriptAnalyserData
 {
@@ -41,6 +23,15 @@ public class ScriptAnalyserData
     /// </summary>
     private static readonly Dictionary<string, ScriptAnalyserData> _sharedInstances = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object _sharedInstancesLock = new();
+
+    /// <summary>
+    /// Shared STJ options: case-insensitive matching preserves Newtonsoft's lenient default
+    /// behaviour when deserialising camelCase JSON API responses.
+    /// </summary>
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+    };
 
     /// <summary>
     /// Gets a shared ScriptAnalyserData instance for the specified language ID.
@@ -112,7 +103,13 @@ public class ScriptAnalyserData
     {
         try
         {
-            ScriptApiJsonLibrary library = JsonConvert.DeserializeObject<ScriptApiJsonLibrary>(source);
+            ScriptApiJsonLibrary? library = JsonSerializer.Deserialize<ScriptApiJsonLibrary>(source, _jsonOptions);
+
+            if (library is null)
+            {
+                Log.Error("Failed to deserialize API library: result was null.");
+                return false;
+            }
 
             // All built-ins are implicit, because they can be called without using the sys namespace.
             foreach (ScrFunction function in library.Api)

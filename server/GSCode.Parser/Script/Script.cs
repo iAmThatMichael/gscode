@@ -8,8 +8,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using OmniSharp.Extensions.LanguageServer.Protocol;
-using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using GSCode.Parser.SA;
 using GSCode.Parser.Misc;
@@ -25,7 +23,7 @@ namespace GSCode.Parser;
 
 using SymbolKindSA = GSCode.Parser.SA.SymbolKind;
 
-public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLocationProvider? globalSymbolProvider = null, ScriptMode mode = ScriptMode.Editor)
+public partial class Script(Uri ScriptUri, string languageId, ISymbolLocationProvider? globalSymbolProvider = null, ScriptMode mode = ScriptMode.Editor, IGlobalFieldProvider? globalFieldProvider = null)
 {
     public bool Failed { get; private set; } = false;
     public bool Parsed { get; private set; } = false;
@@ -55,6 +53,55 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
     // Expose macro outlines for outliner without exposing Sense outside assembly
     public IReadOnlyList<MacroOutlineItem> MacroOutlines => Sense?.MacroOutlines ?? [];
 
+    // Preserved macro source paths from cache restore — used by GetMacroSourcePaths() when
+    // Sense.MacroDefinitions is unavailable (i.e. preprocessing was skipped on cache restore).
+    private IReadOnlyDictionary<string, string?>? _cachedMacroSourcePaths;
+
+    // Preserved global field accesses from cache restore. Restored index-mode scripts do
+    // not keep a token stream, so ExtractGlobalFieldAccesses falls back to this snapshot.
+    private IReadOnlyList<(string OwnerName, string FieldName)>? _cachedGlobalFieldAccesses;
+
+    /// <summary>
+    /// Returns a snapshot of macro name -> source file path for all macros discovered during preprocessing.
+    /// Source file path is null for macros defined directly in this script (non-GSH).
+    /// Returns empty if the script has not been parsed.
+    /// </summary>
+    public IReadOnlyDictionary<string, string?> GetMacroSourcePaths()
+    {
+        // If we have live Sense data (normal parse path), derive from it directly.
+        if (Sense?.MacroDefinitions is { Count: > 0 } macros)
+        {
+            var result = new Dictionary<string, string?>(macros.Count, StringComparer.OrdinalIgnoreCase);
+            string scriptPath = ScriptUri.LocalPath;
+            foreach (var (name, (definition, _)) in macros)
+                result[name] = definition.Source.IsFromPreprocessor ? definition.Source.InsertSourcePath : scriptPath;
+            return result;
+        }
+
+        // Fallback: return paths preserved from a prior cache restore (prevents re-save from
+        // zeroing out macro data for scripts that were restored rather than freshly parsed).
+        return _cachedMacroSourcePaths ?? System.Collections.ObjectModel.ReadOnlyDictionary<string, string?>.Empty;
+    }
+
+    /// <summary>
+    /// Releases the cached macro source path dictionary after the workspace cache has been saved.
+    /// The data has already been registered into <see cref="Pre.MacroDefinitionCache"/> at restore time
+    /// and persisted back to disk, so the per-script copy is no longer needed.
+    /// </summary>
+    public void ReleaseCachedMacroPaths() => _cachedMacroSourcePaths = null;
+
+    /// <summary>
+    /// Drops cached state derived from a script file's on-disk content: its lexed #insert
+    /// token list and any macro definitions attributed to it. Call when a watched file
+    /// changes externally so that scripts which #insert it pick up the new contents on
+    /// their next parse instead of replaying stale cache entries.
+    /// </summary>
+    public static void InvalidateCachedFile(string path)
+    {
+        ParserIntelliSense.InvalidateInsertFile(path);
+        MacroDefinitionCache.Instance.RemoveFileMacros(path);
+    }
+
     // Precomputed function scope data (populated after analysis, before AST disposal)
     private sealed record FunctionScopeInfo(string? FunctionName, Range BodyRange, List<(string Name, Range Range)> Parameters);
     private List<FunctionScopeInfo>? _functionScopes;
@@ -65,7 +112,7 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
 
     // Cached/interned strings for deduplication
     private string? _scriptFileName;
-    private string ScriptFileName => _scriptFileName ??= Path.GetFileNameWithoutExtension(ScriptUri.ToUri().LocalPath);
+    private string ScriptFileName => _scriptFileName ??= Path.GetFileNameWithoutExtension(ScriptUri.LocalPath);
 
     // Common markdown format strings (interned for memory efficiency)
     private static readonly string s_gscCodeBlockStart = string.Intern("```gsc\n");
@@ -109,6 +156,13 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
 
     public Task DoParseAsync(string documentText)
     {
+        // Reset analysis state so re-edits always trigger a full re-analysis pass.
+        // (Cache-restored scripts set Analysed = true via RestoreFromCache, and their
+        // ParseAsync is never called again, so this reset does not affect them.)
+        Analysed = false;
+        Failed = false;
+        _cachedGlobalFieldAccesses = null;
+
         // Guard: reject files that exceed ushort range limits for TokenRange
         {
             int lineCount = 1;
@@ -180,23 +234,25 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
         if (sense.IsEditorMode)
         {
             sense.SetDefinitionsTable(DefinitionsTable);
+            sense.SetGlobalFieldProvider(globalFieldProvider);
+            sense.SetWorkspaceSymbolProvider(GlobalSymbolProvider);
         }
 
         SignatureAnalyser signatureAnalyser = new(RootNode!, DefinitionsTable, Sense);
         try { signatureAnalyser.Analyse(); }
         catch (Exception ex) { RecordStepFailure(ex, "signature analyse", GSCErrorCodes.UnhandledSaError); return Task.CompletedTask; }
 
-        // Editor-only: folding ranges and reference index
+        // Editor-only: folding ranges
         if (Sense.IsEditorMode)
         {
             // Analyze folding ranges from the token stream
             UserRegionsAnalyser foldingRangeAnalyser = new(startNode, Sense);
             try { foldingRangeAnalyser.Analyse(); }
             catch (Exception ex) { RecordStepFailure(ex, "analyse folding ranges", GSCErrorCodes.UnhandledSaError); return Task.CompletedTask; }
-
-            // Build references index from token stream
-            BuildReferenceIndex();
         }
+
+        // Build references index from token stream (needed for workspace-wide Find All References)
+        BuildReferenceIndex();
 
 
         Parsed = true;
@@ -219,7 +275,14 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
             return Task.CompletedTask;
         }
 
-        string fileName = System.IO.Path.GetFileName(ScriptUri.ToUri().LocalPath);
+        // Skip re-analysis for cache-restored scripts — they have no AST/token stream to analyse,
+        // and their diagnostics were already populated from the serialized cache.
+        if (Analysed)
+        {
+            return Task.CompletedTask;
+        }
+
+        string fileName = System.IO.Path.GetFileName(ScriptUri.LocalPath);
 
         // Get a comprehensive list of symbols available in this context.
         Dictionary<string, IExportedSymbol> allSymbols = new(DefinitionsTable.InternalSymbols, StringComparer.OrdinalIgnoreCase);
@@ -292,6 +355,36 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Releases parse-time memory (token stream, AST, analysis dictionaries) for Index-mode
+    /// scripts that will not be semantically analysed — dependency scripts and signature-only
+    /// indexed game scripts. Mirrors the compaction that <see cref="DoAnalyseAsync"/> performs
+    /// at the end of a full Index-mode analysis. Exported symbols, own location data, and the
+    /// reference index survive, so registry population, cache saves, and go-to-definition keep
+    /// working.
+    /// </summary>
+    public void CompactForSignatureIndex()
+    {
+        if (Sense is null || Sense.IsEditorMode || !Parsed)
+        {
+            return;
+        }
+
+        // Snapshot token-derived data the workspace cache save still needs after tokens are gone.
+        ExtractGlobalFieldAccesses();
+
+        Sense.Tokens.Clear();
+        DefinitionsTable?.StripAnalysisData();
+        DefinitionsTable?.StripAstReferences();
+        RootNode = null;
+
+        // Signature-only scripts never publish diagnostics; drop the parse-time ones.
+        // The reference index (_references) is intentionally kept — it powers
+        // workspace-wide Find All References into unopened scripts.
+        Sense.Diagnostics.Clear();
+    }
+
+
     public async Task<List<Diagnostic>> GetDiagnosticsAsync(CancellationToken cancellationToken)
     {
         // TODO: maybe a mechanism to check if analysed if that's a requirement
@@ -310,17 +403,19 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
             .ToList();
     }
 
-    public async Task PushSemanticTokensAsync(SemanticTokensBuilder builder, CancellationToken cancellationToken)
-    {
-        if (!Sense.IsEditorMode) return;
-        await WaitUntilAnalysedAsync(cancellationToken);
+    /// <summary>
+    /// Returns a synchronous snapshot of the current diagnostics list.
+    /// Only valid to call after the script is fully parsed and analysed.
+    /// </summary>
+    public IReadOnlyList<Diagnostic> GetDiagnosticsSnapshot()
+        => Parsed ? Sense.Diagnostics : [];
 
-        int count = 0;
-        foreach (ISemanticToken token in Sense.SemanticTokens)
-        {
-            builder.Push(token.Range, token.SemanticTokenType, token.SemanticTokenModifiers);
-            count++;
-        }
+    public async Task<IReadOnlyList<ISemanticToken>> GetSemanticTokensAsync(CancellationToken cancellationToken)
+    {
+        if (!Sense.IsEditorMode) return [];
+        await WaitUntilAnalysedAsync(cancellationToken);
+        // SemanticTokens are already sorted by FinalizeSemanticTokens (called after analysis).
+        return Sense.SemanticTokens;
     }
 
     public async Task<CompletionList?> GetCompletionAsync(Position position, CancellationToken cancellationToken)
@@ -373,5 +468,59 @@ public partial class Script(DocumentUri ScriptUri, string languageId, ISymbolLoc
         var functions = DefinitionsTable.ExportedFunctions ?? [];
         var classes = DefinitionsTable.ExportedClasses ?? [];
         return functions.Cast<IExportedSymbol>().Concat(classes);
+    }
+
+    /// <summary>
+    /// Set of identifier lexemes (lowered) that are tracked as global field owners.
+    /// Extend this set to track additional globals (e.g., <c>self</c> in the future).
+    /// </summary>
+    private static readonly HashSet<string> s_trackedOwners = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "level",
+        "world",
+        "game"
+    };
+
+    /// <summary>
+    /// Extracts global-object field accesses from the token stream.
+    /// Scans for patterns like <c>level.fieldName</c>, <c>world.foo</c>, <c>game["key"]</c> is NOT tracked (array access).
+    /// Only dot-access patterns (<c>Identifier → Dot → Identifier</c>) are extracted.
+    /// </summary>
+    /// <returns>
+    /// A list of (ownerName, fieldName) pairs found in this script.
+    /// <c>ownerName</c> is the lowered identifier (e.g., "level"), <c>fieldName</c> is the original casing.
+    /// </returns>
+    public List<(string OwnerName, string FieldName)> ExtractGlobalFieldAccesses()
+    {
+        var results = new List<(string, string)>();
+        if (!Parsed) return results;
+
+        if (Sense.Tokens.Count == 0)
+            return _cachedGlobalFieldAccesses?.ToList() ?? results;
+
+        foreach (Token token in Sense.Tokens.GetAll())
+        {
+            // We're looking for the dot in:  Identifier("level") → Dot → Identifier("fieldName")
+            if (token.Type != TokenType.Dot)
+                continue;
+
+            // Look back to see if the token before the dot is a tracked global identifier
+            Token? ownerToken = token.PreviousNonWhitespace();
+            if (ownerToken is null || ownerToken.Type != TokenType.Identifier)
+                continue;
+
+            if (!s_trackedOwners.Contains(ownerToken.Lexeme))
+                continue;
+
+            // Look forward to get the field name
+            Token? fieldToken = token.NextNonWhitespace();
+            if (fieldToken is null || fieldToken.Type != TokenType.Identifier)
+                continue;
+
+            results.Add((ownerToken.Lexeme.ToLowerInvariant(), fieldToken.Lexeme));
+        }
+
+        _cachedGlobalFieldAccesses = results.ToList();
+        return results;
     }
 }

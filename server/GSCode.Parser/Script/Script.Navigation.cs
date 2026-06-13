@@ -79,7 +79,7 @@ public partial class Script
             {
                 Log.Debug("AdjustPositionForSelectionEnd: cursor at start of '{Tok}' ({Type}), stepping back to identifier '{Id}'",
                     token.Lexeme, token.Type, prev.Lexeme);
-                return new Position(prev.TokenRange.StartLine, prev.TokenRange.StartChar);
+                return new Position { Line = prev.TokenRange.StartLine, Character = prev.TokenRange.StartChar };
             }
         }
 
@@ -167,7 +167,7 @@ public partial class Script
         var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(tokenIdx);
         if (IsBuiltinFunction(name)) return null;
 
-        string currentScriptPath = ScriptUri.ToUri().LocalPath;
+        string currentScriptPath = ScriptUri.LocalPath;
         string ns = GetEffectiveNamespace();
 
         // When the call site carries an explicit namespace qualifier (e.g. util::init),
@@ -183,9 +183,20 @@ public partial class Script
         else
         {
             loc = DefinitionsTable?.GetFunctionLocation(ns, name)
-               ?? DefinitionsTable?.GetClassLocation(ns, name)
-               ?? DefinitionsTable?.GetFunctionLocationAnyNamespace(name)
-               ?? DefinitionsTable?.GetClassLocationAnyNamespace(name);
+               ?? DefinitionsTable?.GetClassLocation(ns, name);
+
+            if (loc is null)
+            {
+                // Any-namespace lookup may resolve via the workspace-wide global provider.
+                // Only accept the result if the symbol is defined in this file or in an
+                // explicitly #using-imported dependency — otherwise the function is out of
+                // scope and should not navigate.
+                var anyLoc = DefinitionsTable?.GetFunctionLocationAnyNamespace(name)
+                          ?? DefinitionsTable?.GetClassLocationAnyNamespace(name);
+
+                if (anyLoc is not null && IsInScope(anyLoc.Value.FilePath))
+                    loc = anyLoc;
+            }
         }
 
         return loc is not null
@@ -248,9 +259,9 @@ public partial class Script
     {
         List<SignatureInformation> signatures = [];
 
-        MarkupContent? funcDoc = string.IsNullOrWhiteSpace(function.Description)
+        StringOrMarkupContent? funcDoc = string.IsNullOrWhiteSpace(function.Description)
             ? null
-            : new MarkupContent { Kind = MarkupKind.Markdown, Value = function.Description };
+            : new StringOrMarkupContent(new MarkupContent { Kind = MarkupKind.Markdown, Value = function.Description });
 
         foreach (var overload in function.Overloads)
         {
@@ -271,7 +282,7 @@ public partial class Script
                     Label = pName,
                     Documentation = string.IsNullOrWhiteSpace(pDoc)
                         ? null
-                        : new MarkupContent { Kind = MarkupKind.Markdown, Value = pDoc }
+                        : new StringOrMarkupContent(new MarkupContent { Kind = MarkupKind.Markdown, Value = pDoc })
                 };
             });
 
@@ -333,9 +344,31 @@ public partial class Script
         return null;
     }
 
+    /// <summary>
+    /// Returns true if <paramref name="filePath"/> is this script or one of its declared
+    /// <c>#using</c> dependencies. Used to prevent workspace-wide GoTo Definition from
+    /// resolving symbols that are not in scope for this file.
+    /// </summary>
+    private bool IsInScope(string filePath)
+    {
+        if (string.Equals(filePath, ScriptUri.LocalPath, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (DefinitionsTable is null)
+            return false;
+
+        foreach (Uri dep in DefinitionsTable.Dependencies)
+        {
+            if (string.Equals(dep.LocalPath, filePath, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
     private Location MakeLocalLocation(Range range)
     {
-        string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.ToUri().LocalPath);
+        string normalized = ScriptFileResolver.NormalizeFilePathForUri(ScriptUri.LocalPath);
         return new Location { Uri = new Uri(normalized), Range = range };
     }
 

@@ -1,16 +1,16 @@
-using GSCode.Data;
+﻿using GSCode.Data;
 using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.DFA;
 using GSCode.Parser.SPA;
 using GSCode.Parser.SPA.Logic.Components;
-using OmniSharp.Extensions.LanguageServer.Protocol;
 using System.Reflection;
 using Xunit;
 
 namespace GSCode.Tests;
 
+[Collection("ApiLibrary")]
 public class ScrDataApiTypeTests
 {
     [Fact]
@@ -132,7 +132,7 @@ public class ScrDataApiTypeTests
 
         Assert.True((bool)loadLanguageApiData.Invoke(null, [apiJson])!);
 
-        Script script = new(new DocumentUri("", "", "", "", ""), "gsc");
+        Script script = new(new Uri("file:///test"), "gsc");
         await script.ParseAsync("""
             function test(localClientNum)
             {
@@ -164,7 +164,7 @@ public class ScrDataApiTypeTests
 
         Assert.True((bool)loadLanguageApiData.Invoke(null, [apiJson])!);
 
-        Script script = new(new DocumentUri("", "", "", "", ""), "csc");
+        Script script = new(new Uri("file:///test"), "csc");
         await script.ParseAsync("""
             function test(localClientNum)
             {
@@ -181,3 +181,5 @@ public class ScrDataApiTypeTests
             diagnostic => Equals(diagnostic.Code, (int)GSCErrorCodes.OperatorNotSupportedOnTypes));
     }
 }
+
+

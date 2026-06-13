@@ -2,7 +2,6 @@ using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.SA;
-using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using System.IO;
 
@@ -31,11 +30,13 @@ public partial class ScriptManager
             // by SignatureAnalyser via RecordFunctionFlags, not on the ScrFunction instance itself,
             // so we read them from the table here.
             var flags = defTable.GetFunctionFlags(func.Namespace, func.Name);
+            // Always store the absolute path of the defining script: cache-restored tables
+            // carry relative location paths, which would defeat workspace-boundary checks.
             newSymbols.Add(new SymbolDefinition(
                 Namespace: func.Namespace,
                 Name: func.Name,
                 Type: ExportedSymbolType.Function,
-                FilePath: loc?.FilePath ?? filePath,
+                FilePath: filePath,
                 Range: loc?.Range ?? default,
                 Parameters: func.Overloads.FirstOrDefault()?.Parameters?.Select(p => p.Name).ToArray(),
                 Flags: flags,
@@ -52,7 +53,7 @@ public partial class ScriptManager
                 Namespace: currentNamespace,
                 Name: cls.Name,
                 Type: ExportedSymbolType.Class,
-                FilePath: loc?.FilePath ?? filePath,
+                FilePath: filePath,
                 Range: loc?.Range ?? default,
                 Documentation: cls.Description,
                 Symbol: cls
@@ -60,6 +61,27 @@ public partial class ScriptManager
         }
 
         return _symbolRegistry.UpdateSymbolsForFile(filePath, newSymbols);
+    }
+
+    /// <summary>
+    /// Extracts global field accesses (level.x, world.y, game.z) from a parsed script
+    /// and updates the global field registry. Call after parsing.
+    /// </summary>
+    private void PopulateFieldRegistry(string filePath, Script script)
+    {
+        var fieldAccesses = script.ExtractGlobalFieldAccesses();
+
+        var entries = new List<(FieldOwner Owner, string FieldName)>();
+        foreach (var (ownerName, fieldName) in fieldAccesses)
+        {
+            var owner = GlobalFieldRegistry.IdentifierToOwner(ownerName);
+            if (owner.HasValue)
+            {
+                entries.Add((owner.Value, fieldName));
+            }
+        }
+
+        _fieldRegistry.UpdateFieldsForFile(filePath, entries);
     }
 
     /// <summary>
@@ -77,7 +99,7 @@ public partial class ScriptManager
         }
 
         // Fallback to per-script lookup for symbols not yet in the registry
-        foreach (KeyValuePair<DocumentUri, CachedScript> kvp in Scripts)
+        foreach (KeyValuePair<Uri, CachedScript> kvp in Scripts)
         {
             CachedScript cached = kvp.Value;
             if (cached.Script.DefinitionsTable is null) continue;
@@ -132,7 +154,7 @@ public partial class ScriptManager
 
         foreach (var kvp in Scripts)
         {
-            string filePath = kvp.Key.GetFileSystemPath() ?? kvp.Key.Path ?? string.Empty;
+            string filePath = UriHelper.GetLocalPath(kvp.Key);
             if (filePath.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase))
                 gscCount++;
             else if (filePath.EndsWith(".csc", StringComparison.OrdinalIgnoreCase))
@@ -148,3 +170,4 @@ public partial class ScriptManager
             yield return new LoadedScript(kv.Key, kv.Value.Script);
     }
 }
+

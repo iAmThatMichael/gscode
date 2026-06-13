@@ -1,57 +1,48 @@
-using Microsoft.Extensions.Logging;
+using GSCode.Parser;
+using GSCode.Parser.SA;
+using GSCode.Parser.SPA;
+using GSCode.Parser.Util;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
-using System.Threading;
-using System.Threading.Tasks;
+using Serilog;
 using System.Diagnostics;
-using GSCode.Parser;
-using GSCode.Parser.SPA;
+using System.Linq;
 
 namespace GSCode.NET.LSP.Handlers;
 
-internal class DefinitionHandler : DefinitionHandlerBase
+using SymbolKindSA = GSCode.Parser.SA.SymbolKind;
+
+internal class DefinitionHandler(
+    ScriptManager scriptManager,
+    TextDocumentSelector documentSelector) : DefinitionHandlerBase
 {
-    private readonly ScriptManager _scriptManager;
-    private readonly ILogger<DefinitionHandler> _logger;
-    private readonly TextDocumentSelector _document_selector;
 
-    public DefinitionHandler(ScriptManager scriptManager,
-        ILogger<DefinitionHandler> logger,
-        TextDocumentSelector documentSelector)
+    public override async Task<LocationOrLocationLinks?> Handle(DefinitionParams request, CancellationToken cancellationToken)
     {
-        _scriptManager = scriptManager;
-        _logger = logger;
-        _document_selector = documentSelector;
-    }
-
-    public override async Task<LocationOrLocationLinks> Handle(DefinitionParams request, CancellationToken cancellationToken)
-    {
-        string documentUri = request.TextDocument.Uri.ToString();
         string documentPath = request.TextDocument.Uri.ToUri().LocalPath;
-        _logger.LogInformation("Definition request received from document: {DocumentPath} at position {Position}", documentPath, request.Position);
+        Log.Information("Definition request from {DocumentPath} at position {Position}", documentPath, request.Position);
         var sw = Stopwatch.StartNew();
 
-        Script? script = _scriptManager.GetParsedEditor(request.TextDocument);
+        Script? script = scriptManager.GetParsedEditor(request.TextDocument);
         if (script is null)
         {
             sw.Stop();
-            _logger.LogInformation("Definition finished in {ElapsedMs} ms: no script for {DocumentPath}", sw.ElapsedMilliseconds, documentPath);
+            Log.Information("Definition finished in {ElapsedMs} ms: no script for {DocumentPath}", sw.ElapsedMilliseconds, documentPath);
             return new LocationOrLocationLinks();
         }
 
-        // Try local script lookup first
         Location? location = await script.GetDefinitionAsync(request.Position, cancellationToken);
         if (location is not null)
         {
             sw.Stop();
-            _logger.LogInformation("Definition resolved locally in {ElapsedMs} ms from {SourceDocument}: {uri}:{range}", 
+            Log.Information("Definition resolved locally in {ElapsedMs} ms from {DocumentPath}: {Uri}:{Range}",
                 sw.ElapsedMilliseconds, documentPath, location.Uri, location.Range);
             return new LocationOrLocationLinks(location);
         }
 
-        // If not found locally, get the qualified identifier using published API
+        // Try workspace-wide lookup
         var qual = await script.GetQualifiedIdentifierAtAsync(request.Position, cancellationToken);
         string? ns = qual?.qualifier;
         string name = qual?.name ?? "";
@@ -59,12 +50,10 @@ internal class DefinitionHandler : DefinitionHandlerBase
         if (string.IsNullOrEmpty(name))
         {
             sw.Stop();
-            _logger.LogInformation("Definition finished in {ElapsedMs} ms from {SourceDocument}: no identifier", 
-                sw.ElapsedMilliseconds, documentPath);
             return new LocationOrLocationLinks();
         }
 
-        // If it's a built-in API function, do not return a file location
+        // Skip built-in API functions
         var api = ScriptAnalyserData.GetShared(script.LanguageId);
         if (api is not null)
         {
@@ -72,33 +61,25 @@ internal class DefinitionHandler : DefinitionHandlerBase
             if (apiFn is not null && apiFn.IsBuiltIn)
             {
                 sw.Stop();
-                _logger.LogInformation("Definition finished in {ElapsedMs} ms from {SourceDocument}: built-in API {name}", 
-                    sw.ElapsedMilliseconds, documentPath, name);
                 return new LocationOrLocationLinks();
             }
         }
 
-        // Get current file path for workspace boundary filtering
-        string? currentFilePath = documentPath;
-        Location? remote = _scriptManager.FindSymbolLocation(ns, name, currentFilePath);
+        Location? remote = scriptManager.FindSymbolLocation(ns, name, documentPath);
         sw.Stop();
         if (remote is not null)
         {
-            _logger.LogInformation("Definition resolved remotely in {ElapsedMs} ms from {SourceDocument}: {uri}:{range}", 
+            Log.Information("Definition resolved remotely in {ElapsedMs} ms from {DocumentPath}: {Uri}:{Range}",
                 sw.ElapsedMilliseconds, documentPath, remote.Uri, remote.Range);
             return new LocationOrLocationLinks(remote);
         }
 
-        _logger.LogInformation("Definition finished in {ElapsedMs} ms from {SourceDocument}: not found for {name}", 
+        Log.Information("Definition finished in {ElapsedMs} ms from {DocumentPath}: not found for {Name}",
             sw.ElapsedMilliseconds, documentPath, name);
         return new LocationOrLocationLinks();
     }
 
-    protected override DefinitionRegistrationOptions CreateRegistrationOptions(DefinitionCapability capability, ClientCapabilities clientCapabilities)
-    {
-        return new DefinitionRegistrationOptions()
-        {
-            DocumentSelector = _document_selector
-        };
-    }
+    protected override DefinitionRegistrationOptions CreateRegistrationOptions(
+        DefinitionCapability capability, ClientCapabilities clientCapabilities)
+        => new() { DocumentSelector = documentSelector };
 }

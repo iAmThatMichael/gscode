@@ -111,7 +111,7 @@ internal record class ScrDataFunctionReferenceType : IScrDataSubType
 internal record struct ScrSetFieldFailure(
     ScrDataTypes? IncompatibleBaseTypes,
     ImmutableList<ScrEntitySetFieldFailureInfo>? EntityFailures,
-    bool ArraySizeReadOnly = false
+    bool SizeFieldReadOnly = false
 );
 
 internal record struct ScrEntitySetFieldFailureInfo(
@@ -576,6 +576,63 @@ internal record struct ScrData
         return new(Type, SubTypes, BooleanValue, ReadOnly) { Indeterminate = Indeterminate, TypeAlias = TypeAlias };
     }
 
+    /// <summary>
+    /// Value equality, replacing the compiler-synthesised record equality. The synthesised
+    /// version compares <see cref="SubTypes"/> by reference (<see cref="ImmutableHashSet{T}"/>
+    /// does not override <c>Equals</c>), but merges and narrowings build a fresh set instance
+    /// on every analysis pass — so semantically identical values compared unequal and the
+    /// data flow worklist could never converge for sub-typed values in CFG cycles.
+    /// <see cref="FieldName"/> is excluded: it is presentation metadata, in the same category
+    /// as the location fields that the variable-table convergence check already ignores.
+    /// </summary>
+    public readonly bool Equals(ScrData other)
+    {
+        return Type == other.Type
+            && ReadOnly == other.ReadOnly
+            && Indeterminate == other.Indeterminate
+            && BooleanValue == other.BooleanValue
+            && TypeAlias == other.TypeAlias
+            && SubTypesEqual(SubTypes, other.SubTypes);
+    }
+
+    public override readonly int GetHashCode()
+    {
+        int hash = HashCode.Combine(Type, ReadOnly, Indeterminate, BooleanValue, TypeAlias);
+
+        if (SubTypes is { Count: > 0 })
+        {
+            // XOR element hashes so the unordered set hashes identically regardless of
+            // iteration order or which instance holds the elements.
+            int subTypesHash = 0;
+            foreach (IScrDataSubType subType in SubTypes)
+            {
+                subTypesHash ^= subType.GetHashCode();
+            }
+
+            hash = HashCode.Combine(hash, subTypesHash);
+        }
+
+        return hash;
+    }
+
+    private static bool SubTypesEqual(ImmutableHashSet<IScrDataSubType>? a, ImmutableHashSet<IScrDataSubType>? b)
+    {
+        if (ReferenceEquals(a, b))
+        {
+            return true;
+        }
+        if (a is null || a.Count == 0)
+        {
+            return b is null || b.Count == 0;
+        }
+        if (b is null || b.Count == 0)
+        {
+            return false;
+        }
+
+        return a.SetEquals(b);
+    }
+
     [return: NotNullIfNotNull(nameof(incompatibleType))]
     public ScrData TryGetField(string name, out ScrDataTypes? incompatibleType)
     {
@@ -595,11 +652,12 @@ internal record struct ScrData
 
         // Compute what types are left after removing struct, entity and object types.
         // If there are any types left, then the data is incompatible with the field.
-        // Special case: arrays have a readonly "size" field, so include Array in the mask when accessing "size".
+        // Special case: arrays and strings have a readonly "size" field (string length),
+        // so include them in the mask when accessing "size".
         ScrDataTypes fieldMask = ScrDataTypes.Struct | ScrDataTypes.Entity | ScrDataTypes.Object;
         if (name == "size")
         {
-            fieldMask |= ScrDataTypes.Array;
+            fieldMask |= ScrDataTypes.Array | ScrDataTypes.IString;
         }
         ScrDataTypes residualTypes = Type & ~fieldMask;
         if (residualTypes != ScrDataTypes.Void)
@@ -625,14 +683,14 @@ internal record struct ScrData
         }
 
         // For Entity, we'll have their sub-type records to check.
-        // For Array accessing "size", it's a readonly integer.
+        // For Array or String accessing "size", it's a readonly integer.
         ScrDataTypes compositeType = ScrDataTypes.Void;
         // Start as true, as if any is not readonly, then we'll represent it as not.
         bool isReadOnly = true;
         HashSet<IScrDataSubType>? compositeSubTypes = null;
 
-        // Handle array "size" field
-        if (name == "size" && HasType(ScrDataTypes.Array))
+        // Handle array/string "size" field (string length for strings)
+        if (name == "size" && (HasType(ScrDataTypes.Array) || HasType(ScrDataTypes.String)))
         {
             compositeType |= ScrDataTypes.Int;
             // isReadOnly stays true - size is always readonly
@@ -683,11 +741,12 @@ internal record struct ScrData
 
         // Compute what types are left after removing struct, entity and object types.
         // If there are any types left, then the data is incompatible with the field.
-        // Special case: arrays have a readonly "size" field, so include Array in the mask when accessing "size".
+        // Special case: arrays and strings have a readonly "size" field, so include them
+        // in the mask when accessing "size".
         ScrDataTypes fieldMask = ScrDataTypes.Struct | ScrDataTypes.Entity | ScrDataTypes.Object;
         if (name == "size")
         {
-            fieldMask |= ScrDataTypes.Array;
+            fieldMask |= ScrDataTypes.Array | ScrDataTypes.IString;
         }
         ScrDataTypes residualTypes = Type & ~fieldMask;
         if (residualTypes != ScrDataTypes.Void)
@@ -707,8 +766,8 @@ internal record struct ScrData
             return true;
         }
 
-        // 3. Check for array "size" field - it's readonly
-        bool arraySizeReadOnly = name == "size" && HasType(ScrDataTypes.Array);
+        // 3. Check for the array/string "size" field - it's readonly
+        bool sizeFieldReadOnly = name == "size" && (HasType(ScrDataTypes.Array) || HasType(ScrDataTypes.String));
 
         // 4. Check each entity sub-type
         List<ScrEntitySetFieldFailureInfo>? failures = null;
@@ -729,9 +788,9 @@ internal record struct ScrData
             }
         }
 
-        if (failures is not null || arraySizeReadOnly)
+        if (failures is not null || sizeFieldReadOnly)
         {
-            failure = new(IncompatibleBaseTypes: null, EntityFailures: failures?.ToImmutableList(), ArraySizeReadOnly: arraySizeReadOnly);
+            failure = new(IncompatibleBaseTypes: null, EntityFailures: failures?.ToImmutableList(), SizeFieldReadOnly: sizeFieldReadOnly);
             return false;
         }
 
@@ -756,7 +815,8 @@ internal record struct ScrData
         // Perform type inference, establish whether we'll look at values too.
         ScrDataTypes type = ScrDataTypes.Void;
         bool isReadOnly = true;
-        bool? booleanValue = true;
+        bool? booleanValue = null;
+        bool booleanValueSet = false;
         bool indeterminate = false;
         ScrDataTypes firstType = incoming[0].Type;
         List<IScrDataSubType>? subTypes = null;
@@ -794,7 +854,12 @@ internal record struct ScrData
                 subTypes.AddRange(data.SubTypes);
             }
 
-            if(data.BooleanValue is not null)
+            if (!booleanValueSet)
+            {
+                booleanValue = data.BooleanValue;
+                booleanValueSet = true;
+            }
+            else
             {
                 booleanValue = ComposeBooleanValues(booleanValue, data.BooleanValue);
             }
@@ -818,6 +883,18 @@ internal record struct ScrData
     public readonly bool HasType(ScrDataTypes type)
     {
         return (Type & type) == type;
+    }
+
+    /// <summary>
+    /// Returns true when this value's declared type is exactly <paramref name="type"/>,
+    /// ignoring an <see cref="ScrDataTypes.Undefined"/> component (optional parameters get
+    /// Undefined unioned in). Unlike <see cref="HasType"/>, overlapping flag patterns do not
+    /// satisfy this check — e.g. <see cref="ScrDataTypes.Int"/> contains the Bool bit, so an
+    /// int is <c>HasType(Bool)</c> but not <c>IsExactly(Bool)</c>.
+    /// </summary>
+    public readonly bool IsExactly(ScrDataTypes type)
+    {
+        return (Type & ~ScrDataTypes.Undefined) == type;
     }
 
     /// <summary>
@@ -1115,11 +1192,13 @@ internal record struct ScrData
 
     private static bool? ComposeBooleanValues(bool? value1, bool? value2)
     {
-        if(value1 is null || value2 is null)
+        // The merged truthiness is only known when both sides are known and agree;
+        // merging a definitely-truthy path with a definitely-falsy one yields unknown.
+        if (value1 is null || value2 is null || value1.Value != value2.Value)
         {
             return null;
         }
-        return value1.Value && value2.Value;
+        return value1;
     }
 }
 

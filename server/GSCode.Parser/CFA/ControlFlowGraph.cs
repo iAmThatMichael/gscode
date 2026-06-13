@@ -126,7 +126,7 @@ internal readonly record struct ControlFlowGraph(CfgNode Start, CfgNode End)
         // Logic block: -> (logic) -> (jump | control flow | continuation)
         LinkedList<AstNode> statements = new();
 
-        while (currentNode != null && !IsControlFlowNode(currentNode.Value) && !IsJumpNode(currentNode.Value))
+        while (currentNode != null && !IsControlFlowNode(currentNode.Value) && !IsJumpNode(currentNode.Value, localHelper))
         {
             statements.AddLast(currentNode.Value);
             currentNode = currentNode.Next;
@@ -143,7 +143,7 @@ internal readonly record struct ControlFlowGraph(CfgNode Start, CfgNode End)
         }
 
         // TODO: This causes construction to stop after this jump node. While this is OK for testing purposes, it'd probably be better to construct another block of unreachable code that we can diagnose.
-        if (IsJumpNode(currentNode.Value))
+        if (IsJumpNode(currentNode.Value, localHelper))
         {
             // TODO: verify that AST gen will ensure that the jump nodes are defined.
             // Mark the relevant jump node
@@ -502,6 +502,22 @@ internal readonly record struct ControlFlowGraph(CfgNode Start, CfgNode End)
         return node.NodeType == AstNodeType.BreakStmt ||
             node.NodeType == AstNodeType.ContinueStmt ||
             node.NodeType == AstNodeType.ReturnStmt;
+    }
+
+    private static bool IsJumpNode(AstNode node, ControlFlowHelper localHelper)
+    {
+        // A break (or continue) with no enclosing jump target is a runtime no-op,
+        // not a jump: control falls through to the following statements.
+        if (node.NodeType == AstNodeType.BreakStmt && localHelper.BreakContext is null)
+        {
+            return false;
+        }
+        if (node.NodeType == AstNodeType.ContinueStmt && localHelper.LoopContinueContext is null)
+        {
+            return false;
+        }
+
+        return IsJumpNode(node);
     }
 
     /// <summary>

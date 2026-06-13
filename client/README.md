@@ -10,12 +10,23 @@ GSCode's language server requires the .NET 10 Runtime, available at [Download .N
 
 ## Release Notes
 
-### 1.4.1 (latest)
+### 1.5.0 (latest)
+
+- Added game script indexing so GSCode can discover namespaces and functions across the workspace and shared raw scripts without every file needing to be opened first.
+- Added workspace-wide namespace and `namespace::function` completions, including `sys::` API completions and automatic `#using` insertion for functions from unimported scripts.
+- Added field completions for dot-access on common globals such as `level`, `world`, and `game`, with fields learned from indexed scripts.
+- Added optional persistent workspace caching for faster startup after scripts have already been indexed.
+- Improved `#using` quick fixes so they work for more missing namespace/function cases, insert alphabetically, skip duplicates, and avoid suggesting scripts from the wrong VM.
+- Improved protected raw-folder warnings with `gscode.rawFileWarningMode`, warning for stock shared-raw scripts by default while staying quiet for custom scripts kept in `share/raw`.
+- Fixed GSH and macro invalidation so changes to inserted files, added/removed macros, and macro body edits are picked up after save without restarting VS Code.
+- Fixed several diagnostics, navigation, and highlighting edge cases, including string `.size`, no-op `break` statements, boolean-literal hints, namespace scope leakage, dev blocks, switch expressions, usage detection, and type-flow convergence.
+- Updated the extension baseline to VS Code 1.85+ with newer client/server dependencies.
+
+Special thanks go to [iAmThatMichael](https://github.com/iAmThatMichael) who contributed many of the above changes.
+
+### 1.4
+
 - Added a `gscode ignore` comment directive that suppresses diagnostics on the following line.
-- Added a "Don't show again" prompt to the raw scripts write warning.
-
-### 1.4.0
-
 - Added context-aware completion suggestions based on editor location.
 - Significant API updates & improvements aimed to reduce false-positive diagnostics. Added typing to most methods.
 - Added type checking against function signatures.

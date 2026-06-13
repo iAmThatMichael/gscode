@@ -1,98 +1,79 @@
-using Microsoft.Extensions.Logging;
+using GSCode.Parser;
+using GSCode.Parser.Data;
+using System.Linq;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using GSCode.Parser;
+using Serilog;
 
 namespace GSCode.NET.LSP.Handlers;
 
-public class SemanticTokensHandler : SemanticTokensHandlerBase
+internal class SemanticTokensHandler(
+    ScriptManager scriptManager,
+    TextDocumentSelector documentSelector) : SemanticTokensHandlerBase
 {
-    private readonly ILanguageServerFacade _facade;
-    private readonly ScriptManager _scriptManager;
-    private readonly ILogger<SemanticTokensHandler> _logger;
-    private readonly TextDocumentSelector _documentSelector;
 
-    public SemanticTokensHandler(ILanguageServerFacade facade,
-        ScriptManager scriptManager,
-        ILogger<SemanticTokensHandler> logger,
-        TextDocumentSelector documentSelector)
-    {
-        _facade = facade;
-        _scriptManager = scriptManager;
-        _logger = logger;
-        _documentSelector = documentSelector;
-    }
+    private static readonly SemanticTokenType[] s_tokenTypes =
+    [
+        SemanticTokenType.Namespace, SemanticTokenType.Type,     SemanticTokenType.Class,
+        SemanticTokenType.Enum,      SemanticTokenType.Interface, SemanticTokenType.Struct,
+        SemanticTokenType.TypeParameter, SemanticTokenType.Parameter, SemanticTokenType.Variable,
+        SemanticTokenType.Property,  SemanticTokenType.EnumMember, SemanticTokenType.Event,
+        SemanticTokenType.Function,  SemanticTokenType.Method,   SemanticTokenType.Macro,
+        SemanticTokenType.Keyword,   SemanticTokenType.Modifier, SemanticTokenType.Comment,
+        SemanticTokenType.String,    SemanticTokenType.Number,   SemanticTokenType.Regexp,
+        SemanticTokenType.Operator
+    ];
+
+    private static readonly SemanticTokenModifier[] s_tokenModifiers =
+    [
+        SemanticTokenModifier.Declaration, SemanticTokenModifier.Definition,
+        SemanticTokenModifier.Readonly,    SemanticTokenModifier.Static,
+        SemanticTokenModifier.Deprecated,  SemanticTokenModifier.Abstract,
+        SemanticTokenModifier.Async,       SemanticTokenModifier.Modification,
+        SemanticTokenModifier.Documentation, SemanticTokenModifier.DefaultLibrary
+    ];
 
     protected override SemanticTokensRegistrationOptions CreateRegistrationOptions(
-        SemanticTokensCapability capability,
-        ClientCapabilities clientCapabilities)
-    {
-        Container<SemanticTokenModifier>? tokenModifiers = capability.TokenModifiers;
-        Container<SemanticTokenType>? tokenTypes = capability.TokenTypes;
-
-        if (tokenTypes is null || !tokenTypes.Any())
+        SemanticTokensCapability capability, ClientCapabilities clientCapabilities)
+        => new()
         {
-            tokenTypes = new Container<SemanticTokenType>(
-                SemanticTokenType.Namespace,
-                SemanticTokenType.Type,
-                SemanticTokenType.Class,
-                SemanticTokenType.Enum,
-                SemanticTokenType.Interface,
-                SemanticTokenType.Struct,
-                SemanticTokenType.TypeParameter,
-                SemanticTokenType.Parameter,
-                SemanticTokenType.Variable,
-                SemanticTokenType.Property,
-                SemanticTokenType.EnumMember,
-                SemanticTokenType.Event,
-                SemanticTokenType.Function,
-                SemanticTokenType.Method,
-                SemanticTokenType.Macro,
-                SemanticTokenType.Keyword,
-                SemanticTokenType.Modifier,
-                SemanticTokenType.Comment,
-                SemanticTokenType.String,
-                SemanticTokenType.Number,
-                SemanticTokenType.Regexp,
-                SemanticTokenType.Operator
-            );
-        }
-
-        return new SemanticTokensRegistrationOptions
-        {
-            DocumentSelector = _documentSelector,
+            DocumentSelector = documentSelector,
             Legend = new SemanticTokensLegend
             {
-                TokenModifiers = tokenModifiers,
-                TokenTypes = tokenTypes
+                TokenTypes = new Container<SemanticTokenType>(s_tokenTypes),
+                TokenModifiers = new Container<SemanticTokenModifier>(s_tokenModifiers)
             },
             Full = new SemanticTokensCapabilityRequestFull { Delta = false },
             Range = false
         };
-    }
 
-    protected override Task<SemanticTokensDocument> GetSemanticTokensDocument(ITextDocumentIdentifierParams @params, CancellationToken cancellationToken)
+    protected override Task<SemanticTokensDocument> GetSemanticTokensDocument(
+        ITextDocumentIdentifierParams @params, CancellationToken cancellationToken)
+        => Task.FromResult(new SemanticTokensDocument(RegistrationOptions.Legend));
+
+    protected override async Task Tokenize(SemanticTokensBuilder builder,
+        ITextDocumentIdentifierParams identifier, CancellationToken cancellationToken)
     {
-        return Task.FromResult(new SemanticTokensDocument(RegistrationOptions.Legend));
-    }
+        Log.Information("Tokenization request received, processing...");
+        Script? script = scriptManager.GetParsedEditor(identifier.TextDocument);
+        if (script is null) return;
 
-    protected override async Task Tokenize(SemanticTokensBuilder builder, ITextDocumentIdentifierParams identifier, CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("Tokenization request received, processing...");
-        Script? script = _scriptManager.GetParsedEditor(identifier.TextDocument);
+        var tokens = await script.GetSemanticTokensAsync(cancellationToken);
 
-        if (script is not null)
+        // Tokens are pre-sorted by FinalizeSemanticTokens during analysis (line/character order).
+        foreach (var token in tokens)
         {
-            await script.PushSemanticTokensAsync(builder, cancellationToken);
+            int length = token.Range.End.Character - token.Range.Start.Character;
+            SemanticTokenType tokenType = new(token.SemanticTokenType);
+            SemanticTokenModifier[] modifiers = token.SemanticTokenModifiers
+                .Select(m => new SemanticTokenModifier(m))
+                .ToArray();
+
+            builder.Push(token.Range.Start.Line, token.Range.Start.Character, length, tokenType, modifiers);
         }
 
-        _logger.LogInformation("Tokenization is complete!");
+        Log.Information("Tokenization is complete!");
     }
 }

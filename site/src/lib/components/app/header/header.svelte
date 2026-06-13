@@ -96,7 +96,7 @@
 				rel="noopener noreferrer"
 			>
 				<Download class="w-4 h-4" />
-				v1.4.1
+				v1.5.0
 			</Button>
 		</div>
 	{:else}

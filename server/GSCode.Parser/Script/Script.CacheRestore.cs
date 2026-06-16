@@ -46,12 +46,6 @@ public partial class Script
                 _usingPaths.Add(uri);
             }
 
-            // Restore InsertPaths
-            if (cachedData.InsertDependencies is { Count: > 0 })
-            {
-                _insertPaths.AddRange(cachedData.InsertDependencies);
-            }
-
             // Restore function locations, parameters, flags, and docs
             foreach (var kvp in cachedData.FunctionLocations)
             {

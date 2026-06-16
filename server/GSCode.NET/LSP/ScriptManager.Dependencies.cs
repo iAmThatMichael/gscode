@@ -148,7 +148,7 @@ public partial class ScriptManager
             ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(System.IO.Path.GetExtension(depLocalPath));
             if (!GetScripts(depLang).TryGetValue(dependency, out _)) continue;
 
-            foreach (SymbolDefinition def in _symbolRegistry.GetSymbolsDefinedInFile(depLocalPath))
+            foreach (SymbolDefinition def in GetSymbolRegistry(depLang).GetSymbolsDefinedInFile(depLocalPath))
             {
                 if (WorkspaceBoundaryFilter.FilterSymbolLocation(def.FilePath, currentWorkspaceRoot, currentIsInRawFolder)
                     == WorkspaceBoundaryFilter.FilterResult.DifferentWorkspace)

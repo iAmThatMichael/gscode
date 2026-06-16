@@ -159,7 +159,7 @@ public partial class ScriptManager
             {
                 FileSnapshot snapshot = await snapshotCache.GetAsync(path, cancellationToken);
                 if (snapshot.Exists)
-                    hashes[snapshot.Path] = snapshot.ContentHash;
+                    hashes[path] = snapshot.ContentHash;
             }
             else if (TryComputeContentHash(path, out int hash))
             {

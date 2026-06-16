@@ -81,13 +81,20 @@ public static class WorkspaceCacheManager
             }
 
             // System.Text.Json always creates Dictionary<K,V> with the default ordinal comparer.
-            // Rebuild with OrdinalIgnoreCase and normalize each key through Path.GetFullPath so
-            // drive-letter casing differences (G:\ vs g:\) never cause false cache misses.
+            // Rebuild Scripts and each entry's DependencyContentHashes with OrdinalIgnoreCase and
+            // normalized keys so drive-letter casing differences (G:\ vs g:\) never cause false
+            // cache misses — both in the outer lookup and in the per-dependency hash check.
             var normalized = new Dictionary<string, CachedScriptData>(StringComparer.OrdinalIgnoreCase);
             foreach (var (key, value) in cache.Scripts)
             {
                 string normalizedKey = Path.GetFullPath(key);
-                normalized[normalizedKey] = value;
+                var normalizedDepHashes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (depKey, depHash) in value.DependencyContentHashes)
+                {
+                    try { normalizedDepHashes[Path.GetFullPath(depKey)] = depHash; }
+                    catch { normalizedDepHashes[depKey] = depHash; }
+                }
+                normalized[normalizedKey] = value with { DependencyContentHashes = normalizedDepHashes };
             }
             cache = cache with { Scripts = normalized };
 

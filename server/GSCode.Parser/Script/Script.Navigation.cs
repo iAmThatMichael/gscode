@@ -239,7 +239,10 @@ public partial class Script
         if (!looksLikeCall && !isQualified && !isAddressOf && !hasDefinitionSymbol) return null;
 
         var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(tokenIdx);
-        if (IsBuiltinFunction(name)) return null;
+        // When the caller explicitly qualifies the name (e.g. struct::delete), they are
+        // targeting a specific user-defined function. Do not reject it just because a
+        // built-in API function shares the same unqualified name (e.g. entity.delete()).
+        if (qualifier is null && IsBuiltinFunction(name)) return null;
 
         string currentScriptPath = ScriptUri.LocalPath;
         string ns = GetEffectiveNamespace();

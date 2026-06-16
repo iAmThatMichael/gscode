@@ -69,15 +69,20 @@ internal class DefinitionHandler(
             return new LocationOrLocationLinks();
         }
 
-        // Skip built-in API functions
-        var api = ScriptAnalyserData.GetShared(script.Language);
-        if (api is not null)
+        // Skip built-in API functions — but only when the call is unqualified.
+        // A qualified call like struct::delete explicitly targets a user-defined function
+        // and must not be blocked even if a built-in shares the same base name.
+        if (string.IsNullOrEmpty(ns))
         {
-            var apiFn = api.GetApiFunction(name);
-            if (apiFn is not null && apiFn.IsBuiltIn)
+            var api = ScriptAnalyserData.GetShared(script.Language);
+            if (api is not null)
             {
-                sw.Stop();
-                return new LocationOrLocationLinks();
+                var apiFn = api.GetApiFunction(name);
+                if (apiFn is not null && apiFn.IsBuiltIn)
+                {
+                    sw.Stop();
+                    return new LocationOrLocationLinks();
+                }
             }
         }
 

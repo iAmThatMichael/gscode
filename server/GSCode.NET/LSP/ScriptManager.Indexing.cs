@@ -53,6 +53,7 @@ public partial class ScriptManager
 
             Log.Information("Indexing workspace under {Root}", rootDirectory);
             Log.Information("Indexing started: {Count} files", filesList.Count);
+            await _notifier.SendIndexingStartedAsync(filesList.Count, cancellationToken);
             var swAll = Stopwatch.StartNew();
 
             int maxDegree = Math.Max(1, Environment.ProcessorCount - 1);
@@ -62,6 +63,12 @@ public partial class ScriptManager
             int missNotInCache = 0;
             int missHashMismatch = 0;
             int missRestoreFailed = 0;
+            int completedFiles = 0;
+
+            // Send a progress update every ~5% of total files (min 10, max 50) so the
+            // client spinner stays responsive without flooding the JSON-RPC channel.
+            int total = filesList.Count;
+            int batchSize = Math.Clamp(total / 20, 10, 50);
 
             int fileIndex = 0;
             foreach (string file in filesList)
@@ -93,6 +100,10 @@ public partial class ScriptManager
                             case CacheResult.MissHashMismatch:  Interlocked.Increment(ref missHashMismatch); break;
                             case CacheResult.MissRestoreFailed: Interlocked.Increment(ref missRestoreFailed); break;
                         }
+
+                        int done = Interlocked.Increment(ref completedFiles);
+                        if (done % batchSize == 0)
+                            _ = _notifier.SendIndexingProgressAsync(done, total, cancellationToken);
 #if DEBUG
                         fileSw.Stop();
                         Log.Information("{Status} {File} in {ElapsedMs} ms",
@@ -131,6 +142,7 @@ public partial class ScriptManager
 
             // Signal that all files (and their #insert'd GSH macros) are now in the cache.
             IsIndexingComplete = true;
+            await _notifier.SendIndexingCompleteAsync(filesList.Count, filesList.Count, cacheHits, cancellationToken);
         }
         catch (OperationCanceledException)
         {

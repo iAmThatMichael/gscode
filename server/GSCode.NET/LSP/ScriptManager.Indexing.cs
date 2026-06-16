@@ -163,12 +163,14 @@ public partial class ScriptManager
             // Release per-script cached macro path dictionaries — these were only needed during
             // cache restore and the cache re-save. Both uses are now complete (or will never run),
             // so null them out to free the string-pair entries.
-            foreach (var kv in Scripts)
+            foreach (var kv in AllScripts)
                 kv.Value.Script.ReleaseCachedMacroPaths();
 
-            // Parse/analysis locks may still be in use by open editors or another workspace-root
-            // indexing task. Keep them for the server lifetime; editor locks are still removed
-            // when an editor document closes.
+            // Release parse and analysis semaphores for indexed files. Editor-opened files have
+            // their locks cleaned up via RemoveEditor; indexed-only files are never removed that
+            // way, so without this they leak one SemaphoreSlim per file for the server lifetime.
+            foreach (var kv in AllScripts)
+                CleanupLocksForUri(kv.Key);
         }
     }
 
@@ -244,7 +246,7 @@ public partial class ScriptManager
 
                         if (script.Parsed && !script.Failed)
                         {
-                            var cached = Scripts.GetOrAdd(docUri, _ => new CachedScript
+                            var cached = GetScripts(language).GetOrAdd(docUri, _ => new CachedScript
                             {
                                 Type = CachedScriptType.Dependency,
                                 Script = script
@@ -323,7 +325,7 @@ public partial class ScriptManager
         {
             // Normal parse path
             bool isNewFile = false;
-            var cached = Scripts.GetOrAdd(docUri, key =>
+            var cached = GetScripts(language).GetOrAdd(docUri, key =>
             {
                 isNewFile = true;
                 return new CachedScript
@@ -362,7 +364,7 @@ public partial class ScriptManager
         }
 
         // From here, both cache-restored and freshly-parsed files follow the same path
-        if (!Scripts.TryGetValue(docUri, out var entry) || entry.Script.DefinitionsTable is null)
+        if (!GetScripts(language).TryGetValue(docUri, out var entry) || entry.Script.DefinitionsTable is null)
             return cacheResult;
 
         // Signature-only pass (game script roots): the registry has been populated above,
@@ -435,7 +437,8 @@ public partial class ScriptManager
                 List<IExportedSymbol> exportedSymbols = new();
                 foreach (Uri dep in dependencies)
                 {
-                    if (Scripts.TryGetValue(dep, out CachedScript? depScript))
+                    ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(System.IO.Path.GetExtension(UriHelper.GetLocalPath(dep)));
+                    if (GetScripts(depLang).TryGetValue(dep, out CachedScript? depScript))
                         exportedSymbols.AddRange(await depScript.Script.IssueExportedSymbolsAsync(cancellationToken));
                 }
 

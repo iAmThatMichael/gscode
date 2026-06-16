@@ -100,11 +100,10 @@ public partial class ScriptManager
         }
 
         // Fallback to per-script lookup for symbols not yet in the registry (same language only)
-        foreach (KeyValuePair<Uri, CachedScript> kvp in Scripts)
+        foreach (KeyValuePair<Uri, CachedScript> kvp in GetScripts(language))
         {
             CachedScript cached = kvp.Value;
             if (cached.Script.DefinitionsTable is null) continue;
-            if (cached.Script.Language != language) continue;
 
             if (ns is not null)
             {
@@ -146,7 +145,7 @@ public partial class ScriptManager
     }
 
     /// <summary>Gets the total number of loaded scripts (editor and dependency).</summary>
-    public int GetLoadedScriptCount() => Scripts.Count;
+    public int GetLoadedScriptCount() => GscScripts.Count + CscScripts.Count;
 
     /// <summary>
     /// Searches all indexed symbols whose names contain <paramref name="query"/>
@@ -163,7 +162,7 @@ public partial class ScriptManager
             .Take(maxResults);
 
         // Use any loaded script's absolute path as the base for game-relative resolution.
-        string anyLoadedPath = Scripts.Keys.FirstOrDefault()?.LocalPath ?? string.Empty;
+        string anyLoadedPath = AllScripts.FirstOrDefault().Key?.LocalPath ?? string.Empty;
 
         foreach (var def in symbols)
         {
@@ -184,38 +183,23 @@ public partial class ScriptManager
     }
 
     /// <summary>Gets per-language script counts.</summary>
-    public (int GscFiles, int CscFiles) GetScriptCountsByType()
-    {
-        int gscCount = 0;
-        int cscCount = 0;
-
-        foreach (var kvp in Scripts)
-        {
-            switch (kvp.Value.Script.Language)
-            {
-                case ScriptLanguage.Gsc: gscCount++; break;
-                case ScriptLanguage.Csc: cscCount++; break;
-            }
-        }
-
-        return (gscCount, cscCount);
-    }
+    public (int GscFiles, int CscFiles) GetScriptCountsByType() =>
+        (GscScripts.Count, CscScripts.Count);
 
     public IEnumerable<LoadedScript> GetLoadedScripts()
     {
-        foreach (var kv in Scripts)
+        foreach (var kv in AllScripts)
             yield return new LoadedScript(kv.Key, kv.Value.Script);
     }
 
     /// <summary>
-    /// Returns only loaded scripts whose language matches <paramref name="language"/>.
-    /// Avoids repeating the same language guard in every handler.
+    /// Returns only loaded scripts for the given language.
+    /// Iterates the language-scoped dictionary directly — no runtime filter.
     /// </summary>
     public IEnumerable<LoadedScript> GetLoadedScripts(ScriptLanguage language)
     {
-        foreach (var kv in Scripts)
-            if (kv.Value.Script.Language == language)
-                yield return new LoadedScript(kv.Key, kv.Value.Script);
+        foreach (var kv in GetScripts(language))
+            yield return new LoadedScript(kv.Key, kv.Value.Script);
     }
 
     /// <summary>

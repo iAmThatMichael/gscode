@@ -47,9 +47,10 @@ public partial class ScriptManager
             // Check if content actually changed using hash comparison
             var docUri = document.Uri.ToUri();
             int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(updatedContent);
+            ScriptLanguage docLanguage = ScriptLanguageExtensions.FromExtension(Path.GetExtension(docUri.LocalPath));
 
             if (UseWorkspaceCache &&
-                Scripts.TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
+                GetScripts(docLanguage).TryGetValue(docUri, out var cached) && cached.LastContentHash == contentHash)
             {
                 // Content unchanged, return cached diagnostics
                 return await cached.Script.GetDiagnosticsAsync(cancellationToken);
@@ -71,7 +72,9 @@ public partial class ScriptManager
 
         // Remove symbols from language-scoped registry when file is closed
         string filePath = UriHelper.GetLocalPath(documentUri);
-        if (Scripts.TryGetValue(documentUri, out var closing))
+        ScriptLanguage language = ScriptLanguageExtensions.FromExtension(Path.GetExtension(documentUri.LocalPath));
+        var scripts = GetScripts(language);
+        if (scripts.TryGetValue(documentUri, out var closing))
         {
             GetSymbolRegistry(closing.Script.Language).RemoveSymbolsFromFile(filePath);
             GetFieldRegistry(closing.Script.Language).RemoveFieldsFromFile(filePath);
@@ -80,14 +83,17 @@ public partial class ScriptManager
         // Clean up cached macro definitions for this file
         GSCode.Parser.Pre.MacroDefinitionCache.Instance.RemoveFileMacros(filePath);
 
-        Scripts.Remove(documentUri, out _);
+        scripts.Remove(documentUri, out _);
         CleanupLocksForUri(documentUri);
 
         RemoveDependent(documentUri);
     }
 
     public Script? GetParsedEditor(Uri uri)
-        => Scripts.TryGetValue(uri, out var script) ? script.Script : null;
+    {
+        ScriptLanguage language = ScriptLanguageExtensions.FromExtension(Path.GetExtension(uri.LocalPath));
+        return GetScripts(language).TryGetValue(uri, out var script) ? script.Script : null;
+    }
 
     public Script? GetParsedEditor(TextDocumentIdentifier document)
         => GetParsedEditor(document.Uri.ToUri());
@@ -101,7 +107,7 @@ public partial class ScriptManager
     public async Task ReparseAllOpenEditorsAsync(CancellationToken cancellationToken = default)
     {
         // Snapshot the editor URIs so we don't hold a live enumerator while awaiting
-        var editorUris = Scripts
+        var editorUris = AllScripts
             .Where(kv => kv.Value.Type == CachedScriptType.Editor)
             .Select(kv => kv.Key)
             .ToList();
@@ -117,7 +123,8 @@ public partial class ScriptManager
             await _editorPriority.WaitAsync(cancellationToken);
             try
             {
-                if (!Scripts.TryGetValue(docUri, out CachedScript? cached))
+                ScriptLanguage docLanguage = ScriptLanguageExtensions.FromExtension(Path.GetExtension(docUri.LocalPath));
+                if (!GetScripts(docLanguage).TryGetValue(docUri, out CachedScript? cached))
                 {
                     continue;
                 }
@@ -150,7 +157,7 @@ public partial class ScriptManager
         int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
 
         // Update cached script metadata
-        if (Scripts.TryGetValue(documentUri, out var cached))
+        if (GetScripts(script.Language).TryGetValue(documentUri, out var cached))
         {
             cached.LastContentHash = contentHash;
             cached.LastParsedAt = DateTime.UtcNow;
@@ -188,7 +195,8 @@ public partial class ScriptManager
         List<IExportedSymbol> exportedSymbols = new();
         foreach (Uri dependency in dependencies)
         {
-            if (Scripts.TryGetValue(dependency, out CachedScript? cachedScript))
+            ScriptLanguage depLanguage = ScriptLanguageExtensions.FromExtension(Path.GetExtension(dependency.LocalPath));
+            if (GetScripts(depLanguage).TryGetValue(dependency, out CachedScript? cachedScript))
             {
                 await EnsureParsedAsync(dependency, cachedScript.Script, cancellationToken);
                 exportedSymbols.AddRange(await cachedScript.Script.IssueExportedSymbolsAsync(cancellationToken));
@@ -241,7 +249,8 @@ public partial class ScriptManager
 
     private Script GetEditorByUri(Uri uri, ScriptLanguage language)
     {
-        var cached = Scripts.GetOrAdd(uri, key => new CachedScript()
+        var scripts = GetScripts(language);
+        var cached = scripts.GetOrAdd(uri, key => new CachedScript()
         {
             Type = CachedScriptType.Editor,
             Script = new Script(key, language, GetSymbolRegistry(language), globalFieldProvider: GetFieldRegistry(language))
@@ -255,7 +264,7 @@ public partial class ScriptManager
                 Type = CachedScriptType.Editor,
                 Script = new Script(uri, language, GetSymbolRegistry(language), globalFieldProvider: GetFieldRegistry(language))
             };
-            cached = Scripts.AddOrUpdate(uri, newCached, (_, _) => newCached);
+            cached = scripts.AddOrUpdate(uri, newCached, (_, _) => newCached);
         }
 
         return cached.Script;

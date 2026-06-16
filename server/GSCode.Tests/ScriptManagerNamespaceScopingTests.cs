@@ -94,7 +94,7 @@ public class ScriptManagerNamespaceScopingTests : IDisposable
         // script roots) so the registry knows every namespace, including cns.
         await sm.IndexWorkspaceAsync(_root, signatureOnly: true);
 
-        Assert.Contains("cns", sm.SymbolRegistry.GetAllNamespaces("gsc"));
+        Assert.NotEmpty(sm.FindFilesForNamespace(ScriptLanguage.Gsc, "cns"));
 
         var diagnostics = (await sm.AddEditorAsync(OpenItem("main.gsc"))).ToList();
 
@@ -110,11 +110,11 @@ public class ScriptManagerNamespaceScopingTests : IDisposable
         await sm.IndexWorkspaceAsync(_root, signatureOnly: true);
 
         // The quick-fix lookup for cns::c_func must find lib_c.gsc even though nothing imports it
-        var exactFiles = sm.SymbolRegistry.FindFilesForNamespacedFunction("cns", "c_func");
+        var exactFiles = sm.FindFilesForNamespacedFunction(ScriptLanguage.Gsc, "cns", "c_func");
         Assert.Contains(exactFiles, f => f.EndsWith("lib_c.gsc", StringComparison.OrdinalIgnoreCase));
 
         // And the namespace-level fallback finds it too
-        var nsFiles = sm.SymbolRegistry.FindFilesForNamespace("cns");
+        var nsFiles = sm.FindFilesForNamespace(ScriptLanguage.Gsc, "cns");
         Assert.Contains(nsFiles, f => f.EndsWith("lib_c.gsc", StringComparison.OrdinalIgnoreCase));
     }
 

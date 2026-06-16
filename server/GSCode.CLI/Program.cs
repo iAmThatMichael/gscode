@@ -1,5 +1,6 @@
 using BenchmarkDotNet.Running;
 using CommandLine;
+using GSCode.Data;
 using GSCode.NET.LSP;
 using GSCode.Parser;
 using GSCode.Parser.SPA;
@@ -103,7 +104,9 @@ class Program
         Console.WriteLine($"Memory after:  {memAfter / (1024.0 * 1024.0):F1} MB");
         Console.WriteLine($"Memory delta:  {(memAfter - memBefore) / (1024.0 * 1024.0):F1} MB");
 
-        var (functions, classes) = scriptManager.SymbolRegistry.GetCountsByType();
+        var (gscFunctions, gscClasses) = scriptManager.GetSymbolCounts(ScriptLanguage.Gsc);
+        var (cscFunctions, cscClasses) = scriptManager.GetSymbolCounts(ScriptLanguage.Csc);
+        var (functions, classes) = (gscFunctions + cscFunctions, gscClasses + cscClasses);
         Console.WriteLine($"Registry: {functions:N0} functions, {classes:N0} classes, {scriptManager.GetLoadedScriptCount():N0} scripts");
 
         if (!Console.IsInputRedirected)

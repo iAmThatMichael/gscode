@@ -1,4 +1,5 @@
-﻿using GSCode.Parser.Data;
+﻿using GSCode.Data;
+using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 namespace GSCode.Tests;
 
@@ -39,9 +40,9 @@ internal static class TestHelper
     /// <summary>
     /// Creates a dummy ParserIntelliSense for testing.
     /// </summary>
-    public static ParserIntelliSense CreateDummySense(string langId = "gsc")
+    public static ParserIntelliSense CreateDummySense(ScriptLanguage language = ScriptLanguage.Gsc)
     {
-        return new ParserIntelliSense(0, new Uri("file:///test"), langId);
+        return new ParserIntelliSense(0, new Uri("file:///test"), language);
     }
 
     private static bool IsTrivia(Token token)

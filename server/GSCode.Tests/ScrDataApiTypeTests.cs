@@ -132,7 +132,7 @@ public class ScrDataApiTypeTests
 
         Assert.True((bool)loadLanguageApiData.Invoke(null, [apiJson])!);
 
-        Script script = new(new Uri("file:///test"), "gsc");
+        Script script = new(new Uri("file:///test"), ScriptLanguage.Gsc);
         await script.ParseAsync("""
             function test(localClientNum)
             {
@@ -164,7 +164,7 @@ public class ScrDataApiTypeTests
 
         Assert.True((bool)loadLanguageApiData.Invoke(null, [apiJson])!);
 
-        Script script = new(new Uri("file:///test"), "csc");
+        Script script = new(new Uri("file:///test"), ScriptLanguage.Csc);
         await script.ParseAsync("""
             function test(localClientNum)
             {

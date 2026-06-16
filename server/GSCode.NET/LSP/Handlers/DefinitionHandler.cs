@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Parser;
 using GSCode.Parser.SA;
 using GSCode.Parser.SPA;
@@ -69,7 +70,7 @@ internal class DefinitionHandler(
         }
 
         // Skip built-in API functions
-        var api = ScriptAnalyserData.GetShared(script.LanguageId);
+        var api = ScriptAnalyserData.GetShared(script.Language);
         if (api is not null)
         {
             var apiFn = api.GetApiFunction(name);
@@ -80,7 +81,7 @@ internal class DefinitionHandler(
             }
         }
 
-        Location? remote = scriptManager.FindSymbolLocation(ns, name, documentPath);
+        Location? remote = scriptManager.FindSymbolLocation(ns, name, script.Language, documentPath);
         sw.Stop();
         if (remote is not null)
         {

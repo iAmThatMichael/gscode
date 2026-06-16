@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Parser;
 using GSCode.Parser.SA;
 using GSCode.Parser.Util;
@@ -106,15 +107,14 @@ internal class CodeLensHandler(
             };
 
         // Count how many call/use sites exist across the whole workspace,
-        // restricted to the same languageId as the declaring script.
+        // restricted to the same language as the declaring script.
         Script? originScript = scriptManager.GetParsedEditor(new Uri(uri));
-        string? languageId = originScript?.LanguageId;
+        ScriptLanguage? originLanguage = originScript?.Language;
 
         int count = 0;
         foreach (var loaded in scriptManager.GetLoadedScripts())
         {
-            if (languageId is not null &&
-                !string.Equals(loaded.Script.LanguageId, languageId, StringComparison.OrdinalIgnoreCase))
+            if (originLanguage is not null && loaded.Script.Language != originLanguage)
                 continue;
 
             foreach (var key in keys)

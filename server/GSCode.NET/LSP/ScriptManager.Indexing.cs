@@ -1,4 +1,5 @@
 using Serilog;
+using GSCode.Data;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Cache;
@@ -184,7 +185,7 @@ public partial class ScriptManager
         CancellationToken cancellationToken)
     {
         string ext = Path.GetExtension(filePath);
-        string languageId = string.Equals(ext, ".csc", StringComparison.OrdinalIgnoreCase) ? "csc" : "gsc";
+        ScriptLanguage language = ScriptLanguageExtensions.FromExtension(ext);
         string relPath = Path.GetRelativePath(rootDirectory, filePath);
 
         // Normalize path so drive-letter casing (G:\ vs g:\) never causes a cache miss
@@ -238,7 +239,7 @@ public partial class ScriptManager
                     else
                     {
                         // Hash matches; attempt restore.
-                        var script = new Script(docUri, languageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry);
+                        var script = new Script(docUri, language, GetSymbolRegistry(language), ScriptMode.Index, GetFieldRegistry(language));
                         script.RestoreFromCache(cachedData, ScriptMode.Index);
 
                         if (script.Parsed && !script.Failed)
@@ -278,7 +279,7 @@ public partial class ScriptManager
                                     // Registered but not yet parsed; wait for the in-progress parse
                                     // (AddDependencyAsync holds EnsureParsedAsync) then reuse.
                                     Log.Debug("CACHE_HIT (race_wait): {File} — waiting for in-progress parse to complete", relPath);
-                                    await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken, fileSnapshot.Content);
+                                    await EnsureParsedAsync(docUri, cached.Script, cancellationToken, fileSnapshot.Content);
                                     cached.LastContentHash = fileSnapshot.ContentHash;
                                     cached.LastParsedAt = DateTime.UtcNow;
                                     cached.WorkspaceCacheDirty = false;
@@ -328,7 +329,7 @@ public partial class ScriptManager
                 return new CachedScript
                 {
                     Type = CachedScriptType.Dependency,
-                    Script = new Script(key, languageId, _symbolRegistry, ScriptMode.Index, _fieldRegistry)
+                    Script = new Script(key, language, GetSymbolRegistry(language), ScriptMode.Index, GetFieldRegistry(language))
                 };
             });
 
@@ -342,7 +343,7 @@ public partial class ScriptManager
             else
             {
                 fileSnapshot ??= await indexingContext.FileSnapshots.GetAsync(filePath, cancellationToken);
-                await EnsureParsedAsync(docUri, cached.Script, languageId, cancellationToken, fileSnapshot.Content);
+                await EnsureParsedAsync(docUri, cached.Script, cancellationToken, fileSnapshot.Content);
 
                 cached.LastContentHash = fileSnapshot.Exists
                     ? fileSnapshot.ContentHash

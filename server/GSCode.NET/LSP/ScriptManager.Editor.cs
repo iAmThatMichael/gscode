@@ -1,10 +1,12 @@
 using Serilog;
+using GSCode.Data;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
+using System.IO;
 using System.Linq;
 
 namespace GSCode.NET.LSP;
@@ -67,12 +69,13 @@ public partial class ScriptManager
     {
         Uri documentUri = document.Uri.ToUri();
 
-        // Remove symbols from global registry when file is closed
+        // Remove symbols from language-scoped registry when file is closed
         string filePath = UriHelper.GetLocalPath(documentUri);
-        _symbolRegistry.RemoveSymbolsFromFile(filePath);
-
-        // Remove fields from global field registry when file is closed
-        _fieldRegistry.RemoveFieldsFromFile(filePath);
+        if (Scripts.TryGetValue(documentUri, out var closing))
+        {
+            GetSymbolRegistry(closing.Script.Language).RemoveSymbolsFromFile(filePath);
+            GetFieldRegistry(closing.Script.Language).RemoveFieldsFromFile(filePath);
+        }
 
         // Clean up cached macro definitions for this file
         GSCode.Parser.Pre.MacroDefinitionCache.Instance.RemoveFileMacros(filePath);
@@ -187,7 +190,7 @@ public partial class ScriptManager
         {
             if (Scripts.TryGetValue(dependency, out CachedScript? cachedScript))
             {
-                await EnsureParsedAsync(dependency, cachedScript.Script, script.LanguageId, cancellationToken);
+                await EnsureParsedAsync(dependency, cachedScript.Script, cancellationToken);
                 exportedSymbols.AddRange(await cachedScript.Script.IssueExportedSymbolsAsync(cancellationToken));
             }
         }
@@ -219,16 +222,29 @@ public partial class ScriptManager
         return await script.GetDiagnosticsAsync(cancellationToken);
     }
 
-    private Script GetEditor(TextDocumentIdentifier document) => GetEditorByUri(document.Uri.ToUri());
+    private Script GetEditor(TextDocumentIdentifier document)
+    {
+        Uri uri = document.Uri.ToUri();
+        ScriptLanguage language = ScriptLanguageExtensions.FromExtension(Path.GetExtension(uri.LocalPath));
+        return GetEditorByUri(uri, language);
+    }
 
-    private Script GetEditor(TextDocumentItem document) => GetEditorByUri(document.Uri.ToUri(), document.LanguageId);
+    private Script GetEditor(TextDocumentItem document)
+    {
+        Uri uri = document.Uri.ToUri();
+        // Prefer LSP-supplied languageId when available; fall back to extension.
+        ScriptLanguage language = document.LanguageId is not null
+            ? ScriptLanguageExtensions.FromString(document.LanguageId)
+            : ScriptLanguageExtensions.FromExtension(Path.GetExtension(uri.LocalPath));
+        return GetEditorByUri(uri, language);
+    }
 
-    private Script GetEditorByUri(Uri uri, string? languageId = null)
+    private Script GetEditorByUri(Uri uri, ScriptLanguage language)
     {
         var cached = Scripts.GetOrAdd(uri, key => new CachedScript()
         {
             Type = CachedScriptType.Editor,
-            Script = new Script(key, languageId ?? "gsc", _symbolRegistry, globalFieldProvider: _fieldRegistry)
+            Script = new Script(key, language, GetSymbolRegistry(language), globalFieldProvider: GetFieldRegistry(language))
         });
 
         // If it was a dependency, upgrade to editor
@@ -237,7 +253,7 @@ public partial class ScriptManager
             var newCached = new CachedScript()
             {
                 Type = CachedScriptType.Editor,
-                Script = new Script(uri, languageId ?? "gsc", _symbolRegistry, globalFieldProvider: _fieldRegistry)
+                Script = new Script(uri, language, GetSymbolRegistry(language), globalFieldProvider: GetFieldRegistry(language))
             };
             cached = Scripts.AddOrUpdate(uri, newCached, (_, _) => newCached);
         }

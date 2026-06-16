@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
@@ -60,7 +61,7 @@ public partial class ScriptManager
             ));
         }
 
-        return _symbolRegistry.UpdateSymbolsForFile(filePath, newSymbols);
+        return GetSymbolRegistry(script.Language).UpdateSymbolsForFile(filePath, newSymbols);
     }
 
     /// <summary>
@@ -81,16 +82,16 @@ public partial class ScriptManager
             }
         }
 
-        _fieldRegistry.UpdateFieldsForFile(filePath, entries);
+        GetFieldRegistry(script.Language).UpdateFieldsForFile(filePath, entries);
     }
 
     /// <summary>
-    /// Finds a symbol (function or class) by optional namespace and name.
-    /// Tries the global registry first (O(1)), falls back to per-script lookup.
+    /// Finds a symbol (function or class) by optional namespace and name within the given language.
+    /// Tries the language registry first (O(1)), falls back to per-script lookup restricted to the same language.
     /// </summary>
-    public Location? FindSymbolLocation(string? ns, string name, string? currentFilePath = null)
+    public Location? FindSymbolLocation(string? ns, string name, ScriptLanguage language, string? currentFilePath = null)
     {
-        var symbol = _symbolRegistry.FindSymbol(ns, name);
+        var symbol = GetSymbolRegistry(language).FindSymbol(ns, name);
         if (symbol is not null)
         {
             string? resolvedPath = GSCode.Parser.Util.ScriptFileResolver.GetScriptFilePath(currentFilePath ?? string.Empty, symbol.FilePath);
@@ -98,11 +99,12 @@ public partial class ScriptManager
                 return new Location() { Uri = new Uri(resolvedPath), Range = symbol.Range.ToRange() };
         }
 
-        // Fallback to per-script lookup for symbols not yet in the registry
+        // Fallback to per-script lookup for symbols not yet in the registry (same language only)
         foreach (KeyValuePair<Uri, CachedScript> kvp in Scripts)
         {
             CachedScript cached = kvp.Value;
             if (cached.Script.DefinitionsTable is null) continue;
+            if (cached.Script.Language != language) continue;
 
             if (ns is not null)
             {
@@ -155,7 +157,10 @@ public partial class ScriptManager
     public IEnumerable<(SymbolDefinition Symbol, Uri Uri, Range Range)> SearchWorkspaceSymbols(
         string query, int maxResults = 250)
     {
-        var symbols = _symbolRegistry.SearchSymbols(query, maxResults);
+        // Union symbols from all language registries — workspace symbol search is language-agnostic
+        var symbols = _symbolRegistries.Values
+            .SelectMany(r => r.SearchSymbols(query, maxResults))
+            .Take(maxResults);
 
         // Use any loaded script's absolute path as the base for game-relative resolution.
         string anyLoadedPath = Scripts.Keys.FirstOrDefault()?.LocalPath ?? string.Empty;
@@ -201,5 +206,18 @@ public partial class ScriptManager
         foreach (var kv in Scripts)
             yield return new LoadedScript(kv.Key, kv.Value.Script);
     }
+
+    /// <summary>
+    /// Returns file paths that export symbols in <paramref name="namespaceName"/> for the given language.
+    /// Used by code actions to suggest <c>#using</c> directives.
+    /// </summary>
+    public List<string> FindFilesForNamespace(ScriptLanguage language, string namespaceName) =>
+        GetSymbolRegistry(language).FindFilesForNamespace(namespaceName);
+
+    /// <summary>
+    /// Returns file paths that export a specific namespaced function for the given language.
+    /// </summary>
+    public List<string> FindFilesForNamespacedFunction(ScriptLanguage language, string namespaceName, string functionName) =>
+        GetSymbolRegistry(language).FindFilesForNamespacedFunction(namespaceName, functionName);
 }
 

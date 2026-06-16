@@ -45,6 +45,10 @@ internal sealed class CodeActionHandler(
         // Pre-fetch cached document text once — only needed by a subset of fixes
         scriptManager.TryGetCachedContent(request.TextDocument.Uri.ToUri(), out string content);
 
+        // Derive language from file extension so code actions can be scoped correctly.
+        ScriptLanguage language = ScriptLanguageExtensions.FromExtension(
+            System.IO.Path.GetExtension(request.TextDocument.Uri.ToUri().LocalPath));
+
         foreach (Diagnostic diagnostic in request.Context.Diagnostics)
         {
             // Diagnostic codes round-trip through the client and may come back as either a
@@ -168,7 +172,7 @@ internal sealed class CodeActionHandler(
             if (errorCode == GSCErrorCodes.UnknownNamespace)
             {
                 var usingActions = CreateAddUsingForNamespaceActions(
-                    request.TextDocument, diagnostic, content);
+                    request.TextDocument, diagnostic, content, language);
 
                 foreach (var usingAction in usingActions)
                 {
@@ -182,7 +186,7 @@ internal sealed class CodeActionHandler(
             if (errorCode == GSCErrorCodes.NamespaceDoesNotContainFunction)
             {
                 var usingActions = CreateAddUsingForNamespacedFunctionActions(
-                    request.TextDocument, diagnostic, content);
+                    request.TextDocument, diagnostic, content, language);
 
                 foreach (var usingAction in usingActions)
                 {
@@ -600,7 +604,7 @@ internal sealed class CodeActionHandler(
     /// producing a path like <c>scripts\zm\utility</c>.
     /// </remarks>
     private List<CodeAction> CreateAddUsingForNamespaceActions(
-        TextDocumentIdentifier document, Diagnostic diagnostic, string content)
+        TextDocumentIdentifier document, Diagnostic diagnostic, string content, ScriptLanguage language)
     {
         if (string.IsNullOrEmpty(content))
         {
@@ -622,12 +626,12 @@ internal sealed class CodeActionHandler(
         string? functionName = TryExtractQualifiedFunctionName(content, diagnostic.Range.End);
 
         List<string> filePaths = functionName is not null
-            ? scriptManager.SymbolRegistry.FindFilesForNamespacedFunction(namespaceName, functionName)
+            ? scriptManager.FindFilesForNamespacedFunction(language, namespaceName, functionName)
             : [];
 
         if (filePaths.Count == 0)
         {
-            filePaths = scriptManager.SymbolRegistry.FindFilesForNamespace(namespaceName);
+            filePaths = scriptManager.FindFilesForNamespace(language, namespaceName);
         }
 
         return BuildAddUsingActions(document, diagnostic, content, filePaths);
@@ -641,7 +645,7 @@ internal sealed class CodeActionHandler(
     /// immediately before the <c>::</c> that precedes it.
     /// </summary>
     private List<CodeAction> CreateAddUsingForNamespacedFunctionActions(
-        TextDocumentIdentifier document, Diagnostic diagnostic, string content)
+        TextDocumentIdentifier document, Diagnostic diagnostic, string content, ScriptLanguage language)
     {
         if (string.IsNullOrEmpty(content))
         {
@@ -660,7 +664,7 @@ internal sealed class CodeActionHandler(
             return [];
         }
 
-        List<string> filePaths = scriptManager.SymbolRegistry.FindFilesForNamespacedFunction(namespaceName, functionName);
+        List<string> filePaths = scriptManager.FindFilesForNamespacedFunction(language, namespaceName, functionName);
         return BuildAddUsingActions(document, diagnostic, content, filePaths);
     }
 

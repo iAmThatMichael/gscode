@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Parser;
 using GSCode.Parser.SA;
 using GSCode.Parser.Util;
@@ -34,14 +35,14 @@ internal class RenameHandler(
             list.Add(new TextEdit { Range = range, NewText = newName });
         }
 
-        // --- Path 1: dot-field access (e.g. level.foo) — cross-file, same languageId ---
+        // --- Path 1: dot-field access (e.g. level.foo) — cross-file, same language ---
         var fieldAccess = await script.GetGlobalFieldAtAsync(request.Position, cancellationToken);
         if (fieldAccess is not null)
         {
             var fieldKey = new SymbolKey(GSCode.Parser.SA.SymbolKind.Field, "", fieldAccess.Value.Field);
             foreach (var loaded in scriptManager.GetLoadedScripts())
             {
-                if (!string.Equals(loaded.Script.LanguageId, script.LanguageId, StringComparison.OrdinalIgnoreCase))
+                if (loaded.Script.Language != script.Language)
                     continue;
                 if (loaded.Script.References.TryGetValue(fieldKey, out var ranges))
                     foreach (var r in ranges)
@@ -61,7 +62,7 @@ internal class RenameHandler(
             return BuildWorkspaceEdit(edits);
         }
 
-        // --- Path 3: function / class — cross-file, same languageId ---
+        // --- Path 3: function / class — cross-file, same language ---
         var qid = await script.GetQualifiedIdentifierAtAsync(request.Position, cancellationToken);
         if (qid is null) return null;
 
@@ -75,11 +76,11 @@ internal class RenameHandler(
             new SymbolKey(GSCode.Parser.SA.SymbolKind.Class,    ns, name)
         };
 
-        string requestingLanguageId = script.LanguageId;
+        ScriptLanguage requestingLanguage = script.Language;
 
         foreach (var loaded in scriptManager.GetLoadedScripts())
         {
-            if (!string.Equals(loaded.Script.LanguageId, requestingLanguageId, StringComparison.OrdinalIgnoreCase))
+            if (loaded.Script.Language != requestingLanguage)
                 continue;
 
             // Reference call-sites
@@ -100,6 +101,13 @@ internal class RenameHandler(
 
                     string? resolved = ScriptFileResolver.GetScriptFilePath(loaded.Uri.LocalPath, loc.Value.FilePath);
                     if (resolved is null || !File.Exists(resolved)) continue;
+
+                    // Defense-in-depth: DefinitionsTable.GetSymbolLocation falls back to the global
+                    // registry, which could theoretically resolve across language boundaries.
+                    // Verify the resolved file belongs to the same language as the requesting script.
+                    if (ScriptLanguageExtensions.FromExtension(Path.GetExtension(resolved)) != requestingLanguage)
+                        continue;
+
                     AddEdit(new Uri(resolved), loc.Value.Range.ToRange());
                 }
             }

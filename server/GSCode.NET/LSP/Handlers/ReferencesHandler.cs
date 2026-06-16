@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Parser;
 using GSCode.Parser.SA;
 using GSCode.Parser.Util;
@@ -29,7 +30,7 @@ internal class ReferencesHandler(
             var fieldResults = new List<Location>();
             foreach (var loaded in scriptManager.GetLoadedScripts())
             {
-                if (!string.Equals(loaded.Script.LanguageId, script.LanguageId, StringComparison.OrdinalIgnoreCase))
+                if (loaded.Script.Language != script.Language)
                     continue;
                 if (loaded.Script.References.TryGetValue(fieldKey, out var ranges))
                     foreach (var r in ranges)
@@ -57,13 +58,13 @@ internal class ReferencesHandler(
             new SymbolKey(GSCode.Parser.SA.SymbolKind.Class,    ns, name)
         };
 
-        string requestingLanguageId = script.LanguageId;
+        ScriptLanguage requestingLanguage = script.Language;
 
         var results = new List<Location>();
         foreach (var loaded in scriptManager.GetLoadedScripts())
         {
-            // Don't cross GSC/CSC boundaries — a reference in a .gsc file cannot appear in a .csc file and vice versa.
-            if (!string.Equals(loaded.Script.LanguageId, requestingLanguageId, StringComparison.OrdinalIgnoreCase))
+            // Don't cross GSC/CSC boundaries.
+            if (loaded.Script.Language != requestingLanguage)
                 continue;
 
             foreach (var key in keys)
@@ -94,10 +95,8 @@ internal class ReferencesHandler(
                         // GetSymbolLocation falls back to the language-unaware global registry, so the
                         // resolved path can point to a file in the other language. Guard against this by
                         // checking the resolved extension against the requesting language.
-                        string resolvedExt = Path.GetExtension(resolved);
-                        bool resolvedIsCsc = resolvedExt.Equals(".csc", StringComparison.OrdinalIgnoreCase);
-                        bool requestingIsCsc = requestingLanguageId.Equals("csc", StringComparison.OrdinalIgnoreCase);
-                        if (resolvedIsCsc != requestingIsCsc) continue;
+                        ScriptLanguage resolvedLanguage = ScriptLanguageExtensions.FromExtension(Path.GetExtension(resolved));
+                        if (resolvedLanguage != requestingLanguage) continue;
 
                         results.Add(new Location { Uri = new Uri(resolved), Range = loc.Value.Range.ToRange() });
                     }

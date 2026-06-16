@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -36,7 +36,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new Uri("file:///test"), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ScriptLanguage.Gsc));
 
         Assert.NotNull(cfg.Start);
         Assert.NotNull(cfg.End);
@@ -73,7 +73,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new Uri("file:///test"), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ScriptLanguage.Gsc));
 
         Assert.NotNull(cfg.Start);
         Assert.NotNull(cfg.End);
@@ -120,7 +120,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new Uri("file:///test"), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ScriptLanguage.Gsc));
 
         Assert.NotNull(cfg.Start);
         Assert.NotNull(cfg.End);
@@ -310,7 +310,7 @@ public class CfaTests
 
         return ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new Uri("file:///test"), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ScriptLanguage.Gsc));
     }
 
     // ===== Additional CFA tests =====
@@ -338,7 +338,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new Uri("file:///test"), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ScriptLanguage.Gsc));
 
         // entry -> while decision
         DecisionNode decision = GetSingleOutgoing<DecisionNode>(cfg.Start);
@@ -384,7 +384,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new Uri("file:///test"), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ScriptLanguage.Gsc));
 
         // entry -> iteration node
         IterationNode iteration = GetSingleOutgoing<IterationNode>(cfg.Start);
@@ -426,7 +426,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new Uri("file:///test"), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ScriptLanguage.Gsc));
 
         // entry -> body first (do-while executes body before condition)
         BasicBlock body = GetSingleOutgoing<BasicBlock>(cfg.Start);
@@ -480,7 +480,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new Uri("file:///test"), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ScriptLanguage.Gsc));
 
         Assert.NotNull(cfg.Start);
         Assert.NotNull(cfg.End);
@@ -515,7 +515,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new Uri("file:///test"), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ScriptLanguage.Gsc));
 
         // entry -> while decision
         DecisionNode decision = GetSingleOutgoing<DecisionNode>(cfg.Start);
@@ -553,7 +553,7 @@ public class CfaTests
 
         ControlFlowGraph cfg = ControlFlowGraph.ConstructFunctionGraph(
             root,
-            new ParserIntelliSense(0, new Uri("file:///test"), ""));
+            new ParserIntelliSense(0, new Uri("file:///test"), ScriptLanguage.Gsc));
 
         // entry -> while decision
         DecisionNode decision = GetSingleOutgoing<DecisionNode>(cfg.Start);

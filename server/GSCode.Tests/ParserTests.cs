@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Parser.AST;
 using GSCode.Parser.Lexical;
 using Xunit;
@@ -10,7 +11,7 @@ public class ParserTests
     {
         TokenList tokens = TestHelper.Lex(source);
         var sense = TestHelper.CreateDummySense();
-        GSCode.Parser.AST.Parser parser = new(tokens.Start!, sense, "gsc");
+        GSCode.Parser.AST.Parser parser = new(tokens.Start!, sense, ScriptLanguage.Gsc);
         return parser.Parse();
     }
 

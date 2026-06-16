@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Parser;
 using GSCode.Parser.SA;
 using GSCode.Parser.SPA;
@@ -23,7 +24,7 @@ internal class PrepareRenameHandler(
         string name = target.Value.Name;
 
         // Reject built-in API functions — they are not user-defined and cannot be renamed.
-        var api = ScriptAnalyserData.GetShared(script.LanguageId);
+        var api = ScriptAnalyserData.GetShared(script.Language);
         if (api is not null)
         {
             var apiFn = api.GetApiFunction(name);

@@ -65,6 +65,8 @@ public partial class ScriptManager
             int missHashMismatch = 0;
             int missRestoreFailed = 0;
             int completedFiles = 0;
+            // Collect normalized file paths of hash-mismatch misses for the phase-2 reverse-dep pass.
+            var hashMisses = new System.Collections.Concurrent.ConcurrentBag<string>();
 
             // Send a progress update every ~5% of total files (min 10, max 50) so the
             // client spinner stays responsive without flooding the JSON-RPC channel.
@@ -98,7 +100,10 @@ public partial class ScriptManager
                         {
                             case CacheResult.Hit:               Interlocked.Increment(ref cacheHits); break;
                             case CacheResult.MissNotInCache:    Interlocked.Increment(ref missNotInCache); break;
-                            case CacheResult.MissHashMismatch:  Interlocked.Increment(ref missHashMismatch); break;
+                            case CacheResult.MissHashMismatch:
+                                Interlocked.Increment(ref missHashMismatch);
+                                hashMisses.Add(Path.GetFullPath(file));
+                                break;
                             case CacheResult.MissRestoreFailed: Interlocked.Increment(ref missRestoreFailed); break;
                         }
 
@@ -133,6 +138,62 @@ public partial class ScriptManager
             {
                 Log.Information("Cache miss breakdown — new/uncached: {NotInCache}, changed: {HashMismatch}, restore error: {RestoreFailed}",
                     missNotInCache, missHashMismatch, missRestoreFailed);
+            }
+
+            // Phase-2: propagate hash-mismatch misses to cache-restored dependents.
+            // Any file that was restored from cache but depends (transitively) on a changed file
+            // needs to be re-parsed so it picks up the updated symbols.
+            if (_workspaceCache is not null && !hashMisses.IsEmpty)
+            {
+                var reverseMap = BuildReverseDependencyMap(_workspaceCache);
+
+                // Transitively expand the miss set via BFS
+                var stalePaths = new HashSet<string>(hashMisses, StringComparer.OrdinalIgnoreCase);
+                var bfsQueue = new Queue<string>(hashMisses);
+                while (bfsQueue.Count > 0)
+                {
+                    string missed = bfsQueue.Dequeue();
+                    if (!reverseMap.TryGetValue(missed, out var dependents)) continue;
+                    foreach (string dep in dependents)
+                    {
+                        if (stalePaths.Add(dep))
+                            bfsQueue.Enqueue(dep);
+                    }
+                }
+
+                // Re-parse any stale URI that was actually restored from cache (not already re-parsed)
+                var staleTasks = new List<Task>();
+                foreach (string stalePath in stalePaths)
+                {
+                    // Skip the files that were already re-parsed as hash misses themselves
+                    if (hashMisses.Contains(stalePath))
+                        continue;
+
+                    Uri staleUri = new Uri(stalePath);
+                    ScriptLanguage staleLang = ScriptLanguageExtensions.FromExtension(Path.GetExtension(stalePath));
+                    if (!GetScripts(staleLang).TryGetValue(staleUri, out var staleEntry))
+                        continue;
+
+                    Log.Debug("CACHE_INVALIDATE (stale_dependent): {File} — dependency changed, re-parsing", Path.GetFileName(stalePath));
+                    staleTasks.Add(Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await ReparseIndexedScriptAsync(staleUri, stalePath, staleEntry, gate, cancellationToken);
+                        }
+                        catch (OperationCanceledException) { }
+                        catch (Exception ex)
+                        {
+                            Log.Error(ex, "Failed to re-parse stale dependent {File}", stalePath);
+                        }
+                    }, cancellationToken));
+                }
+
+                if (staleTasks.Count > 0)
+                {
+                    Log.Information("Phase-2 reanalysis: re-parsing {Count} stale dependents", staleTasks.Count);
+                    await Task.WhenAll(staleTasks);
+                }
             }
 
             // Save updated cache to disk
@@ -177,6 +238,31 @@ public partial class ScriptManager
     private enum CacheResult { Hit, MissNotInCache, MissHashMismatch, MissRestoreFailed, MissNoCache }
 
     /// <summary>
+    /// Reads <paramref name="filePath"/> from disk, updates the cached content hash and timestamp,
+    /// then re-parses, repopulates both registries, and publishes fresh diagnostics.
+    /// The caller is responsible for acquiring <paramref name="gate"/> before calling this method.
+    /// </summary>
+    private async Task ReparseIndexedScriptAsync(
+        Uri docUri, string filePath, CachedScript entry, SemaphoreSlim gate, CancellationToken cancellationToken)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            string content = await File.ReadAllTextAsync(filePath, cancellationToken);
+            entry.LastContentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
+            entry.LastParsedAt = DateTime.UtcNow;
+            await EnsureParsedAsync(docUri, entry.Script, cancellationToken);
+            PopulateSymbolRegistry(filePath, entry.Script);
+            PopulateFieldRegistry(filePath, entry.Script);
+            await PublishDiagnosticsAsync(docUri, entry.Script, cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+
     /// Indexes a single file. Returns the cache result for telemetry.
     /// </summary>
     private async Task<CacheResult> IndexFileAsync(
@@ -312,6 +398,7 @@ public partial class ScriptManager
                             cacheResult = CacheResult.MissRestoreFailed;
                         }
                     }
+                    } // end dep-hash-ok else
                 }
             }
             catch (Exception ex)

@@ -411,6 +411,29 @@ public partial class ScriptManager
     }
 
     /// <summary>
+    /// Builds a reverse-dependency map from the loaded cache:
+    /// dep file path → set of file paths that depend on it.
+    /// Used by the phase-2 stale-dependent reanalysis pass.
+    /// </summary>
+    private static Dictionary<string, HashSet<string>> BuildReverseDependencyMap(WorkspaceCacheFile cache)
+    {
+        var reverseMap = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (filePath, data) in cache.Scripts)
+        {
+            foreach (string dep in data.Dependencies)
+            {
+                if (!reverseMap.TryGetValue(dep, out var dependents))
+                {
+                    dependents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    reverseMap[dep] = dependents;
+                }
+                dependents.Add(filePath);
+            }
+        }
+        return reverseMap;
+    }
+
+    /// <summary>
     /// Extracts a CachedScriptData DTO from a parsed script for serialization.
     /// </summary>
     private static async Task<CachedScriptData?> ExtractCacheDataAsync(

@@ -1,4 +1,4 @@
-using GSCode.Data;
+﻿using GSCode.Data;
 using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
@@ -32,7 +32,7 @@ public class NamespaceDiagnosticsTests
         IEnumerable<IExportedSymbol>? dependencyExports = null,
         IEnumerable<(string Namespace, string Name)>? dependencyLocations = null)
     {
-        Script script = new(new Uri("file:///scripts/zm/test.gsc"), "gsc");
+        Script script = new(new Uri("file:///scripts/zm/test.gsc"), ScriptLanguage.Gsc);
         await script.ParseAsync(source);
 
         // Mirror ScriptManager's dependency merge: locations of symbols defined in direct
@@ -169,3 +169,4 @@ public class NamespaceDiagnosticsTests
         Assert.DoesNotContain(diagnostics, d => HasCode(d, GSCErrorCodes.NamespaceDoesNotContainFunction));
     }
 }
+

@@ -1,4 +1,4 @@
-using GSCode.Data;
+﻿using GSCode.Data;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -16,7 +16,7 @@ public class DevBlockTests
 {
     private static async Task<IReadOnlyList<Diagnostic>> AnalyseAsync(string source)
     {
-        Script script = new(new Uri("file:///dev_block_test.gsc"), "gsc");
+        Script script = new(new Uri("file:///dev_block_test.gsc"), ScriptLanguage.Gsc);
         await script.ParseAsync(source);
         await script.AnalyseAsync(Array.Empty<IExportedSymbol>());
         return await script.GetDiagnosticsAsync(CancellationToken.None);
@@ -80,3 +80,4 @@ public class DevBlockTests
         Assert.Contains(diagnostics, d => NamespaceDiagnosticsTests.HasCode(d, GSCErrorCodes.ExpectedToken));
     }
 }
+

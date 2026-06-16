@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Parser;
 using GSCode.Parser.Cache;
 using GSCode.Parser.Data;
@@ -11,7 +12,7 @@ public class CacheRestoreTests
     [Fact]
     public void RestoreFromCache_RestoresReferenceAndGlobalFieldIndexes()
     {
-        Script script = new(new Uri("file:///test.gsc"), "gsc", mode: ScriptMode.Index);
+        Script script = new(new Uri("file:///test.gsc"), ScriptLanguage.Gsc, mode: ScriptMode.Index);
         var reference = new CachedReference(
             SymbolKind.Function,
             "test",

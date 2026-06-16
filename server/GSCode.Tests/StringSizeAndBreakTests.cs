@@ -1,4 +1,4 @@
-using GSCode.Data;
+﻿using GSCode.Data;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.DFA;
@@ -14,7 +14,7 @@ public class StringSizeFieldTests
 {
     private static async Task<IReadOnlyList<Diagnostic>> AnalyseAsync(string source)
     {
-        Script script = new(new Uri("file:///string_size_test.gsc"), "gsc");
+        Script script = new(new Uri("file:///string_size_test.gsc"), ScriptLanguage.Gsc);
         await script.ParseAsync(source);
         await script.AnalyseAsync(Array.Empty<IExportedSymbol>());
         return await script.GetDiagnosticsAsync(CancellationToken.None);
@@ -97,7 +97,7 @@ public class BreakNoOpTests
 {
     private static async Task<IReadOnlyList<Diagnostic>> AnalyseAsync(string source)
     {
-        Script script = new(new Uri("file:///break_noop_test.gsc"), "gsc");
+        Script script = new(new Uri("file:///break_noop_test.gsc"), ScriptLanguage.Gsc);
         await script.ParseAsync(source);
         await script.AnalyseAsync(Array.Empty<IExportedSymbol>());
         return await script.GetDiagnosticsAsync(CancellationToken.None);
@@ -193,3 +193,4 @@ public class BreakNoOpTests
         Assert.Contains(diagnostics, d => NamespaceDiagnosticsTests.HasCode(d, GSCErrorCodes.CannotAssignToReadOnlyProperty));
     }
 }
+

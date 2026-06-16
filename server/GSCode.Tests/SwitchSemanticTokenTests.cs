@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using Xunit;
@@ -27,7 +28,7 @@ public class SwitchSemanticTokenTests
                 }
             }
             """;
-        Script script = new(new Uri("file:///switch_token_test.gsc"), "gsc");
+        Script script = new(new Uri("file:///switch_token_test.gsc"), ScriptLanguage.Gsc);
         await script.ParseAsync(source);
         await script.AnalyseAsync(Array.Empty<IExportedSymbol>());
         var tokens = await script.GetSemanticTokensAsync(CancellationToken.None);

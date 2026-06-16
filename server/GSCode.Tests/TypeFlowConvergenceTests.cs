@@ -1,3 +1,4 @@
+using GSCode.Data;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using GSCode.Parser.DFA;
@@ -102,7 +103,7 @@ public class TypeFlowConvergenceTests
     {
         // Function pointers and isplayer() narrowing both attach SubTypes, and both sit
         // inside nested loops — the exact shape that previously never converged.
-        Script script = new(new Uri("file:///convergence_test.gsc"), "gsc");
+        Script script = new(new Uri("file:///convergence_test.gsc"), ScriptLanguage.Gsc);
         await script.ParseAsync("""
             function callback() {}
 

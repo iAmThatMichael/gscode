@@ -1,4 +1,4 @@
-using GSCode.Data;
+﻿using GSCode.Data;
 using GSCode.Data.Models;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
@@ -110,7 +110,7 @@ public class PreferBooleanLiteralTests
             BindingFlags.NonPublic | BindingFlags.Static)!;
         Assert.True((bool)loadLanguageApiData.Invoke(null, [ApiJson])!);
 
-        Script script = new(new Uri("file:///test.gsc"), "gsc");
+        Script script = new(new Uri("file:///test.gsc"), ScriptLanguage.Gsc);
         await script.ParseAsync(source);
         await script.AnalyseAsync(Array.Empty<IExportedSymbol>());
         return await script.GetDiagnosticsAsync(CancellationToken.None);
@@ -178,3 +178,4 @@ public class PreferBooleanLiteralTests
         Assert.True(new ScrData(ScrDataTypes.Int).HasType(ScrDataTypes.Bool));
     }
 }
+

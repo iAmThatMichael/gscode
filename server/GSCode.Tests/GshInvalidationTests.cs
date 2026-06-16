@@ -1,3 +1,4 @@
+﻿using GSCode.Data;
 using GSCode.Parser;
 using Xunit;
 
@@ -42,7 +43,7 @@ public class GshInvalidationTests : IDisposable
             }
             """;
         File.WriteAllText(_hostPath, source);
-        Script script = new(new Uri(_hostPath), "gsc");
+        Script script = new(new Uri(_hostPath), ScriptLanguage.Gsc);
         await script.ParseAsync(source);
         return script;
     }
@@ -92,3 +93,4 @@ public class GshInvalidationTests : IDisposable
         Assert.Contains("SECOND", second.GetMacroSourcePaths().Keys);
     }
 }
+

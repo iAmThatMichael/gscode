@@ -1,4 +1,4 @@
-using GSCode.Data;
+﻿using GSCode.Data;
 using GSCode.Data.Models.Interfaces;
 using GSCode.Parser;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -95,7 +95,7 @@ public class DiagnosticsTests
 
     private static async Task<IReadOnlyList<Diagnostic>> AnalyseDiagnosticsAsync(string source)
     {
-        Script script = new(new Uri("file:///test.gsc"), "gsc");
+        Script script = new(new Uri("file:///test.gsc"), ScriptLanguage.Gsc);
         await script.ParseAsync(source);
         await script.AnalyseAsync(Array.Empty<IExportedSymbol>());
         return await script.GetDiagnosticsAsync(CancellationToken.None);
@@ -110,3 +110,4 @@ public class DiagnosticsTests
             && diagnostic.Message.Contains($"'{variableName}'", StringComparison.OrdinalIgnoreCase));
     }
 }
+

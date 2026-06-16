@@ -11,5 +11,5 @@ public static class InsertTokenCache
     /// script that #insert's <paramref name="resolvedPath"/> re-reads the file from disk.
     /// </summary>
     public static void Invalidate(string resolvedPath) =>
-        ParserIntelliSense.InvalidateInsertCache(resolvedPath);
+        ParserIntelliSense.InvalidateInsertFile(resolvedPath);
 }

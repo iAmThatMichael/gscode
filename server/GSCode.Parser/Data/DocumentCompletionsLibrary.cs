@@ -437,7 +437,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
         IReadOnlyCollection<string> namespaces;
         try
         {
-            namespaces = WorkspaceSymbols.GetAllNamespaces(_languageId);
+            namespaces = WorkspaceSymbols.GetAllNamespaces(_language.ToLanguageId());
         }
         catch (Exception ex)
         {
@@ -585,7 +585,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
         IReadOnlyList<WorkspaceFunctionInfo> workspaceFunctions;
         try
         {
-            workspaceFunctions = WorkspaceSymbols.GetFunctionsInNamespace(ns, _languageId);
+            workspaceFunctions = WorkspaceSymbols.GetFunctionsInNamespace(ns, _language.ToLanguageId());
         }
         catch (Exception ex)
         {

@@ -177,7 +177,7 @@ public partial class ScriptManager
         List<Task> dependencyTasks = new();
         foreach (Uri dependency in dependencies)
         {
-            dependencyTasks.Add(AddDependencyAsync(documentUri, dependency, script.LanguageId));
+            dependencyTasks.Add(AddDependencyAsync(documentUri, dependency));
         }
         await Task.WhenAll(dependencyTasks);
 

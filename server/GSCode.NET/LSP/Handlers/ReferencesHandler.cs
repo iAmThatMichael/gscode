@@ -90,6 +90,15 @@ internal class ReferencesHandler(
                         // using the host script's absolute path as the base so the game root is known.
                         string? resolved = ScriptFileResolver.GetScriptFilePath(loaded.Uri.LocalPath, loc.Value.FilePath);
                         if (resolved is null || !File.Exists(resolved)) continue;
+
+                        // GetSymbolLocation falls back to the language-unaware global registry, so the
+                        // resolved path can point to a file in the other language. Guard against this by
+                        // checking the resolved extension against the requesting language.
+                        string resolvedExt = Path.GetExtension(resolved);
+                        bool resolvedIsCsc = resolvedExt.Equals(".csc", StringComparison.OrdinalIgnoreCase);
+                        bool requestingIsCsc = requestingLanguageId.Equals("csc", StringComparison.OrdinalIgnoreCase);
+                        if (resolvedIsCsc != requestingIsCsc) continue;
+
                         results.Add(new Location { Uri = new Uri(resolved), Range = loc.Value.Range.ToRange() });
                     }
                 }

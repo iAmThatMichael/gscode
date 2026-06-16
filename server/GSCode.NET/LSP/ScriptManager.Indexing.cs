@@ -385,7 +385,7 @@ public partial class ScriptManager
         // Parse and register dependencies
         foreach (Uri dep in dependencies)
         {
-            await AddDependencyAsync(docUri, dep, languageId, indexingContext, cancellationToken);
+            await AddDependencyAsync(docUri, dep, indexingContext, cancellationToken);
         }
 
         var indexingMode = GSCode.Parser.Configuration.CompletionConfiguration.WorkspaceIndexingMode;

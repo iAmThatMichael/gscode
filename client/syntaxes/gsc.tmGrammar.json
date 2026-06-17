@@ -210,7 +210,7 @@
             "beginCaptures": { "0": { "name": "punctuation.definition.vector.begin.gsc" } },
             "endCaptures":   { "0": { "name": "punctuation.definition.vector.end.gsc" } },
             "patterns": [
-                { "include": "#number" },
+                { "include": "#expression" },
                 {
                     "name": "punctuation.separator.vector.gsc",
                     "match": ","

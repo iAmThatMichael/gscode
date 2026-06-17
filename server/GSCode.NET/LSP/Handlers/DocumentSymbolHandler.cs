@@ -50,17 +50,45 @@ internal class DocumentSymbolHandler(
             return $"{name}{paramStr}{flagStr}";
         }
 
+        // Collect all symbol start lines in the current file to infer body ranges.
+        // GSC functions are always top-level so each symbol's body ends on the line before the next one begins.
+        var allStartLines = new List<int>();
+        foreach (var kv in script.DefinitionsTable.GetAllFunctionLocations())
+        {
+            string fp = ScriptFileResolver.NormalizeFilePathForUri(kv.Value.FilePath ?? "");
+            if (string.Equals(fp, currentPath, StringComparison.OrdinalIgnoreCase))
+                allStartLines.Add(kv.Value.Range.StartLine);
+        }
+        foreach (var kv in script.DefinitionsTable.GetAllClassLocations())
+        {
+            string fp = ScriptFileResolver.NormalizeFilePathForUri(kv.Value.FilePath ?? "");
+            if (string.Equals(fp, currentPath, StringComparison.OrdinalIgnoreCase))
+                allStartLines.Add(kv.Value.Range.StartLine);
+        }
+        allStartLines.Sort();
+        allStartLines = allStartLines.Distinct().ToList();
+
+        Range InferBodyRange(int startLine)
+        {
+            int idx = allStartLines.BinarySearch(startLine);
+            int endLine = idx >= 0 && idx + 1 < allStartLines.Count
+                ? allStartLines[idx + 1] - 1
+                : int.MaxValue;
+            return new Range { Start = new Position { Line = startLine, Character = 0 }, End = new Position { Line = endLine, Character = int.MaxValue } };
+        }
+
         var classNodes = new List<DocumentSymbol>();
         foreach (var kv in script.DefinitionsTable.GetAllClassLocations())
         {
             cancellationToken.ThrowIfCancellationRequested();
             string fp = ScriptFileResolver.NormalizeFilePathForUri(kv.Value.FilePath ?? "");
             if (!string.Equals(fp, currentPath, StringComparison.OrdinalIgnoreCase)) continue;
+            Range nameRange = kv.Value.Range.ToRange();
             classNodes.Add(new DocumentSymbol
             {
                 Name = kv.Key.SymbolName, Detail = kv.Key.Qualifier,
                 Kind = SymbolKind.Class,
-                Range = kv.Value.Range.ToRange(), SelectionRange = kv.Value.Range.ToRange(),
+                Range = InferBodyRange(kv.Value.Range.StartLine), SelectionRange = nameRange,
                 Children = new Container<DocumentSymbol>()
             });
         }
@@ -78,7 +106,7 @@ internal class DocumentSymbolHandler(
                 Name = BuildFunctionLabel(kv.Key.SymbolName, kv.Key.Qualifier, parameters, flags),
                 Detail = kv.Key.Qualifier,
                 Kind = SymbolKind.Function,
-                Range = kv.Value.Range.ToRange(), SelectionRange = kv.Value.Range.ToRange()
+                Range = InferBodyRange(kv.Value.Range.StartLine), SelectionRange = kv.Value.Range.ToRange()
             });
         }
 
@@ -95,30 +123,52 @@ internal class DocumentSymbolHandler(
             });
         }
 
-        var root = new List<DocumentSymbol>(3);
-        Range AnchorAt(int line) => new Range { Start = new Position { Line = line, Character = 0 }, End = new Position { Line = line, Character = 0 } };
+        classNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        functionNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        macroNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 
+        static Range SpanningRange(List<DocumentSymbol> nodes) => new()
+        {
+            Start = new Position { Line = nodes.Min(n => n.Range.Start.Line), Character = 0 },
+            End = new Position { Line = nodes.Max(n => n.Range.End.Line), Character = int.MaxValue }
+        };
+
+        var root = new List<SymbolInformationOrDocumentSymbol>(3);
         if (classNodes.Count > 0)
         {
-            classNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            root.Add(new DocumentSymbol { Name = "Classes", Kind = SymbolKind.Namespace, Range = AnchorAt(0), SelectionRange = AnchorAt(0), Children = new Container<DocumentSymbol>(classNodes) });
+            var span = SpanningRange(classNodes);
+            root.Add(new SymbolInformationOrDocumentSymbol(new DocumentSymbol
+            {
+                Name = "Classes", Kind = SymbolKind.Namespace,
+                Range = span, SelectionRange = span,
+                Children = new Container<DocumentSymbol>(classNodes)
+            }));
         }
         if (functionNodes.Count > 0)
         {
-            functionNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            root.Add(new DocumentSymbol { Name = "Functions", Kind = SymbolKind.Namespace, Range = AnchorAt(1), SelectionRange = AnchorAt(1), Children = new Container<DocumentSymbol>(functionNodes) });
+            var span = SpanningRange(functionNodes);
+            root.Add(new SymbolInformationOrDocumentSymbol(new DocumentSymbol
+            {
+                Name = "Functions", Kind = SymbolKind.Namespace,
+                Range = span, SelectionRange = span,
+                Children = new Container<DocumentSymbol>(functionNodes)
+            }));
         }
         if (macroNodes.Count > 0)
         {
-            macroNodes.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            root.Add(new DocumentSymbol { Name = "Macros", Kind = SymbolKind.Namespace, Range = AnchorAt(2), SelectionRange = AnchorAt(2), Children = new Container<DocumentSymbol>(macroNodes) });
+            var span = SpanningRange(macroNodes);
+            root.Add(new SymbolInformationOrDocumentSymbol(new DocumentSymbol
+            {
+                Name = "Macros", Kind = SymbolKind.Namespace,
+                Range = span, SelectionRange = span,
+                Children = new Container<DocumentSymbol>(macroNodes)
+            }));
         }
 
         sw.Stop();
-        int totalSymbols = root.Sum(s => s.Children?.Count() ?? 0);
+        int totalSymbols = root.Sum(s => s.DocumentSymbol?.Children?.Count() ?? 0);
         Log.Information("DocumentSymbol finished in {ElapsedMs} ms: {Count} symbols", sw.ElapsedMilliseconds, totalSymbols);
-        return new SymbolInformationOrDocumentSymbolContainer(
-            root.Select(s => new SymbolInformationOrDocumentSymbol(s)));
+        return new SymbolInformationOrDocumentSymbolContainer(root);
     }
 
     protected override DocumentSymbolRegistrationOptions CreateRegistrationOptions(

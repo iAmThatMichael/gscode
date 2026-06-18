@@ -27,10 +27,7 @@ public partial class ScriptManager
         foreach (var func in defTable.ExportedFunctions)
         {
             var loc = defTable.GetFunctionLocation(func.Namespace, func.Name);
-            // Function flags (e.g. "autoexec", "private") are recorded on the DefinitionsTable
-            // by SignatureAnalyser via RecordFunctionFlags, not on the ScrFunction instance itself,
-            // so we read them from the table here.
-            var flags = defTable.GetFunctionFlags(func.Namespace, func.Name);
+            var def = defTable.GetFunctionDefinition(func.Namespace, func.Name);
             // Always store the absolute path of the defining script: cache-restored tables
             // carry relative location paths, which would defeat workspace-boundary checks.
             newSymbols.Add(new SymbolDefinition(
@@ -39,8 +36,10 @@ public partial class ScriptManager
                 Type: ExportedSymbolType.Function,
                 FilePath: filePath,
                 Range: loc?.Range ?? default,
-                Parameters: func.Overloads.FirstOrDefault()?.Parameters?.Select(p => p.Name).ToArray(),
-                Flags: flags,
+                Parameters: def?.Parameters
+                    ?? func.Overloads.FirstOrDefault()?.Parameters?
+                        .Select(p => new FunctionParameter(p.Name, false, !(p.Mandatory ?? true))).ToArray(),
+                Flags: def?.Flags ?? func.Flags.ToArray(),
                 Documentation: func.DocComment ?? func.Description,
                 Symbol: func
             ));
@@ -50,13 +49,14 @@ public partial class ScriptManager
         foreach (var cls in defTable.ExportedClasses)
         {
             var loc = defTable.GetClassLocation(currentNamespace, cls.Name);
+            var classDef = defTable.GetClassDefinition(currentNamespace, cls.Name);
             newSymbols.Add(new SymbolDefinition(
                 Namespace: currentNamespace,
                 Name: cls.Name,
                 Type: ExportedSymbolType.Class,
                 FilePath: filePath,
                 Range: loc?.Range ?? default,
-                Documentation: cls.Description,
+                Documentation: classDef?.DocComment ?? cls.Description,
                 Symbol: cls
             ));
         }

@@ -7,6 +7,7 @@ using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using GSCode.Parser.SPA;
 using GSCode.Parser.SPA.Logic.Components;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using Serilog;
 
 namespace GSCode.Parser.DFA;
@@ -36,6 +37,9 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
     public Dictionary<(CfgNode From, CfgNode To), Dictionary<string, ScrVariable>> OutEdgeSets { get; } = new();
 
     public Dictionary<SwitchNode, SwitchAnalysisContext> SwitchContexts { get; } = new();
+
+    private List<FunctionFieldAssignment> _fieldAssignmentsCollector = new();
+    private List<FunctionLocal> _collectedLocalVariables = new();
 
     public AnalysisFlags Flags { get; } = new();
 
@@ -110,6 +114,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
         InSets.Clear();
         OutSets.Clear();
         OutEdgeSets.Clear();
+        _fieldAssignmentsCollector.Clear();
 
 #if FLAG_PERFORMANCE_TRACKING
         // Track time spent in different node types
@@ -347,6 +352,24 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
                 maxIterations, function?.Name ?? currentClass?.Name ?? "<anonymous>", totalNodes);
         }
 
+        // Collect local variables from OutSets after convergence
+        _collectedLocalVariables = new List<FunctionLocal>();
+        if (OutSets.TryGetValue(functionGraph.End, out var finalOutSet))
+        {
+            foreach (var kvp in finalOutSet)
+            {
+                var scrVar = kvp.Value;
+                if (!scrVar.Global && scrVar.SourceParameter is null)
+                {
+                    Range? sourceLoc = scrVar.SourceLocation;
+                    if (sourceLoc is null && scrVar.DefinitionSource is ExprNode exprNode)
+                        sourceLoc = exprNode.Range;
+                    if (sourceLoc is not null)
+                        _collectedLocalVariables.Add(new FunctionLocal(scrVar.Name, sourceLoc, scrVar.IsConstant));
+                }
+            }
+        }
+
         // Now that analysis is done, do one final pass to add diagnostics and sense tokens.
         Silent = false;
         Sense.SilentSenseTokens = false;
@@ -381,6 +404,33 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
                     break;
             }
         }
+
+        if (DefinitionsTable is not null)
+        {
+            if (function is not null)
+                MergeCollectedDataIntoDefinition(function);
+            else if (currentClass is not null && functionGraph.Start is FunEntryBlock entry && entry.Name is Token methodName)
+                MergeCollectedDataIntoDefinition(currentClass, methodName.Lexeme);
+        }
+    }
+
+    private void MergeCollectedDataIntoDefinition(ScrFunction function)
+    {
+        DefinitionsTable!.MergeAnalysisDataIntoDefinition(
+            CurrentNamespace ?? string.Empty,
+            function.Name,
+            _collectedLocalVariables.ToArray(),
+            _fieldAssignmentsCollector.ToArray()
+        );
+    }
+
+    private void MergeCollectedDataIntoDefinition(ScrClass currentClass, string methodName)
+    {
+        var variables = _collectedLocalVariables.ToArray();
+        var assignments = _fieldAssignmentsCollector.ToArray();
+        // Methods are registered under both the script namespace and the class name as qualifier
+        DefinitionsTable!.MergeAnalysisDataIntoDefinition(DefinitionsTable.CurrentNamespace ?? string.Empty, methodName, variables, assignments);
+        DefinitionsTable!.MergeAnalysisDataIntoDefinition(currentClass.Name, methodName, variables, assignments);
     }
 
 

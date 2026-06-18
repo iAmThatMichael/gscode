@@ -22,7 +22,7 @@ public sealed record SymbolDefinition(
     ExportedSymbolType Type,
     string FilePath,
     TokenRange Range,
-    string[]? Parameters = null,
+    FunctionParameter[]? Parameters = null,
     string[]? Flags = null,
     string? Documentation = null,
     IExportedSymbol? Symbol = null
@@ -332,6 +332,18 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
                a.Documentation == b.Documentation;
     }
 
+    private static bool SequenceEqual(FunctionParameter[]? a, FunctionParameter[]? b)
+    {
+        if (a is null && b is null) return true;
+        if (a is null || b is null) return false;
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (a[i] != b[i]) return false;
+        }
+        return true;
+    }
+
     private static bool SequenceEqual(string[]? a, string[]? b)
     {
         if (a is null && b is null) return true;
@@ -455,7 +467,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     }
 
     /// <inheritdoc/>
-    string[]? ISymbolLocationProvider.GetFunctionParameters(string ns, string name)
+    FunctionParameter[]? ISymbolLocationProvider.GetFunctionParameters(string ns, string name)
     {
         var symbol = FindSymbol(ns, name);
         return symbol?.Type == ExportedSymbolType.Function ? symbol.Parameters : null;

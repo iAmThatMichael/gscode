@@ -656,7 +656,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
         if (info.Parameters is { Length: > 0 })
         {
             var paramSnippets = info.Parameters
-                .Select((p, i) => $"${{{i + 1}:{(string.IsNullOrEmpty(p) ? $"param{i + 1}" : p)}}}");
+                .Select((p, i) => $"${{{i + 1}:{(string.IsNullOrEmpty(p.Name) ? $"param{i + 1}" : p.Name)}}}");
             insertText = $"{info.Name}({string.Join(", ", paramSnippets)}$0)";
         }
         else

@@ -506,7 +506,8 @@ internal ref partial struct Parser
 
         EmitFoldingRangeIfPossible(openBraceToken, closeBraceToken);
 
-        return new ClassDefnNode(identifierToken, inheritedClassToken, classBody);
+        int classBodyEndLine = closeBraceToken is not null ? (int)closeBraceToken.TokenRange.StartLine : 0;
+        return new ClassDefnNode(identifierToken, inheritedClassToken, classBody, classBodyEndLine);
     }
 
     /// <summary>
@@ -670,9 +671,7 @@ internal ref partial struct Parser
 
         ExitRecovery();
 
-        StmtListNode block = FunBraceBlock();
-
-        // FunBraceBlock should have consumed the closing brace
+        var (block, _) = FunBraceBlock();
 
         return new StructorDefnNode(keywordToken, block);
     }
@@ -752,14 +751,15 @@ internal ref partial struct Parser
         }
 
         ExitRecovery();
-        StmtListNode block = FunBraceBlock();
+        var (block, bodyEndLine) = FunBraceBlock();
 
         return new FunDefnNode
         {
             Name = identifierToken,
             Keywords = keywords,
             Parameters = parameters,
-            Body = block
+            Body = block,
+            BodyEndLine = bodyEndLine
         };
     }
 
@@ -770,7 +770,7 @@ internal ref partial struct Parser
     /// FunBraceBlock := OPENBRACE StmtList CLOSEBRACE
     /// </remarks>
     /// <returns></returns>
-    private StmtListNode FunBraceBlock()
+    private (StmtListNode Block, int BodyEndLine) FunBraceBlock()
     {
         // Pass over OPENBRACE
         Token openBraceToken = Consume();
@@ -785,7 +785,8 @@ internal ref partial struct Parser
 
         EmitFoldingRangeIfPossible(openBraceToken, closeBraceToken);
 
-        return stmtListNode;
+        int bodyEndLine = closeBraceToken is not null ? (int)closeBraceToken.TokenRange.StartLine : 0;
+        return (stmtListNode, bodyEndLine);
     }
 
     /// <summary>
@@ -794,7 +795,7 @@ internal ref partial struct Parser
     /// </summary>
     private StmtListNode BraceBlockWithOptionalCall()
     {
-        StmtListNode block = FunBraceBlock();
+        var (block, _) = FunBraceBlock();
 
         // Edge case: {stmts}(); — consume the trailing empty call and semicolon.
         if (CurrentTokenType == TokenType.OpenParen)

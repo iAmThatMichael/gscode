@@ -77,14 +77,11 @@ public sealed record CachedScriptData
     /// <summary>Class locations: qualified key -> (file path, range).</summary>
     public required Dictionary<QualifiedSymbolKey, CachedSymbolLocation> ClassLocations { get; init; }
 
-    /// <summary>Function parameters: qualified key -> parameter names.</summary>
-    public required Dictionary<QualifiedSymbolKey, string[]> FunctionParameters { get; init; }
+    /// <summary>Function definitions: qualified key -> complete function metadata (parameters, flags, doc, location).</summary>
+    public required Dictionary<QualifiedSymbolKey, CompleteFunctionDefinition> FunctionDefinitions { get; init; }
 
-    /// <summary>Function flags: qualified key -> flags.</summary>
-    public required Dictionary<QualifiedSymbolKey, string[]> FunctionFlags { get; init; }
-
-    /// <summary>Function documentation: qualified key -> doc comment.</summary>
-    public required Dictionary<QualifiedSymbolKey, string?> FunctionDocs { get; init; }
+    /// <summary>Class definitions: qualified key -> complete class metadata (members, doc, location).</summary>
+    public required Dictionary<QualifiedSymbolKey, CompleteClassDefinition> ClassDefinitions { get; init; }
 
     /// <summary>Macro source paths discovered during preprocessing: name -> source file path (null for macros local to the script).</summary>
     public required Dictionary<string, string?> MacroDefinitions { get; init; }
@@ -100,6 +97,7 @@ public sealed record CachedScriptData
 }
 
 /// <summary>
-/// Serializable version of (string FilePath, TokenRange Range).
+/// Serializable version of (string FilePath, TokenRange Range, int BodyEndLine).
+/// BodyEndLine defaults to 0 for backward-compatible deserialization of older cache entries.
 /// </summary>
-public sealed record CachedSymbolLocation(string FilePath, TokenRange Range);
+public sealed record CachedSymbolLocation(string FilePath, TokenRange Range, int BodyEndLine = 0);

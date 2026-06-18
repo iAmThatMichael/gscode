@@ -465,32 +465,30 @@ public partial class ScriptManager
             foreach (var kv in defTable.GetAllFunctionLocations())
             {
                 if (string.Equals(kv.Value.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
-                    funcLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range);
+                    funcLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range, kv.Value.BodyEndLine);
             }
 
             var classLocations = new Dictionary<Parser.SA.QualifiedSymbolKey, CachedSymbolLocation>();
             foreach (var kv in defTable.GetAllClassLocations())
             {
                 if (string.Equals(kv.Value.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
-                    classLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range);
+                    classLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range, kv.Value.BodyEndLine);
             }
 
-            // Extract function parameters, flags, and docs (scoped to own locations only)
-            var funcParams = new Dictionary<Parser.SA.QualifiedSymbolKey, string[]>();
-            var funcFlags = new Dictionary<Parser.SA.QualifiedSymbolKey, string[]>();
-            var funcDocs = new Dictionary<Parser.SA.QualifiedSymbolKey, string?>();
-
+            // Extract complete function definitions (scoped to own locations only)
+            var funcDefs = new Dictionary<Parser.SA.QualifiedSymbolKey, Parser.SA.CompleteFunctionDefinition>();
             foreach (var kv in funcLocations)
             {
-                var key = kv.Key;
-                var parameters = defTable.GetFunctionParameters(key.Qualifier, key.SymbolName);
-                if (parameters is not null) funcParams[key] = parameters;
+                var def = defTable.GetFunctionDefinition(kv.Key.Qualifier, kv.Key.SymbolName);
+                if (def is not null) funcDefs[kv.Key] = def;
+            }
 
-                var flags = defTable.GetFunctionFlags(key.Qualifier, key.SymbolName);
-                if (flags is not null) funcFlags[key] = flags;
-
-                var doc = defTable.GetFunctionDoc(key.Qualifier, key.SymbolName);
-                if (doc is not null) funcDocs[key] = doc;
+            // Extract complete class definitions (scoped to own locations only)
+            var classDefs = new Dictionary<Parser.SA.QualifiedSymbolKey, Parser.SA.CompleteClassDefinition>();
+            foreach (var kv in classLocations)
+            {
+                var def = defTable.GetClassDefinition(kv.Key.Qualifier, kv.Key.SymbolName);
+                if (def is not null) classDefs[kv.Key] = def;
             }
 
             // Snapshot diagnostics so they can be re-emitted on cache restore
@@ -548,9 +546,8 @@ public partial class ScriptManager
                     cancellationToken),
                 FunctionLocations = funcLocations,
                 ClassLocations = classLocations,
-                FunctionParameters = funcParams,
-                FunctionFlags = funcFlags,
-                FunctionDocs = funcDocs,
+                FunctionDefinitions = funcDefs,
+                ClassDefinitions = classDefs,
                 MacroDefinitions = macroPaths.ToDictionary(kv => kv.Key, kv => kv.Value),
                 Diagnostics = cachedDiags,
                 References = cachedReferences,

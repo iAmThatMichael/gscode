@@ -46,15 +46,22 @@ public partial class Script
                 _usingPaths.Add(uri);
             }
 
-            // Restore function locations, parameters, flags, and docs
+            // Restore function locations
             foreach (var kvp in cachedData.FunctionLocations)
             {
                 DefinitionsTable.AddFunctionLocation(
                     kvp.Key.Qualifier,
                     kvp.Key.SymbolName,
                     kvp.Value.FilePath,
-                    kvp.Value.Range
+                    kvp.Value.Range,
+                    kvp.Value.BodyEndLine
                 );
+            }
+
+            // Restore complete function definitions
+            foreach (var kvp in cachedData.FunctionDefinitions)
+            {
+                DefinitionsTable.RecordCompleteFunctionDefinition(kvp.Key.Qualifier, kvp.Key.SymbolName, kvp.Value);
             }
 
             foreach (var kvp in cachedData.ClassLocations)
@@ -63,38 +70,15 @@ public partial class Script
                     kvp.Key.Qualifier,
                     kvp.Key.SymbolName,
                     kvp.Value.FilePath,
-                    kvp.Value.Range
+                    kvp.Value.Range,
+                    kvp.Value.BodyEndLine
                 );
             }
 
-            foreach (var kvp in cachedData.FunctionParameters)
+            // Restore complete class definitions
+            foreach (var kvp in cachedData.ClassDefinitions)
             {
-                DefinitionsTable.RecordFunctionParameters(
-                    kvp.Key.Qualifier,
-                    kvp.Key.SymbolName,
-                    kvp.Value
-                );
-            }
-
-            foreach (var kvp in cachedData.FunctionFlags)
-            {
-                DefinitionsTable.RecordFunctionFlags(
-                    kvp.Key.Qualifier,
-                    kvp.Key.SymbolName,
-                    kvp.Value
-                );
-            }
-
-            foreach (var kvp in cachedData.FunctionDocs)
-            {
-                if (kvp.Value is not null)
-                {
-                    DefinitionsTable.RecordFunctionDoc(
-                        kvp.Key.Qualifier,
-                        kvp.Key.SymbolName,
-                        kvp.Value
-                    );
-                }
+                DefinitionsTable.RecordCompleteClassDefinition(kvp.Key.Qualifier, kvp.Key.SymbolName, kvp.Value);
             }
 
             // Re-register macro source paths into MacroDefinitionCache so that

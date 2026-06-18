@@ -1,5 +1,6 @@
 using GSCode.Parser;
 using GSCode.Parser.Util;
+using FunctionParameter = GSCode.Parser.SA.FunctionParameter;
 using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -43,9 +44,10 @@ internal class DocumentSymbolHandler(
 
         string currentPath = ScriptFileResolver.NormalizeFilePathForUri(request.TextDocument.Uri.ToUri().LocalPath);
 
-        static string BuildFunctionLabel(string name, string? ns, string[]? parameters, string[]? flags)
+        static string BuildFunctionLabel(string name, string? ns, FunctionParameter[]? parameters, string[]? flags)
         {
-            string paramStr = parameters is null ? "()" : $"({string.Join(", ", parameters)})";
+            string paramStr = parameters is null ? "()"
+                : $"({string.Join(", ", parameters.Select(p => p.ByRef ? $"&{p.Name}" : p.Name))})";
             string flagStr = flags is { Length: > 0 } ? $" [{string.Join(", ", flags)}]" : "";
             return $"{name}{paramStr}{flagStr}";
         }
@@ -68,12 +70,20 @@ internal class DocumentSymbolHandler(
         allStartLines.Sort();
         allStartLines = allStartLines.Distinct().ToList();
 
-        Range InferBodyRange(int startLine)
+        Range BuildBodyRange(int startLine, int bodyEndLine)
         {
-            int idx = allStartLines.BinarySearch(startLine);
-            int endLine = idx >= 0 && idx + 1 < allStartLines.Count
-                ? allStartLines[idx + 1] - 1
-                : int.MaxValue;
+            int endLine;
+            if (bodyEndLine > 0)
+            {
+                endLine = bodyEndLine;
+            }
+            else
+            {
+                int idx = allStartLines.BinarySearch(startLine);
+                endLine = idx >= 0 && idx + 1 < allStartLines.Count
+                    ? allStartLines[idx + 1] - 1
+                    : int.MaxValue;
+            }
             return new Range { Start = new Position { Line = startLine, Character = 0 }, End = new Position { Line = endLine, Character = int.MaxValue } };
         }
 
@@ -88,7 +98,7 @@ internal class DocumentSymbolHandler(
             {
                 Name = kv.Key.SymbolName, Detail = kv.Key.Qualifier,
                 Kind = SymbolKind.Class,
-                Range = InferBodyRange(kv.Value.Range.StartLine), SelectionRange = nameRange,
+                Range = BuildBodyRange(kv.Value.Range.StartLine, kv.Value.BodyEndLine), SelectionRange = nameRange,
                 Children = new Container<DocumentSymbol>()
             });
         }
@@ -99,14 +109,13 @@ internal class DocumentSymbolHandler(
             cancellationToken.ThrowIfCancellationRequested();
             string fp = ScriptFileResolver.NormalizeFilePathForUri(kv.Value.FilePath ?? "");
             if (!string.Equals(fp, currentPath, StringComparison.OrdinalIgnoreCase)) continue;
-            string[]? parameters = script.DefinitionsTable.GetFunctionParameters(kv.Key.Qualifier, kv.Key.SymbolName);
-            string[]? flags = script.DefinitionsTable.GetFunctionFlags(kv.Key.Qualifier, kv.Key.SymbolName);
+            var def = script.DefinitionsTable.GetFunctionDefinition(kv.Key.Qualifier, kv.Key.SymbolName);
             functionNodes.Add(new DocumentSymbol
             {
-                Name = BuildFunctionLabel(kv.Key.SymbolName, kv.Key.Qualifier, parameters, flags),
+                Name = BuildFunctionLabel(kv.Key.SymbolName, kv.Key.Qualifier, def?.Parameters, def?.Flags),
                 Detail = kv.Key.Qualifier,
                 Kind = SymbolKind.Function,
-                Range = InferBodyRange(kv.Value.Range.StartLine), SelectionRange = kv.Value.Range.ToRange()
+                Range = BuildBodyRange(kv.Value.Range.StartLine, kv.Value.BodyEndLine), SelectionRange = kv.Value.Range.ToRange()
             });
         }
 

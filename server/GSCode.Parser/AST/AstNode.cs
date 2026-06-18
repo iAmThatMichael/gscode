@@ -138,6 +138,7 @@ internal sealed class FunDefnNode() : AstNode(AstNodeType.FunctionDefinition)
     public required FunKeywordsNode Keywords { get; init; }
     public required ParamListNode Parameters { get; init; }
     public required StmtListNode Body { get; init; }
+    public int BodyEndLine { get; init; }
 }
 
 internal sealed class ParamListNode(LinkedList<ParamNode>? parameters = null, bool vararg = false) : AstNode(AstNodeType.ParameterList)
@@ -487,12 +488,12 @@ internal sealed class CalledOnNode(ExprNode on, ExprNode call) : ExprNode(ExprOp
     public ExprNode Call { get; } = call;
 }
 
-internal sealed class ClassDefnNode(Token? nameToken, Token? inheritsFromToken, ClassBodyListNode body) : AstNode(AstNodeType.ClassDefinition)
+internal sealed class ClassDefnNode(Token? nameToken, Token? inheritsFromToken, ClassBodyListNode body, int bodyEndLine = 0) : AstNode(AstNodeType.ClassDefinition)
 {
     public Token? NameToken { get; } = nameToken;
     public Token? InheritsFromToken { get; } = inheritsFromToken;
-
     public ClassBodyListNode Body { get; } = body;
+    public int BodyEndLine { get; } = bodyEndLine;
 }
 
 internal sealed class MemberDeclNode(Token? nameToken) : AstNode(AstNodeType.ClassMember)

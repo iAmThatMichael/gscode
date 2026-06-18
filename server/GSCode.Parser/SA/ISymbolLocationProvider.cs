@@ -13,7 +13,7 @@ public sealed record WorkspaceFunctionInfo(
     string Namespace,
     string Name,
     string FilePath,
-    string[]? Parameters,
+    FunctionParameter[]? Parameters,
     string? Documentation,
     ScrFunction? Function);
 
@@ -28,7 +28,7 @@ public interface ISymbolLocationProvider
     (string FilePath, TokenRange Range)? FindClassLocation(string? ns, string name);
     (string FilePath, TokenRange Range)? FindFunctionLocationAnyNamespace(string name);
     (string FilePath, TokenRange Range)? FindClassLocationAnyNamespace(string name);
-    string[]? GetFunctionParameters(string ns, string name);
+    FunctionParameter[]? GetFunctionParameters(string ns, string name);
     string[]? GetFunctionFlags(string ns, string name);
     string? GetFunctionDoc(string ns, string name);
     ScrFunction? GetFunction(string ns, string name);

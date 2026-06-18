@@ -927,6 +927,9 @@ internal ref partial struct TypeFlowAnalyser
                 return false;
             }
 
+            if (binaryExprNode.Left is IdentifierExprNode ownerIdent && binaryExprNode.Right is IdentifierExprNode fieldIdentInner)
+                _fieldAssignmentsCollector.Add(new FunctionFieldAssignment(ownerIdent.Identifier, fieldName, fieldIdentInner.Range));
+
             if (binaryExprNode.Right is IdentifierExprNode identifierNode)
             {
                 bool isClassMember = symbolTable.CurrentClass is not null &&
@@ -1098,6 +1101,9 @@ internal ref partial struct TypeFlowAnalyser
             {
                 return ScrData.Default;
             }
+
+            if (binaryExprNode.Left is IdentifierExprNode ownerIdent && binaryExprNode.Right is IdentifierExprNode fieldIdentAssign)
+                _fieldAssignmentsCollector.Add(new FunctionFieldAssignment(ownerIdent.Identifier, fieldName, fieldIdentAssign.Range));
 
             // Success - emit the sense token.
             IdentifierExprNode identifierNode = (IdentifierExprNode)binaryExprNode.Right!;

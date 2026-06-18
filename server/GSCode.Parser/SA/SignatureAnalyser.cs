@@ -4,9 +4,10 @@ using GSCode.Parser.Data;
 using GSCode.Parser.DFA;
 using GSCode.Parser.Lexical;
 using GSCode.Parser.SPA;
+using GSCode.Parser.Util;
+using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using Serilog;
 using System.Text.RegularExpressions;
-using GSCode.Parser.Util;
 
 namespace GSCode.Parser.SA;
 
@@ -60,20 +61,25 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         string name = nameToken.Lexeme;
 
+        Token? classDocToken = FindDocCommentTokenBefore(nameToken);
+        string? classDoc = classDocToken is null ? null : DocCommentHelper.Sanitize(classDocToken.Lexeme);
+
         // Create a class definition
         ScrClass scrClass = new()
         {
             Name = name,
-            Description = null, // TODO: Check the DOC COMMENT
+            Description = classDoc,
             InheritsFrom = classDefn.InheritsFromToken?.Lexeme,
         };
+
+        var collectedMembers = new List<ClassMember>();
 
         foreach (AstNode child in classDefn.Body.Definitions)
         {
             switch (child)
             {
-                case FunDefnNode fn:        AnalyseClassFunction(scrClass, fn);    break;
-                case MemberDeclNode member: AnalyseClassMember(scrClass, member);  break;
+                case FunDefnNode fn:        AnalyseClassFunction(scrClass, fn);                    break;
+                case MemberDeclNode member: AnalyseClassMember(scrClass, member, collectedMembers); break;
             }
         }
 
@@ -81,7 +87,19 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         string classFilePath = nameToken.IsFromPreprocessor && nameToken.InsertSourcePath is string insertPath
             ? insertPath
             : Sense.ScriptPath;
-        DefinitionsTable.AddClassLocation(DefinitionsTable.CurrentNamespace, name, classFilePath, nameToken.TokenRange);
+        DefinitionsTable.AddClassLocation(DefinitionsTable.CurrentNamespace, name, classFilePath, nameToken.TokenRange, classDefn.BodyEndLine);
+
+        DefinitionsTable.RecordCompleteClassDefinition(DefinitionsTable.CurrentNamespace, name, new CompleteClassDefinition
+        {
+            Name = name,
+            Namespace = DefinitionsTable.CurrentNamespace,
+            InheritsFrom = classDefn.InheritsFromToken?.Lexeme,
+            DocComment = classDoc,
+            Members = collectedMembers.ToArray(),
+            LocalScriptPath = classFilePath,
+            SourceRange = nameToken.Range,
+            BodyEndLine = classDefn.BodyEndLine
+        });
 
         // Add class to definitions table for CFG and RDA analysis
         DefinitionsTable.AddClass(scrClass, classDefn);
@@ -139,16 +157,16 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         // Produce a definition for our function
         scrClass.Methods.Add(function);
 
-        var flags = BuildFunctionFlags(functionDefn, function.Private);
-        RegisterFunctionInNamespace(DefinitionsTable.CurrentNamespace, name, nameToken, function, doc, flags);
+        var flags = BuildFunctionFlags(functionDefn, function.Private, _inDevBlock);
+        RegisterFunctionInNamespace(DefinitionsTable.CurrentNamespace, name, nameToken, function, doc, flags, functionDefn.BodyEndLine, parameters, scrClass.Name);
         // Also register under the class name as its own qualifier so ClassName::Method() resolves
-        RegisterFunctionInNamespace(scrClass.Name, name, nameToken, function, doc, flags);
+        RegisterFunctionInNamespace(scrClass.Name, name, nameToken, function, doc, flags, functionDefn.BodyEndLine, parameters, scrClass.Name);
 
         Sense.AddSenseToken(nameToken, new ScrMethodSymbol(nameToken, function, scrClass));
         RegisterParameterSenseTokens(parameters, functionDefn.Parameters);
     }
 
-    private void AnalyseClassMember(ScrClass scrClass, MemberDeclNode memberDecl)
+    private void AnalyseClassMember(ScrClass scrClass, MemberDeclNode memberDecl, List<ClassMember> collectedMembers)
     {
         if (memberDecl.NameToken is not Token nameToken)
         {
@@ -161,12 +179,13 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
 
         ScrMember member = new()
         {
-            Name = memberDecl.NameToken?.Lexeme ?? "",
+            Name = nameToken.Lexeme,
             Description = null,
             DocComment = doc
         };
 
         scrClass.Members.Add(member);
+        collectedMembers.Add(new ClassMember(nameToken.Lexeme, doc, nameToken.Range));
         Sense.AddSenseToken(nameToken, new ScrClassMemberSymbol(nameToken, member, scrClass));
     }
 
@@ -243,8 +262,8 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         // Produce a definition for our function
         DefinitionsTable.AddFunction(function, functionDefn);
 
-        var flags = BuildFunctionFlags(functionDefn, function.Private);
-        RegisterFunctionInNamespace(DefinitionsTable.CurrentNamespace, name, nameToken, function, function.DocComment, flags);
+        var flags = BuildFunctionFlags(functionDefn, function.Private, _inDevBlock);
+        RegisterFunctionInNamespace(DefinitionsTable.CurrentNamespace, name, nameToken, function, function.DocComment, flags, functionDefn.BodyEndLine, parameters);
 
         Sense.AddSenseToken(nameToken, new ScrFunctionSymbol(nameToken, function));
         RegisterParameterSenseTokens(parameters, functionDefn.Parameters);
@@ -272,24 +291,45 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
                 Mandatory: mandatoryParams.Contains(p.Name!.Lexeme)))
             .ToList();
 
-    private static List<string> BuildFunctionFlags(FunDefnNode functionDefn, bool isPrivate)
+    private static List<string> BuildFunctionFlags(FunDefnNode functionDefn, bool isPrivate, bool inDevBlock)
     {
-        var flags = new List<string>(2);
+        var flags = new List<string>(4);
         if (isPrivate) flags.Add("private");
         if (functionDefn.Keywords.Keywords.Any(t => t.Type == TokenType.Autoexec)) flags.Add("autoexec");
+        if (inDevBlock) flags.Add("devblock");
+        if (functionDefn.Parameters.Vararg) flags.Add("vararg");
         return flags;
     }
 
     private void RegisterFunctionInNamespace(string ns, string name, Token nameToken,
-        ScrFunction function, string? doc, IEnumerable<string> flags)
+        ScrFunction function, string? doc, IEnumerable<string> flags,
+        int bodyEndLine = 0, IEnumerable<ScrParameter>? parameters = null, string? parentClass = null)
     {
         string filePath = nameToken.IsFromPreprocessor && nameToken.InsertSourcePath is string insertPath
             ? insertPath
             : Sense.ScriptPath;
-        DefinitionsTable.AddFunctionLocation(ns, name, filePath, nameToken.TokenRange);
-        DefinitionsTable.RecordFunctionParameters(ns, name, (function.Overloads[0].Parameters ?? []).Select(a => a.Name));
-        DefinitionsTable.RecordFunctionFlags(ns, name, flags);
-        DefinitionsTable.RecordFunctionDoc(ns, name, doc);
+        DefinitionsTable.AddFunctionLocation(ns, name, filePath, nameToken.TokenRange, bodyEndLine);
+
+        var paramDetails = (parameters ?? [])
+            .Select(p => new FunctionParameter(
+                StringPool.Intern(p.Name?.ToLowerInvariant() ?? string.Empty),
+                p.ByRef,
+                p.Default is not null))
+            .ToArray();
+        var flagArr = flags?.Select(f => StringPool.Intern(f?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? [];
+
+        DefinitionsTable.RecordCompleteFunctionDefinition(ns, name, new CompleteFunctionDefinition
+        {
+            Name = name,
+            Namespace = ns,
+            ParentClass = parentClass,
+            Parameters = paramDetails,
+            Flags = flagArr,
+            DocComment = string.IsNullOrWhiteSpace(doc) ? null : doc,
+            LocalScriptPath = filePath,
+            SourceRange = nameToken.Range,
+            BodyEndLine = bodyEndLine
+        });
     }
 
     private void RegisterParameterSenseTokens(IEnumerable<ScrParameter> parameters, ParamListNode paramList)

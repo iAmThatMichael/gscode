@@ -7,6 +7,7 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
+using Serilog;
 using System.IO;
 using System.Linq;
 
@@ -19,14 +20,22 @@ internal class RenameHandler(
     public override async Task<WorkspaceEdit?> Handle(RenameParams request, CancellationToken cancellationToken)
     {
         Script? script = scriptManager.GetParsedEditor(request.TextDocument);
-        if (script is null) return null;
+        if (script is null)
+        {
+            Log.Warning("[Rename] No parsed script for {Uri}", request.TextDocument.Uri);
+            return null;
+        }
 
         string newName = request.NewName;
         var edits = new Dictionary<DocumentUri, List<TextEdit>>();
+        var seen = new HashSet<(string Uri, int Sl, int Sc, int El, int Ec)>();
 
         void AddEdit(Uri uri, Range range)
         {
             DocumentUri key = uri;
+            var dedupeKey = (key.ToString(), range.Start.Line, range.Start.Character, range.End.Line, range.End.Character);
+            if (!seen.Add(dedupeKey)) return;
+
             if (!edits.TryGetValue(key, out var list))
             {
                 list = new List<TextEdit>();
@@ -39,6 +48,7 @@ internal class RenameHandler(
         var fieldAccess = await script.GetGlobalFieldAtAsync(request.Position, cancellationToken);
         if (fieldAccess is not null)
         {
+            Log.Debug("[Rename] Path 1 (field): '{Field}' → '{NewName}'", fieldAccess.Value.Field, newName);
             var fieldKey = new SymbolKey(GSCode.Parser.SA.SymbolKind.Field, "", fieldAccess.Value.Field);
             foreach (var loaded in scriptManager.GetLoadedScripts(script.Language))
             {
@@ -46,6 +56,7 @@ internal class RenameHandler(
                     foreach (var r in ranges)
                         AddEdit(loaded.Uri, r);
             }
+            Log.Debug("[Rename] Path 1: {Count} edit(s) across {Files} file(s)", edits.Values.Sum(l => l.Count), edits.Count);
             return BuildWorkspaceEdit(edits);
         }
 
@@ -54,6 +65,7 @@ internal class RenameHandler(
             request.Position, includeDeclaration: true, cancellationToken);
         if (localRefs.Count > 0)
         {
+            Log.Debug("[Rename] Path 2 (local var): {Count} reference(s) → '{NewName}'", localRefs.Count, newName);
             var fileUri = request.TextDocument.Uri.ToUri();
             foreach (var r in localRefs)
                 AddEdit(fileUri, r);
@@ -62,10 +74,15 @@ internal class RenameHandler(
 
         // --- Path 3: function / class — cross-file, same language ---
         var qid = await script.GetQualifiedIdentifierAtAsync(request.Position, cancellationToken);
-        if (qid is null) return null;
+        if (qid is null)
+        {
+            Log.Warning("[Rename] No renameable identifier at {Position} in {Uri}", request.Position, request.TextDocument.Uri);
+            return null;
+        }
 
         string ns = (qid.Value.qualifier ?? (script.DefinitionsTable?.CurrentNamespace ?? "")).ToLowerInvariant();
         string name = qid.Value.name.ToLowerInvariant();
+        Log.Debug("[Rename] Path 3 (fn/class): ns='{Ns}' name='{Name}' → '{NewName}'", ns, name, newName);
 
         var keys = new[]
         {
@@ -82,8 +99,11 @@ internal class RenameHandler(
             foreach (var key in keys)
             {
                 if (loaded.Script.References.TryGetValue(key, out var ranges))
+                {
+                    Log.Debug("[Rename] Found {Count} reference(s) for {Key} in {Uri}", ranges.Count, key, loaded.Uri);
                     foreach (var r in ranges)
                         AddEdit(loaded.Uri, r);
+                }
             }
 
             // Declaration site
@@ -103,12 +123,29 @@ internal class RenameHandler(
                     if (ScriptLanguageExtensions.FromExtension(Path.GetExtension(resolved)) != requestingLanguage)
                         continue;
 
-                    AddEdit(new Uri(resolved), loc.Value.Range.ToRange());
+                    string normalizedResolved = ScriptFileResolver.NormalizeFilePathForUri(resolved);
+                    Uri declUri = new Uri(normalizedResolved);
+
+                    // GetSymbolLocation falls back to the global registry, so every loaded script
+                    // resolves the same declaration. Only emit the edit from the script that owns it;
+                    // otherwise we get N duplicate declaration edits (one per loaded script).
+                    if (!UriComparer.OrdinalIgnoreCase.Equals(declUri, loaded.Uri))
+                        continue;
+
+                    Log.Debug("[Rename] Declaration site: normalized='{Normalized}' loadedUri='{LoadedUri}'",
+                        normalizedResolved, loaded.Uri);
+                    AddEdit(declUri, loc.Value.Range.ToRange());
                 }
             }
         }
 
-        if (edits.Count == 0) return null;
+        if (edits.Count == 0)
+        {
+            Log.Warning("[Rename] No edits found for ns='{Ns}' name='{Name}'", ns, name);
+            return null;
+        }
+
+        Log.Debug("[Rename] Returning {EditCount} edit(s) across {FileCount} file(s)", edits.Values.Sum(l => l.Count), edits.Count);
         return BuildWorkspaceEdit(edits);
     }
 

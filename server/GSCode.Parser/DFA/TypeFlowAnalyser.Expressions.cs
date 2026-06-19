@@ -1176,6 +1176,29 @@ internal ref partial struct TypeFlowAnalyser
 
         // NOTE: Dot expressions are handled at the top of this method via AnalyseDotOp
 
+        // Assigning to an array element (e.g., refs[0] = value) implicitly makes the variable an array.
+        // Without this, the variable stays Undefined and refs.size later raises a false DoesNotContainMember error.
+        if (node.Left is ArrayIndexNode arrayIndexNode && arrayIndexNode.Array is IdentifierExprNode collectionIdent)
+        {
+            string collectionName = collectionIdent.Identifier;
+            ScrVariable? varInfo = symbolTable.TryGetLocalVariableInfo(collectionName);
+            if (varInfo is null || varInfo.Data.Type == ScrDataTypes.Undefined)
+            {
+                symbolTable.AddOrSetVariableSymbol(collectionName, new ScrData(ScrDataTypes.Array), definitionSource: node.Left);
+            }
+
+            if (arrayIndexNode.Index is not null)
+            {
+                ScrData indexer = AnalyseExpr(arrayIndexNode.Index, symbolTable, Sense);
+                if (!indexer.TypeUnknown() && !indexer.IsArrayIndexer())
+                {
+                    AddDiagnostic(arrayIndexNode.Index.Range, GSCErrorCodes.CannotUseAsIndexer, indexer.TypeToString());
+                }
+            }
+
+            return right;
+        }
+
         // TODO: once all cases are covered, we should enable this.
         // sense.AddSpaDiagnostic(node.Left!.Range, GSCErrorCodes.InvalidAssignmentTarget);
         return ScrData.Default;

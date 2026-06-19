@@ -89,6 +89,37 @@ public class StringSizeFieldTests
 }
 
 /// <summary>
+/// Arrays built up via indexed assignments (arr[0] = x; arr[1] = y;) must have their
+/// <c>size</c> field accessible without a false DoesNotContainMember diagnostic.
+/// </summary>
+public class ArrayIndexedAssignmentTests
+{
+    private static async Task<IReadOnlyList<Diagnostic>> AnalyseAsync(string source)
+    {
+        Script script = new(new Uri("file:///array_indexed_test.gsc"), ScriptLanguage.Gsc);
+        await script.ParseAsync(source);
+        await script.AnalyseAsync(Array.Empty<IExportedSymbol>());
+        return await script.GetDiagnosticsAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ArrayBuiltViaIndexedAssignment_SizeAccessProducesNoDiagnostic()
+    {
+        var diagnostics = await AnalyseAsync("""
+            function test()
+            {
+                refs[0] = "guts";
+                refs[1] = "right_arm";
+                refs[2] = "left_arm";
+                x = refs[randomint(refs.size)];
+            }
+            """);
+
+        Assert.DoesNotContain(diagnostics, d => NamespaceDiagnosticsTests.HasCode(d, GSCErrorCodes.DoesNotContainMember));
+    }
+}
+
+/// <summary>
 /// A <c>break</c> outside of any loop or switch is a runtime no-op in GSC. It must parse
 /// without syntax errors, flag an "unnecessary" diagnostic, and not divert control flow
 /// (statements after it are still reachable and analysed).

@@ -39,6 +39,7 @@ public partial class ScriptManager
     {
         string updatedContent;
         Script script;
+        int contentHash;
 
         await _editorPriority.WaitAsync(cancellationToken);
         try
@@ -47,7 +48,7 @@ public partial class ScriptManager
 
             // Check if content actually changed using hash comparison
             var docUri = document.Uri.ToUri();
-            int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(updatedContent);
+            contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(updatedContent);
             ScriptLanguage docLanguage = ScriptLanguageExtensions.FromExtension(Path.GetExtension(docUri.LocalPath));
 
             if (UseWorkspaceCache &&
@@ -64,7 +65,7 @@ public partial class ScriptManager
             _editorPriority.Release();
         }
 
-        return await ProcessEditorAsync(document.Uri.ToUri(), script, updatedContent, cancellationToken);
+        return await ProcessEditorAsync(document.Uri.ToUri(), script, updatedContent, cancellationToken, contentHash);
     }
 
     public void RemoveEditor(TextDocumentIdentifier document)
@@ -73,7 +74,7 @@ public partial class ScriptManager
 
         // Remove symbols from language-scoped registry when file is closed
         string filePath = UriHelper.GetLocalPath(documentUri);
-        ScriptLanguage language = ScriptLanguageExtensions.FromExtension(Path.GetExtension(documentUri.LocalPath));
+        ScriptLanguage language = ScriptLanguageExtensions.FromExtension(Path.GetExtension(filePath));
         var scripts = GetScripts(language);
         if (scripts.TryGetValue(documentUri, out var closing))
         {
@@ -156,10 +157,10 @@ public partial class ScriptManager
     public bool TryGetCachedContent(Uri uri, out string content)
         => _cache.TryGetContent(uri, out content);
 
-    private async Task<IEnumerable<Diagnostic>> ProcessEditorAsync(Uri documentUri, Script script, string content, CancellationToken cancellationToken = default)
+    private async Task<IEnumerable<Diagnostic>> ProcessEditorAsync(Uri documentUri, Script script, string content, CancellationToken cancellationToken = default, int? precomputedHash = null)
     {
         string filePath = UriHelper.GetLocalPath(documentUri);
-        int contentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
+        int contentHash = precomputedHash ?? GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
 
         // Update cached script metadata
         if (GetScripts(script.Language).TryGetValue(documentUri, out var cached))
@@ -200,14 +201,9 @@ public partial class ScriptManager
         Log.Debug("[DEPENDENCY_RESOLVE] {FilePath} has {Count} dependencies", filePath, dependencies.Count);
 
         // Parse all dependencies in parallel
-        List<Task> dependencyTasks = new();
-        foreach (Uri dependency in dependencies)
-        {
-            dependencyTasks.Add(AddDependencyAsync(documentUri, dependency));
-        }
         try
         {
-            await Task.WhenAll(dependencyTasks);
+            await Task.WhenAll(dependencies.Select(dep => AddDependencyAsync(documentUri, dep)));
         }
         finally
         {
@@ -220,7 +216,7 @@ public partial class ScriptManager
         List<IExportedSymbol> exportedSymbols = new();
         foreach (Uri dependency in dependencies)
         {
-            ScriptLanguage depLanguage = ScriptLanguageExtensions.FromExtension(Path.GetExtension(dependency.LocalPath));
+            ScriptLanguage depLanguage = ScriptLanguageExtensions.FromExtension(Path.GetExtension(UriHelper.GetLocalPath(dependency)));
             if (GetScripts(depLanguage).TryGetValue(dependency, out CachedScript? cachedScript))
             {
                 await EnsureParsedAsync(dependency, cachedScript.Script, cancellationToken);
@@ -260,7 +256,7 @@ public partial class ScriptManager
         {
             foreach (Uri dependentUri in cached.Dependents.Keys)
             {
-                ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(Path.GetExtension(dependentUri.LocalPath));
+                ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(Path.GetExtension(UriHelper.GetLocalPath(dependentUri)));
                 if (!GetScripts(depLang).TryGetValue(dependentUri, out var depEntry))
                     continue;
                 if (depEntry.Type != CachedScriptType.Editor)
@@ -268,21 +264,8 @@ public partial class ScriptManager
                 if (!_cache.TryGetContent(dependentUri, out string depContent))
                     continue;
 
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        IEnumerable<Diagnostic> depDiags =
-                            await ProcessEditorAsync(dependentUri, depEntry.Script, depContent, cancellationToken);
-                        if (_notifier is not null)
-                            await _notifier.PublishDiagnosticsAsync(dependentUri, depDiags, cancellationToken);
-                    }
-                    catch (OperationCanceledException) { }
-                    catch (Exception ex)
-                    {
-                        Log.Error(ex, "Failed to reparse dependent {Uri} after symbol change", dependentUri);
-                    }
-                }, cancellationToken);
+                FireAndForgetEditorReparse(dependentUri, depEntry, depContent, cancellationToken,
+                    "Failed to reparse dependent {Uri} after symbol change");
             }
         }
 
@@ -329,6 +312,21 @@ public partial class ScriptManager
         return cached.Script;
     }
 
+    private void FireAndForgetEditorReparse(Uri dependentUri, CachedScript depEntry, string depContent, CancellationToken ct, string errorTemplate)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                IEnumerable<Diagnostic> depDiags = await ProcessEditorAsync(dependentUri, depEntry.Script, depContent, ct);
+                if (_notifier is not null)
+                    await _notifier.PublishDiagnosticsAsync(dependentUri, depDiags, ct);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Log.Error(ex, errorTemplate, dependentUri); }
+        }, ct);
+    }
+
     /// <summary>
     /// Called when a file that may be used as an #insert source is saved.
     /// Evicts its cached token list and re-parses every open editor that includes it,
@@ -344,7 +342,7 @@ public partial class ScriptManager
 
         foreach (Uri dependentUri in consumers.Keys)
         {
-            ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(Path.GetExtension(dependentUri.LocalPath));
+            ScriptLanguage depLang = ScriptLanguageExtensions.FromExtension(Path.GetExtension(UriHelper.GetLocalPath(dependentUri)));
             if (!GetScripts(depLang).TryGetValue(dependentUri, out var depEntry))
                 continue;
             if (depEntry.Type != CachedScriptType.Editor)
@@ -352,21 +350,8 @@ public partial class ScriptManager
             if (!_cache.TryGetContent(dependentUri, out string depContent))
                 continue;
 
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    IEnumerable<Diagnostic> depDiags =
-                        await ProcessEditorAsync(dependentUri, depEntry.Script, depContent, cancellationToken);
-                    if (_notifier is not null)
-                        await _notifier.PublishDiagnosticsAsync(dependentUri, depDiags, cancellationToken);
-                }
-                catch (OperationCanceledException) { }
-                catch (Exception ex)
-                {
-                    Log.Error(ex, "Failed to reparse insert-consumer {Uri} after insert file saved", dependentUri);
-                }
-            }, cancellationToken);
+            FireAndForgetEditorReparse(dependentUri, depEntry, depContent, cancellationToken,
+                "Failed to reparse insert-consumer {Uri} after insert file saved");
         }
     }
 }

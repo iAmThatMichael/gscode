@@ -55,6 +55,10 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     // Reader-writer lock for operations that need atomicity across multiple dictionaries
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
 
+    // Incremental type counts — updated under write lock in SetCanonicalSymbol
+    private int _functionCount;
+    private int _classCount;
+
 
     /// <summary>
     /// Finds a symbol by namespace and name. If namespace is provided, searches that namespace first.
@@ -81,7 +85,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
             }
 
             // Unqualified reference — search by name only across all namespaces.
-            return FindSymbolByNameOnlyCore(name);
+            return FindSymbolByNameOnlyCore(name?.ToLowerInvariant() ?? string.Empty);
         }
         finally
         {
@@ -97,7 +101,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         _lock.EnterReadLock();
         try
         {
-            return FindSymbolByNameOnlyCore(name);
+            return FindSymbolByNameOnlyCore(name?.ToLowerInvariant() ?? string.Empty);
         }
         finally
         {
@@ -119,9 +123,8 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     /// highest-priority source (mod/local > shared raw). Logs ambiguity when two
     /// candidates share the same priority level.
     /// </summary>
-    private SymbolDefinition? FindSymbolByNameOnlyCore(string name)
+    private SymbolDefinition? FindSymbolByNameOnlyCore(string normalizedName)
     {
-        var normalizedName = name?.ToLowerInvariant() ?? string.Empty;
         if (!_nameIndex.TryGetValue(normalizedName, out var keys))
             return null;
 
@@ -146,7 +149,7 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         if (candidateCount > 1 && best is not null)
         {
             Log.Debug("SYMBOL_AMBIGUOUS: unqualified '{Name}' resolved to {Namespace}::{Symbol} (priority={Priority}, {Count} candidates)",
-                name, best.Namespace, best.Name, bestPriority, candidateCount);
+                normalizedName, best.Namespace, best.Name, bestPriority, candidateCount);
         }
 
         return best;
@@ -185,32 +188,24 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         _lock.EnterWriteLock();
         try
         {
-            var submittedSymbols = new Dictionary<QualifiedSymbolKey, SymbolDefinition>();
+            var newFileSymbols = new ConcurrentDictionary<QualifiedSymbolKey, SymbolDefinition>();
             bool changed = false;
 
             foreach (var def in newSymbols)
             {
                 var key = QualifiedSymbolKey.Normalized(def.Namespace, def.Name);
-                submittedSymbols[key] = def;
+                newFileSymbols[key] = def;
             }
 
             _submittedIndex.TryGetValue(filePath, out var existingSubmitted);
-            var affectedKeys = new HashSet<QualifiedSymbolKey>(submittedSymbols.Keys);
+            var affectedKeys = new HashSet<QualifiedSymbolKey>(newFileSymbols.Keys);
             if (existingSubmitted is not null)
                 affectedKeys.UnionWith(existingSubmitted.Keys);
 
-            if (submittedSymbols.Count == 0)
-            {
+            if (newFileSymbols.IsEmpty)
                 _submittedIndex.TryRemove(filePath, out _);
-            }
             else
-            {
-                var fileSymbols = _submittedIndex.GetOrAdd(filePath,
-                    _ => new ConcurrentDictionary<QualifiedSymbolKey, SymbolDefinition>());
-                fileSymbols.Clear();
-                foreach (var (key, def) in submittedSymbols)
-                    fileSymbols[key] = def;
-            }
+                _submittedIndex[filePath] = newFileSymbols;
 
             foreach (var key in affectedKeys)
                 changed |= RecomputeCanonicalSymbol(key);
@@ -259,6 +254,8 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
             _symbols.TryRemove(key, out _);
             RemoveNameIndex(existing.Name, key);
             RemoveFileIndex(existing.FilePath, key);
+            if (existing.Type == ExportedSymbolType.Function) _functionCount--;
+            else if (existing.Type == ExportedSymbolType.Class) _classCount--;
             return true;
         }
 
@@ -269,11 +266,21 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
         {
             RemoveNameIndex(existing.Name, key);
             RemoveFileIndex(existing.FilePath, key);
+            if (existing.Type != replacement.Type)
+            {
+                if (existing.Type == ExportedSymbolType.Function) _functionCount--;
+                else if (existing.Type == ExportedSymbolType.Class) _classCount--;
+            }
         }
 
         _symbols[key] = replacement;
         AddNameIndex(replacement.Name, key);
         AddFileIndex(replacement.FilePath, key);
+        if (existing is null || existing.Type != replacement.Type)
+        {
+            if (replacement.Type == ExportedSymbolType.Function) _functionCount++;
+            else if (replacement.Type == ExportedSymbolType.Class) _classCount++;
+        }
         return true;
     }
 
@@ -315,13 +322,8 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     /// <summary>
     /// Compares two symbol definitions for equality (ignoring IExportedSymbol reference).
     /// </summary>
-    private static bool SymbolsEqual(SymbolDefinition? a, SymbolDefinition? b)
+    private static bool SymbolsEqual(SymbolDefinition a, SymbolDefinition b)
     {
-        if (a is null || b is null)
-        {
-            return false;
-        }
-
         return a.Namespace == b.Namespace &&
                a.Name == b.Name &&
                a.Type == b.Type &&
@@ -407,25 +409,8 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
     public (int Functions, int Classes) GetCountsByType()
     {
         _lock.EnterReadLock();
-        try
-        {
-            int functionCount = 0;
-            int classCount = 0;
-
-            foreach (var symbol in _symbols.Values)
-            {
-                if (symbol.Type == ExportedSymbolType.Function)
-                    functionCount++;
-                else if (symbol.Type == ExportedSymbolType.Class)
-                    classCount++;
-            }
-
-            return (functionCount, classCount);
-        }
-        finally
-        {
-            _lock.ExitReadLock();
-        }
+        try { return (_functionCount, _classCount); }
+        finally { _lock.ExitReadLock(); }
     }
 
     #region ISymbolLocationProvider Implementation

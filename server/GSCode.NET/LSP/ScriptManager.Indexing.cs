@@ -161,12 +161,15 @@ public partial class ScriptManager
                     }
                 }
 
+                // Build a HashSet from hashMisses for O(1) lookup (ConcurrentBag.Contains is O(n))
+                var hashMissSet = new HashSet<string>(hashMisses, StringComparer.OrdinalIgnoreCase);
+
                 // Re-parse any stale URI that was actually restored from cache (not already re-parsed)
                 var staleTasks = new List<Task>();
                 foreach (string stalePath in stalePaths)
                 {
                     // Skip the files that were already re-parsed as hash misses themselves
-                    if (hashMisses.Contains(stalePath))
+                    if (hashMissSet.Contains(stalePath))
                         continue;
 
                     Uri staleUri = new Uri(stalePath);
@@ -251,7 +254,7 @@ public partial class ScriptManager
             string content = await File.ReadAllTextAsync(filePath, cancellationToken);
             entry.LastContentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
             entry.LastParsedAt = DateTime.UtcNow;
-            await EnsureParsedAsync(docUri, entry.Script, cancellationToken);
+            await EnsureParsedAsync(docUri, entry.Script, cancellationToken, content);
             PopulateSymbolRegistry(filePath, entry.Script);
             PopulateFieldRegistry(filePath, entry.Script);
             await PublishDiagnosticsAsync(docUri, entry.Script, cancellationToken);
@@ -348,34 +351,24 @@ public partial class ScriptManager
                                     Log.Debug("CACHE_HIT (race_won): {File} — another task already registered and analysed this URI", relPath);
                                     return CacheResult.Hit;
                                 }
+
                                 if (cached.Script.Parsed)
-                                {
-                                    // Already parsed (e.g. AddDependencyAsync ran first). The work is done;
-                                    // populate registries from the winning script and fall through so analysis
-                                    // runs below and generates fresh diagnostics for this file.
                                     Log.Debug("CACHE_HIT (race_parsed): {File} — URI already parsed by dependency resolution, reusing", relPath);
-                                    cached.LastContentHash = fileSnapshot.ContentHash;
-                                    cached.LastParsedAt = DateTime.UtcNow;
-                                    cached.WorkspaceCacheDirty = false;
-                                    PopulateSymbolRegistry(filePath, cached.Script);
-                                    PopulateFieldRegistry(filePath, cached.Script);
-                                    cacheResult = CacheResult.Hit;
-                                    needsAnalysis = true;
-                                }
                                 else
                                 {
                                     // Registered but not yet parsed; wait for the in-progress parse
                                     // (AddDependencyAsync holds EnsureParsedAsync) then reuse.
                                     Log.Debug("CACHE_HIT (race_wait): {File} — waiting for in-progress parse to complete", relPath);
                                     await EnsureParsedAsync(docUri, cached.Script, cancellationToken, fileSnapshot.Content);
-                                    cached.LastContentHash = fileSnapshot.ContentHash;
-                                    cached.LastParsedAt = DateTime.UtcNow;
-                                    cached.WorkspaceCacheDirty = false;
-                                    PopulateSymbolRegistry(filePath, cached.Script);
-                                    PopulateFieldRegistry(filePath, cached.Script);
-                                    cacheResult = CacheResult.Hit;
-                                    needsAnalysis = true;
                                 }
+
+                                cached.LastContentHash = fileSnapshot.ContentHash;
+                                cached.LastParsedAt = DateTime.UtcNow;
+                                cached.WorkspaceCacheDirty = false;
+                                PopulateSymbolRegistry(filePath, cached.Script);
+                                PopulateFieldRegistry(filePath, cached.Script);
+                                cacheResult = CacheResult.Hit;
+                                needsAnalysis = true;
                             }
                             else
                             {
@@ -471,11 +464,9 @@ public partial class ScriptManager
         // Snapshot dependencies to avoid collection modification during enumeration
         var dependencies = entry.Script.UsingPaths.ToList();
 
-        // Parse and register dependencies
-        foreach (Uri dep in dependencies)
-        {
-            await AddDependencyAsync(docUri, dep, indexingContext, cancellationToken);
-        }
+        // Parse and register dependencies (concurrent — FileSnapshotCache deduplicates reads)
+        await Task.WhenAll(dependencies.Select(dep =>
+            AddDependencyAsync(docUri, dep, indexingContext, cancellationToken)));
 
         var indexingMode = GSCode.Parser.Configuration.CompletionConfiguration.WorkspaceIndexingMode;
 
@@ -489,7 +480,7 @@ public partial class ScriptManager
         var (mergeFuncLocs, mergeClassLocs) = MergeDependencySymbols(dependencies, filePath);
 
         // Merge definition tables (needed for go-to-definition in both modes)
-        await WithAnalysisLockAsync(docUri, async () =>
+        WithAnalysisLock(docUri, () =>
         {
             if (entry.Script.DefinitionsTable is not null)
             {
@@ -506,7 +497,6 @@ public partial class ScriptManager
                     entry.Script.DefinitionsTable.AddClassLocation(ns, name, fp, TokenRange.FromRange(range));
                 }
             }
-            await Task.CompletedTask;
         });
 
         if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Partial)

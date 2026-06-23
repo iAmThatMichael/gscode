@@ -128,7 +128,7 @@ public static class WorkspaceCacheManager
             string tempFilePath = cacheFilePath + ".tmp";
 
             await using (FileStream fileStream = File.Create(tempFilePath))
-            await using (GZipStream gzipStream = new(fileStream, CompressionLevel.Optimal))
+            await using (GZipStream gzipStream = new(fileStream, CompressionLevel.Fastest))
             {
                 await JsonSerializer.SerializeAsync(gzipStream, data, SerializerOptions);
             }

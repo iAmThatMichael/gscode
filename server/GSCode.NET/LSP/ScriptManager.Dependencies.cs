@@ -52,17 +52,17 @@ public partial class ScriptManager
             }
             else
             {
-                await EnsureParsedAsync(uri, cached.Script, cancellationToken);
-
+                string? content = null;
                 try
                 {
-                    string content = await File.ReadAllTextAsync(filePath, cancellationToken);
+                    content = await File.ReadAllTextAsync(filePath, cancellationToken);
                     cached.LastContentHash = GSCode.Parser.Cache.WorkspaceCacheManager.GetDeterministicHashCode(content);
                 }
                 catch (Exception ex)
                 {
                     Log.Warning(ex, "Failed to compute content hash for dependency {Path}", filePath);
                 }
+                await EnsureParsedAsync(uri, cached.Script, cancellationToken, content);
             }
             cached.WorkspaceCacheDirty = true;
             _workspaceCacheDirty = true;
@@ -174,15 +174,7 @@ public partial class ScriptManager
             }
         }
 
-        var mergeFuncLocs = uniqueFunctions
-            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, (kvp.Value.FilePath, kvp.Value.Range)))
-            .ToList();
-
-        var mergeClassLocs = uniqueClasses
-            .Select(kvp => new KeyValuePair<(string, string), (string, Range)>(kvp.Key, (kvp.Value.FilePath, kvp.Value.Range)))
-            .ToList();
-
-        return (mergeFuncLocs, mergeClassLocs);
+        return (uniqueFunctions.ToList(), uniqueClasses.ToList());
     }
 }
 

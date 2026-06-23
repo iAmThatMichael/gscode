@@ -332,6 +332,14 @@ public partial class ScriptManager
         }
     }
 
+    private void WithAnalysisLock(Uri docUri, Action action)
+    {
+        var gate = _analysisLocks.GetOrAdd(docUri, _ => new SemaphoreSlim(1, 1));
+        gate.Wait();
+        try { action(); }
+        finally { gate.Release(); }
+    }
+
     private void CleanupLocksForUri(Uri uri)
     {
         // SemaphoreSlim has no safe "dispose when nobody is about to wait" primitive.
@@ -378,8 +386,9 @@ public partial class ScriptManager
             }
 
             var scripts = existingCache?.Scripts
-                .Where(kv => File.Exists(NormalizeCachePath(kv.Key)))
-                .ToDictionary(kv => NormalizeCachePath(kv.Key), kv => kv.Value, StringComparer.OrdinalIgnoreCase)
+                .Select(kv => (NormalizedKey: NormalizeCachePath(kv.Key), kv.Value))
+                .Where(t => File.Exists(t.NormalizedKey))
+                .ToDictionary(t => t.NormalizedKey, t => t.Value, StringComparer.OrdinalIgnoreCase)
                 ?? new Dictionary<string, CachedScriptData>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var kvp in AllScripts)
@@ -461,32 +470,23 @@ public partial class ScriptManager
             // Only persist locations that belong to this script itself.
             // Dependency-merged locations are rebuilt at load time via MergeDependencySymbolsAsync
             // and must not be cached, or they would bloat the per-script location dict run-over-run.
+            // Single-pass: collect location and definition in the same iteration.
             var funcLocations = new Dictionary<Parser.SA.QualifiedSymbolKey, CachedSymbolLocation>();
+            var funcDefs = new Dictionary<Parser.SA.QualifiedSymbolKey, Parser.SA.CompleteFunctionDefinition>();
             foreach (var kv in defTable.GetAllFunctionLocations())
             {
-                if (string.Equals(kv.Value.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
-                    funcLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range, kv.Value.BodyEndLine);
-            }
-
-            var classLocations = new Dictionary<Parser.SA.QualifiedSymbolKey, CachedSymbolLocation>();
-            foreach (var kv in defTable.GetAllClassLocations())
-            {
-                if (string.Equals(kv.Value.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
-                    classLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range, kv.Value.BodyEndLine);
-            }
-
-            // Extract complete function definitions (scoped to own locations only)
-            var funcDefs = new Dictionary<Parser.SA.QualifiedSymbolKey, Parser.SA.CompleteFunctionDefinition>();
-            foreach (var kv in funcLocations)
-            {
+                if (!string.Equals(kv.Value.FilePath, filePath, StringComparison.OrdinalIgnoreCase)) continue;
+                funcLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range, kv.Value.BodyEndLine);
                 var def = defTable.GetFunctionDefinition(kv.Key.Qualifier, kv.Key.SymbolName);
                 if (def is not null) funcDefs[kv.Key] = def;
             }
 
-            // Extract complete class definitions (scoped to own locations only)
+            var classLocations = new Dictionary<Parser.SA.QualifiedSymbolKey, CachedSymbolLocation>();
             var classDefs = new Dictionary<Parser.SA.QualifiedSymbolKey, Parser.SA.CompleteClassDefinition>();
-            foreach (var kv in classLocations)
+            foreach (var kv in defTable.GetAllClassLocations())
             {
+                if (!string.Equals(kv.Value.FilePath, filePath, StringComparison.OrdinalIgnoreCase)) continue;
+                classLocations[kv.Key] = new CachedSymbolLocation(kv.Value.FilePath, kv.Value.Range, kv.Value.BodyEndLine);
                 var def = defTable.GetClassDefinition(kv.Key.Qualifier, kv.Key.SymbolName);
                 if (def is not null) classDefs[kv.Key] = def;
             }
@@ -506,7 +506,7 @@ public partial class ScriptManager
                 .ToList();
 
             var dependencies = defTable.UsingPaths
-                .Select(u => NormalizeCachePath(u.LocalPath))
+                .Select(u => NormalizeCachePath(UriHelper.GetLocalPath(u)))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 

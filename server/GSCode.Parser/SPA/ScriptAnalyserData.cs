@@ -168,12 +168,12 @@ public class ScriptAnalyserData
 internal class ScrLibraryData
 {
     public ScriptApiJsonLibrary Library { get; }
-    public SortedList<string, ScrFunction> Functions { get; }
+    public Dictionary<string, ScrFunction> Functions { get; }
 
     public ScrLibraryData(ScriptApiJsonLibrary library)
     {
         Library = library;
-        Functions = new SortedList<string, ScrFunction>(library.Api.Count, StringComparer.OrdinalIgnoreCase);
+        Functions = new Dictionary<string, ScrFunction>(library.Api.Count, StringComparer.OrdinalIgnoreCase);
         foreach (ScrFunction function in library.Api)
         {
             Functions.Add(function.Name, function);

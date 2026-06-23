@@ -17,7 +17,7 @@ internal class SwitchAnalysisContext
     public ScrData SwitchExpressionType { get; set; } = ScrData.Default;
     public HashSet<string> SeenLabelValues { get; } = new(StringComparer.OrdinalIgnoreCase);
     public HashSet<SwitchCaseDecisionNode> AnalyzedNodes { get; } = new();
-    public bool HasDefault { get; set; } = false;
+    public bool HasDefault { get; set; }
 }
 
 internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlowGraph>> functionGraphs, List<Tuple<ScrClass, List<ControlFlowGraph>>> classGraphs, ParserIntelliSense sense, Dictionary<string, IExportedSymbol> exportedSymbolTable, ScriptAnalyserData? apiData = null, string? currentNamespace = null, HashSet<string>? knownNamespaces = null, string? fileName = null, DefinitionsTable? definitionsTable = null)
@@ -209,8 +209,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
             {
                 previousOutSetHash = existingOutSet.ComputeTableHash();
             }
-
-            if (!OutSets.ContainsKey(node))
+            else
             {
                 OutSets[node] = new Dictionary<string, ScrVariable>(StringComparer.OrdinalIgnoreCase);
             }
@@ -673,15 +672,6 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
             // Analyze the label value
             ScrData labelType = AnalyseExpr(label.Value, symbolTable, Sense);
 
-            // Type compatibility check - always check since types can change during analysis
-            if (!AreTypesCompatibleForSwitch(switchType, labelType))
-            {
-                if (!Silent) // Only emit in diagnostic pass
-                {
-                    AddDiagnostic(label.Value.Range, GSCErrorCodes.UnreachableCase);
-                }
-            }
-
             // TODO: this isn't working at the moment.
             // Duplicate label check - only on first analysis of this node
             if (isFirstTimeAnalyzingThisNode && TryGetCaseLabelValueKey(label.Value, out string key))
@@ -695,19 +685,6 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
                 }
             }
         }
-    }
-
-    private bool AreTypesCompatibleForSwitch(ScrData switchType, ScrData labelType)
-    {
-        // If either type is unknown, assume compatible
-        if (switchType.TypeUnknown() || labelType.TypeUnknown())
-        {
-            return true;
-        }
-
-        // TODO: Implement proper type compatibility rules for switch statements
-        // For now, allow any comparison (GSC is weakly typed)
-        return true;
     }
 
     private bool TryGetCaseLabelValueKey(ExprNode expr, out string key)
@@ -767,8 +744,6 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
                 AnalyseReturnStmt((ReturnStmtNode)statement, symbolTable);
                 break;
             case AstNodeType.WaitStmt:
-                AnalyseWaitStmt((ReservedFuncStmtNode)statement, symbolTable);
-                break;
             case AstNodeType.WaitRealTimeStmt:
                 AnalyseWaitStmt((ReservedFuncStmtNode)statement, symbolTable);
                 break;

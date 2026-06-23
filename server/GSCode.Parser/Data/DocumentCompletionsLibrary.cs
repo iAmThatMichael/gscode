@@ -745,11 +745,20 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
             return completions;
         }
 
-        Log.Debug("GetFileScopeCompletions: Starting, token count: {Count}", Tokens.GetAll().Count());
+        Log.Debug("GetFileScopeCompletions: Starting, token count: {Count}", Tokens.Count);
         int macroCount = 0;
         int skippedApiCount = 0;
         int skippedPreprocCount = 0;
         int skippedFunctionCount = 0;
+
+        // Pre-build a set of local function names so the per-token check is O(1) instead of O(N).
+        HashSet<string>? localFunctionNames = null;
+        if (DefinitionsTable is not null)
+        {
+            localFunctionNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (fn, _) in DefinitionsTable.LocalScopedFunctions)
+                localFunctionNames.Add(fn.Name);
+        }
 
         // Add GSC/CSC keywords from shared definition
         foreach (string keyword in ScriptKeywords.All)
@@ -843,14 +852,13 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
                 bool isFunction = false;
                 if (DefinitionsTable is not null)
                 {
-                    // Check if it's a local function
-                    isFunction = DefinitionsTable.LocalScopedFunctions.Any(f => 
-                        string.Equals(f.Item1.Name, token.Lexeme, StringComparison.OrdinalIgnoreCase));
+                    // Check if it's a local function (O(1) via pre-built set)
+                    isFunction = localFunctionNames?.Contains(token.Lexeme) == true;
 
                     // Check if it's in internal symbols
                     if (!isFunction)
                     {
-                        isFunction = DefinitionsTable.InternalSymbols.TryGetValue(token.Lexeme, out var symbol) 
+                        isFunction = DefinitionsTable.InternalSymbols.TryGetValue(token.Lexeme, out var symbol)
                             && symbol is ScrFunction;
                     }
                 }
@@ -1038,11 +1046,10 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
 
         // Generate snippet-formatted parameters with tabstops
         // Only include mandatory parameters; skip optional parameters
-        var mandatoryParams = function.Overloads.First().Parameters
-            .Where(p => p.Mandatory.GetValueOrDefault(false))
-            .ToList();
+        var firstOverloadParams = function.Overloads.First().Parameters;
+        bool hasMandatoryParams = firstOverloadParams.Any(p => p.Mandatory.GetValueOrDefault(false));
 
-        if (mandatoryParams.Count > 0)
+        if (hasMandatoryParams)
         {
             insertText += "(";
 
@@ -1050,7 +1057,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
             List<string> paramSnippets = new List<string>();
             int tabIndex = 1;
 
-            foreach (var param in function.Overloads.First().Parameters)
+            foreach (var param in firstOverloadParams)
             {
                 // Add mandatory parameters with tabstops
                 if (param.Mandatory.GetValueOrDefault(false))

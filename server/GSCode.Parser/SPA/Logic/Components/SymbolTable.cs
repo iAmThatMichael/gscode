@@ -94,15 +94,10 @@ internal class SymbolTable
     /// <returns>true if new, false if not, null if assignment to a constant</returns>
     public AssignmentResult AddOrSetVariableSymbol(string symbol, ScrData data, AstNode? definitionSource = null)
     {
-        if (ContainsSymbol(symbol))
+        if (VariableSymbols.TryGetValue(symbol, out ScrVariable? existing))
         {
-            // Check they're not assigning to a constant
-            if (SymbolIsConstant(symbol))
-            {
+            if (existing.IsConstant)
                 return AssignmentResult.FailedConstant;
-            }
-
-            // Re-assign
             SetSymbol(symbol, data, definitionSource);
             return AssignmentResult.SuccessMutated;
         }
@@ -110,14 +105,7 @@ internal class SymbolTable
     }
 
     public bool ContainsConstant(string symbol)
-    {
-        if (!ContainsSymbol(symbol))
-        {
-            return false;
-        }
-
-        return SymbolIsConstant(symbol);
-    }
+        => VariableSymbols.TryGetValue(symbol, out ScrVariable? v) && v.IsConstant;
 
     public bool ContainsSymbol(string symbol)
     {
@@ -368,22 +356,19 @@ internal class SymbolTable
 
         foreach (var overload in function.Overloads)
         {
-            // If function has vararg, it can accept any number >= minimum required
-            if (overload.Vararg)
+            int paramCount = 0, minRequired = 0;
+            if (overload.Parameters is { } ps)
             {
-                int minRequired = overload.Parameters?.Count(p => p.Mandatory == true) ?? 0;
-                if (argumentCount >= minRequired)
-                    return true;
+                foreach (var p in ps)
+                {
+                    paramCount++;
+                    if (p.Mandatory == true) minRequired++;
+                }
             }
-            else
-            {
-                // Check if argument count matches parameter count
-                int paramCount = overload.Parameters?.Count ?? 0;
-                int minRequired = overload.Parameters?.Count(p => p.Mandatory == true) ?? 0;
 
-                if (argumentCount >= minRequired && argumentCount <= paramCount)
-                    return true;
-            }
+            if (overload.Vararg ? argumentCount >= minRequired
+                                : argumentCount >= minRequired && argumentCount <= paramCount)
+                return true;
         }
 
         return false;
@@ -398,8 +383,15 @@ internal class SymbolTable
     private ScrFunction? FindMethodInClassHierarchy(ScrClass scrClass, string methodName)
     {
         // Check the current class
-        ScrFunction? method = scrClass.Methods
-            .FirstOrDefault(m => m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase));
+        ScrFunction? method = null;
+        foreach (var m in scrClass.Methods)
+        {
+            if (m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase))
+            {
+                method = m;
+                break;
+            }
+        }
 
         if (method is not null)
         {
@@ -431,11 +423,10 @@ internal class SymbolTable
     internal bool IsMemberInClassHierarchy(ScrClass scrClass, string memberName)
     {
         // Check the current class
-        bool hasMember = scrClass.Members.Any(m => m.Name.Equals(memberName, StringComparison.OrdinalIgnoreCase));
-
-        if (hasMember)
+        foreach (var m in scrClass.Members)
         {
-            return true;
+            if (m.Name.Equals(memberName, StringComparison.OrdinalIgnoreCase))
+                return true;
         }
 
         // Check base class if it exists

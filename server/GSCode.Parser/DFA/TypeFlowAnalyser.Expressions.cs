@@ -878,8 +878,7 @@ internal ref partial struct TypeFlowAnalyser
     {
         return postfix.Operation switch
         {
-            TokenType.Increment => AnalysePostIncrementOp(postfix, symbolTable, sense),
-            TokenType.Decrement => AnalysePostDecrementOp(postfix, symbolTable, sense),
+            TokenType.Increment or TokenType.Decrement => AnalysePostIncrDecrOp(postfix, symbolTable, sense),
             _ => ScrData.Default,
         };
     }
@@ -1045,45 +1044,21 @@ internal ref partial struct TypeFlowAnalyser
         return false;
     }
 
-    private ScrData AnalysePostIncrementOp(PostfixExprNode postfix, SymbolTable symbolTable, ParserIntelliSense sense)
+    private ScrData AnalysePostIncrDecrOp(PostfixExprNode postfix, SymbolTable symbolTable, ParserIntelliSense sense)
     {
         ScrData target = AnalyseExpr(postfix.Operand!, symbolTable, sense, false);
 
-        // Must be an int or float.
         if (!target.IsCompatibleWith(ScrDataTypes.Int) && !target.IsCompatibleWith(ScrDataTypes.Float))
         {
             AddDiagnostic(postfix.Operand!.Range, GSCErrorCodes.NoImplicitConversionExists, target.TypeToString(), ScrDataTypeNames.Int);
             return ScrData.Default;
         }
 
-        // Perform the assignment using the shared helper
         if (!TryAssignToTarget(postfix.Operand!, target, new ScrData(target.Type), symbolTable))
         {
             return ScrData.Default;
         }
 
-        // Return its old value (post-increment returns the value before incrementing)
-        return target;
-    }
-
-    private ScrData AnalysePostDecrementOp(PostfixExprNode postfix, SymbolTable symbolTable, ParserIntelliSense sense)
-    {
-        ScrData target = AnalyseExpr(postfix.Operand!, symbolTable, sense, false);
-
-        // Must be an int or float.
-        if (!target.IsCompatibleWith(ScrDataTypes.Int) && !target.IsCompatibleWith(ScrDataTypes.Float))
-        {
-            AddDiagnostic(postfix.Operand!.Range, GSCErrorCodes.NoImplicitConversionExists, target.TypeToString(), ScrDataTypeNames.Int);
-            return ScrData.Default;
-        }
-
-        // Perform the assignment using the shared helper
-        if (!TryAssignToTarget(postfix.Operand!, target, new ScrData(target.Type), symbolTable))
-        {
-            return ScrData.Default;
-        }
-
-        // Return its old value (post-decrement returns the value before decrementing)
         return target;
     }
 

@@ -147,13 +147,10 @@ public sealed class GlobalFieldRegistry : IGlobalFieldProvider
     /// </summary>
     public static FieldOwner? IdentifierToOwner(string identifier)
     {
-        return identifier.ToLowerInvariant() switch
-        {
-            "level" => FieldOwner.Level,
-            "world" => FieldOwner.World,
-            "game" => FieldOwner.Game,
-            _ => null
-        };
+        if (identifier.Equals("level", StringComparison.OrdinalIgnoreCase)) return FieldOwner.Level;
+        if (identifier.Equals("world", StringComparison.OrdinalIgnoreCase)) return FieldOwner.World;
+        if (identifier.Equals("game", StringComparison.OrdinalIgnoreCase)) return FieldOwner.Game;
+        return null;
     }
 
     private void RemoveFieldEntry(string filePath, FieldOwner owner, string normalizedFieldName)

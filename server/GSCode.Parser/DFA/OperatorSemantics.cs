@@ -21,6 +21,51 @@ internal ref struct OperatorSemantics(ParserIntelliSense sense, AnalysisFlags fl
         Sense.AddSpaDiagnostic(range, code, args);
     }
 
+    /// <summary>
+    /// Shared preamble for ==, !=, ===, !==. Returns true when the caller should return
+    /// <paramref name="earlyResult"/> immediately; false when operands are valid and the
+    /// caller should compute its own final value.
+    /// </summary>
+    private bool TryEarlyReturnEquality(BinaryExprNode node, ScrData left, ScrData right,
+        string op, out ScrData earlyResult)
+    {
+        if (left.TypeUnknown() || right.TypeUnknown())
+        {
+            earlyResult = ScrData.Default;
+            return true;
+        }
+
+        if (left.BooleanValue is null || right.BooleanValue is null)
+        {
+            earlyResult = new ScrData(ScrDataTypes.Bool);
+            return true;
+        }
+
+        if (left.Type == ScrDataTypes.Undefined || right.Type == ScrDataTypes.Undefined)
+        {
+            AddDiagnostic(node.Range, GSCErrorCodes.OperatorNotSupportedOnTypes, op, left.TypeToString(), right.TypeToString());
+            earlyResult = ScrData.Default;
+            return true;
+        }
+
+        if (left.HasType(ScrDataTypes.Undefined) && !left.Indeterminate)
+        {
+            AddDiagnostic(node.Left!.Range, GSCErrorCodes.PossibleUndefinedComparison);
+            earlyResult = new ScrData(ScrDataTypes.Bool);
+            return true;
+        }
+
+        if (right.HasType(ScrDataTypes.Undefined) && !right.Indeterminate)
+        {
+            AddDiagnostic(node.Right!.Range, GSCErrorCodes.PossibleUndefinedComparison);
+            earlyResult = new ScrData(ScrDataTypes.Bool);
+            return true;
+        }
+
+        earlyResult = default;
+        return false;
+    }
+
     public ScrData ExecuteCompoundOp(TokenType op, BinaryExprNode node, ScrData left, ScrData right)
     {
         return op switch
@@ -208,145 +253,32 @@ internal ref struct OperatorSemantics(ParserIntelliSense sense, AnalysisFlags fl
 
     public ScrData AnalyseEqualsOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.BooleanValue is null || right.BooleanValue is null)
-        {
-            return new ScrData(ScrDataTypes.Bool);
-        }
-
-        // Undefined can't be compared, that's what isdefined is for.
-        // Only flag if the type is definitively undefined (not a union containing undefined).
-        if (left.Type == ScrDataTypes.Undefined || right.Type == ScrDataTypes.Undefined)
-        {
-            AddDiagnostic(node.Range, GSCErrorCodes.OperatorNotSupportedOnTypes, "==", left.TypeToString(), right.TypeToString());
-            return ScrData.Default;
-        }
-
-        // Warn them if either side is possibly undefined — but not if the type is
-        // indeterminate, since CFA already merged the paths and the comparison is valid.
-        if (left.HasType(ScrDataTypes.Undefined) && !left.Indeterminate)
-        {
-            AddDiagnostic(node.Left!.Range, GSCErrorCodes.PossibleUndefinedComparison);
-            return new ScrData(ScrDataTypes.Bool);
-        }
-        if (right.HasType(ScrDataTypes.Undefined) && !right.Indeterminate)
-        {
-            AddDiagnostic(node.Right!.Range, GSCErrorCodes.PossibleUndefinedComparison);
-            return new ScrData(ScrDataTypes.Bool);
-        }
-
+        if (TryEarlyReturnEquality(node, left, right, "==", out ScrData earlyResult))
+            return earlyResult;
         // TODO: this is a blunt instrument and I don't think it's correct
         return new ScrData(ScrDataTypes.Bool, booleanValue: left.BooleanValue == right.BooleanValue);
     }
 
     public ScrData AnalyseNotEqualsOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.BooleanValue is null || right.BooleanValue is null)
-        {
-            return new ScrData(ScrDataTypes.Bool);
-        }
-
-        // Undefined can't be compared, that's what isdefined is for.
-        if (left.Type == ScrDataTypes.Undefined || right.Type == ScrDataTypes.Undefined)
-        {
-            AddDiagnostic(node.Range, GSCErrorCodes.OperatorNotSupportedOnTypes, "!=", left.TypeToString(), right.TypeToString());
-            return ScrData.Default;
-        }
-
-        // Warn them if either side is possibly undefined — but not if the type is
-        // indeterminate, since CFA already merged the paths and the comparison is valid.
-        if (left.HasType(ScrDataTypes.Undefined) && !left.Indeterminate)
-        {
-            AddDiagnostic(node.Left!.Range, GSCErrorCodes.PossibleUndefinedComparison);
-            return new ScrData(ScrDataTypes.Bool);
-        }
-        if (right.HasType(ScrDataTypes.Undefined) && !right.Indeterminate)
-        {
-            AddDiagnostic(node.Right!.Range, GSCErrorCodes.PossibleUndefinedComparison);
-            return new ScrData(ScrDataTypes.Bool);
-        }
-
+        if (TryEarlyReturnEquality(node, left, right, "!=", out ScrData earlyResult))
+            return earlyResult;
         // TODO: this is a blunt instrument and I don't think it's correct
         return new ScrData(ScrDataTypes.Bool, booleanValue: left.BooleanValue != right.BooleanValue);
     }
 
     public ScrData AnalyseIdentityEqualsOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.BooleanValue is null || right.BooleanValue is null)
-        {
-            return new ScrData(ScrDataTypes.Bool);
-        }
-
-        // Undefined can't be compared, that's what isdefined is for.
-        if (left.Type == ScrDataTypes.Undefined || right.Type == ScrDataTypes.Undefined)
-        {
-            AddDiagnostic(node.Range, GSCErrorCodes.OperatorNotSupportedOnTypes, "===", left.TypeToString(), right.TypeToString());
-            return ScrData.Default;
-        }
-
-        // Warn them if either side is possibly undefined — but not if the type is
-        // indeterminate, since CFA already merged the paths and the comparison is valid.
-        if (left.HasType(ScrDataTypes.Undefined) && !left.Indeterminate)
-        {
-            AddDiagnostic(node.Left!.Range, GSCErrorCodes.PossibleUndefinedComparison);
-            return new ScrData(ScrDataTypes.Bool);
-        }
-        if (right.HasType(ScrDataTypes.Undefined) && !right.Indeterminate)
-        {
-            AddDiagnostic(node.Right!.Range, GSCErrorCodes.PossibleUndefinedComparison);
-            return new ScrData(ScrDataTypes.Bool);
-        }
-
+        if (TryEarlyReturnEquality(node, left, right, "===", out ScrData earlyResult))
+            return earlyResult;
         // TODO: this is definitely not right.
         return new ScrData(ScrDataTypes.Bool, booleanValue: left.BooleanValue == right.BooleanValue && left.Type == right.Type);
     }
 
     public ScrData AnalyseIdentityNotEqualsOp(BinaryExprNode node, ScrData left, ScrData right)
     {
-        if (left.TypeUnknown() || right.TypeUnknown())
-        {
-            return ScrData.Default;
-        }
-
-        if (left.BooleanValue is null || right.BooleanValue is null)
-        {
-            return new ScrData(ScrDataTypes.Bool);
-        }
-
-        // Undefined can't be compared, that's what isdefined is for.
-        if (left.Type == ScrDataTypes.Undefined || right.Type == ScrDataTypes.Undefined)
-        {
-            AddDiagnostic(node.Range, GSCErrorCodes.OperatorNotSupportedOnTypes, "!==", left.TypeToString(), right.TypeToString());
-            return ScrData.Default;
-        }
-
-        // Warn them if either side is possibly undefined — but not if the type is
-        // indeterminate, since CFA already merged the paths and the comparison is valid.
-        if (left.HasType(ScrDataTypes.Undefined) && !left.Indeterminate)
-        {
-            AddDiagnostic(node.Left!.Range, GSCErrorCodes.PossibleUndefinedComparison);
-            return new ScrData(ScrDataTypes.Bool);
-        }
-        if (right.HasType(ScrDataTypes.Undefined) && !right.Indeterminate)
-        {
-            AddDiagnostic(node.Right!.Range, GSCErrorCodes.PossibleUndefinedComparison);
-            return new ScrData(ScrDataTypes.Bool);
-        }
-
+        if (TryEarlyReturnEquality(node, left, right, "!==", out ScrData earlyResult))
+            return earlyResult;
         // TODO: this is definitely not right.
         return new ScrData(ScrDataTypes.Bool, booleanValue: left.BooleanValue != right.BooleanValue || left.Type != right.Type);
     }

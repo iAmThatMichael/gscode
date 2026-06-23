@@ -118,16 +118,22 @@ public class DefinitionsTable
         lock (_lock) _classLocations[QualifiedSymbolKey.Normalized(qualifier, symbolName)] = (StringPool.Intern(filePath), range, bodyEndLine);
     }
 
-    public void RecordFunctionParameters(string qualifier, string symbolName, IEnumerable<FunctionParameter> parameters)
+    private void UpdateFunctionDefinition(string qualifier, string symbolName,
+        Func<CompleteFunctionDefinition, CompleteFunctionDefinition> updater)
     {
-        var value = parameters?.ToArray() ?? [];
         lock (_lock)
         {
             var key = QualifiedSymbolKey.Normalized(qualifier, symbolName);
             if (!_functionDefinitions.TryGetValue(key, out var def))
                 def = new CompleteFunctionDefinition { Name = symbolName, Namespace = qualifier, LocalScriptPath = string.Empty, SourceRange = new Range(new Position(0, 0), new Position(0, 0)) };
-            _functionDefinitions[key] = def with { Parameters = value };
+            _functionDefinitions[key] = updater(def);
         }
+    }
+
+    public void RecordFunctionParameters(string qualifier, string symbolName, IEnumerable<FunctionParameter> parameters)
+    {
+        var value = parameters?.ToArray() ?? [];
+        UpdateFunctionDefinition(qualifier, symbolName, def => def with { Parameters = value });
     }
 
     public FunctionParameter[]? GetFunctionParameters(string qualifier, string symbolName)
@@ -144,13 +150,7 @@ public class DefinitionsTable
     public void RecordFunctionFlags(string qualifier, string symbolName, IEnumerable<string> flags)
     {
         var value = flags?.Select(f => StringPool.Intern(f?.ToLowerInvariant() ?? string.Empty)).ToArray() ?? [];
-        lock (_lock)
-        {
-            var key = QualifiedSymbolKey.Normalized(qualifier, symbolName);
-            if (!_functionDefinitions.TryGetValue(key, out var def))
-                def = new CompleteFunctionDefinition { Name = symbolName, Namespace = qualifier, LocalScriptPath = string.Empty, SourceRange = new Range(new Position(0, 0), new Position(0, 0)) };
-            _functionDefinitions[key] = def with { Flags = value };
-        }
+        UpdateFunctionDefinition(qualifier, symbolName, def => def with { Flags = value });
     }
 
     public string[]? GetFunctionFlags(string qualifier, string symbolName)
@@ -165,15 +165,8 @@ public class DefinitionsTable
     }
 
     public void RecordFunctionDoc(string qualifier, string symbolName, string? doc)
-    {
-        lock (_lock)
-        {
-            var key = QualifiedSymbolKey.Normalized(qualifier, symbolName);
-            if (!_functionDefinitions.TryGetValue(key, out var def))
-                def = new CompleteFunctionDefinition { Name = symbolName, Namespace = qualifier, LocalScriptPath = string.Empty, SourceRange = new Range(new Position(0, 0), new Position(0, 0)) };
-            _functionDefinitions[key] = def with { DocComment = string.IsNullOrWhiteSpace(doc) ? null : doc };
-        }
-    }
+        => UpdateFunctionDefinition(qualifier, symbolName,
+            def => def with { DocComment = string.IsNullOrWhiteSpace(doc) ? null : doc });
 
     public string? GetFunctionDoc(string qualifier, string symbolName)
     {

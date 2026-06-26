@@ -204,8 +204,23 @@ LanguageServer server = await LanguageServer.From(options =>
 
 					if (gameRawRoot is not null)
 					{
-						Log.Information("Indexing game scripts (signature-only): {Root}", gameRawRoot);
-						await sm.IndexWorkspaceAsync(gameRawRoot, signatureOnly: true, indexingToken);
+						string normalizedGameRoot = Path.GetFullPath(gameRawRoot);
+						bool coveredByWorkspace = workspaceRoots.Any(r =>
+						{
+							string nr = Path.GetFullPath(r);
+							return normalizedGameRoot.StartsWith(nr + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+								|| string.Equals(nr, normalizedGameRoot, StringComparison.OrdinalIgnoreCase);
+						});
+
+						if (!coveredByWorkspace)
+						{
+							Log.Information("Indexing game scripts (signature-only): {Root}", gameRawRoot);
+							await sm.IndexWorkspaceAsync(gameRawRoot, signatureOnly: true, indexingToken);
+						}
+						else
+						{
+							Log.Debug("Skipping game script indexing — already covered by workspace root.");
+						}
 					}
 				}, indexingToken);
 			}

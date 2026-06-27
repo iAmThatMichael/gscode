@@ -115,36 +115,6 @@ public class ScriptCache
         return -1;
     }
 
-    private static int GetBaseCharOfLine(string content, int line)
-    {
-        // Line 0 starts at position 0
-        if (line == 0)
-        {
-            return 0;
-        }
-
-        int pos = 0;
-        int currentLine = 0;
-
-        while (currentLine < line && pos < content.Length)
-        {
-            // Find the next line break — handle \r\n, \n, and bare \r.
-            // VS Code always sends LF (\n) line endings regardless of the OS,
-            // so we must not rely on Environment.NewLine (which is \r\n on Windows).
-            int newlinePos = content.IndexOf('\n', pos);
-            if (newlinePos == -1)
-            {
-                // No more newlines found, return -1 to indicate line doesn't exist
-                return -1;
-            }
-            // Move past the \n
-            pos = newlinePos + 1;
-            currentLine++;
-        }
-
-        return currentLine == line ? pos : -1;
-    }
-
     public void RemoveFromCache(TextDocumentIdentifier document)
     {
         Uri documentUri = document.Uri.ToUri();

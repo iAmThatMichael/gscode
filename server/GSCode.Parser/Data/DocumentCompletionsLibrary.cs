@@ -216,12 +216,25 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
         Log.Debug("Completion at position {Position}: token='{Lexeme}' type={Type}, filter='{Filter}', namespace={Namespace}, insideFunc={InsideFunc}, isDirective={IsDirective}, pathContext={PathContext}, prevToken={PrevType}", 
             position, token.Lexeme, token.Type, filter, namespaceQualifier ?? "(none)", isInsideFunctionBlock, isDirectiveContext, directivePathContext != null, token.Previous?.Type);
 
-        // If NOT inside a function block and NOT typing a directive, return empty completions
-        // (top-level code can only have directives and function definitions, not statements)
+        // If NOT inside a function block and NOT typing a directive, only macros are valid.
+        // Keywords, API functions, and identifiers are excluded at file scope.
         if (!isInsideFunctionBlock && !isDirectiveContext)
         {
-            Log.Debug("Returning empty completions (not in function and not directive context)");
-            return new CompletionList();
+            if (MacroDefinitions is null)
+                return new CompletionList();
+
+            var macroItems = new List<CompletionItem>();
+            HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in MacroDefinitions)
+            {
+                if (seen.Add(kvp.Key))
+                {
+                    var (macroDef, sourceDisplay) = kvp.Value;
+                    macroItems.Add(CreateMacroCompletionItem(kvp.Key, macroDef, sourceDisplay));
+                }
+            }
+            Log.Debug("File-scope macro-only completions: {Count}", macroItems.Count);
+            return new CompletionList(macroItems.ToArray());
         }
 
         // For the moment

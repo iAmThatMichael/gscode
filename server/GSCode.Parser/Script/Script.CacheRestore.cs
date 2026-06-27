@@ -39,6 +39,7 @@ public partial class Script
             }
 
             // Restore UsingPaths
+            _usingPaths.Clear();
             foreach (var dep in cachedData.Dependencies)
             {
                 var uri = new Uri(dep);

@@ -280,6 +280,7 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
         // Snapshot using paths and insert paths into stable backing fields
         if (DefinitionsTable is not null)
         {
+            _usingPaths.Clear();
             _usingPaths.AddRange(DefinitionsTable.UsingPaths);
         }
         if (Sense is not null)

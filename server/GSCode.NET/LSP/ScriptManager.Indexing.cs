@@ -480,7 +480,7 @@ public partial class ScriptManager
         var (mergeFuncLocs, mergeClassLocs) = MergeDependencySymbols(dependencies, filePath);
 
         // Merge definition tables (needed for go-to-definition in both modes)
-        WithAnalysisLock(docUri, () =>
+        await WithAnalysisLockAsync(docUri, () =>
         {
             if (entry.Script.DefinitionsTable is not null)
             {
@@ -497,7 +497,8 @@ public partial class ScriptManager
                     entry.Script.DefinitionsTable.AddClassLocation(ns, name, fp, TokenRange.FromRange(range));
                 }
             }
-        });
+            return Task.CompletedTask;
+        }, cancellationToken);
 
         if (indexingMode == GSCode.Parser.Configuration.IndexingMode.Partial)
         {

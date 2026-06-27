@@ -332,14 +332,6 @@ public partial class ScriptManager
         }
     }
 
-    private void WithAnalysisLock(Uri docUri, Action action)
-    {
-        var gate = _analysisLocks.GetOrAdd(docUri, _ => new SemaphoreSlim(1, 1));
-        gate.Wait();
-        try { action(); }
-        finally { gate.Release(); }
-    }
-
     private void CleanupLocksForUri(Uri uri)
     {
         // SemaphoreSlim has no safe "dispose when nobody is about to wait" primitive.

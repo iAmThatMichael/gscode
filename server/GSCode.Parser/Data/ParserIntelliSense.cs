@@ -148,16 +148,9 @@ internal sealed class ParserIntelliSense
         MacroDefinitions[name] = (definition, sourceDisplay);
     }
 
-    /// <summary>
-    /// Call sites of parameterised macros, recorded during preprocessing.
-    /// Used by SignatureHelp since the original call tokens are consumed during expansion.
-    /// </summary>
-    public List<Pre.MacroCallSite> MacroCallSites { get; } = new();
-
     public void AddMacroCallSite(Pre.MacroCallSite site)
     {
-        if (!IsEditorMode) return;
-        MacroCallSites.Add(site);
+        Completions?.MacroCallSites.Add(site);
     }
 
     public void SetDefinitionsTable(SA.DefinitionsTable? definitionsTable)
@@ -165,7 +158,6 @@ internal sealed class ParserIntelliSense
         if (Completions is null) return;
         Completions.DefinitionsTable = definitionsTable;
         Completions.MacroDefinitions = MacroDefinitions;
-        Completions.MacroCallSites = MacroCallSites;
     }
 
     /// <summary>

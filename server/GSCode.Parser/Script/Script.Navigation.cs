@@ -382,7 +382,7 @@ public partial class Script
 
     private SignatureHelp? TryBuildMacroSignatureHelp(Position position)
     {
-        foreach (var site in Sense.MacroCallSites)
+        foreach (var site in Sense.Completions!.MacroCallSites)
         {
             if (!site.CallRange.Contains(position))
                 continue;

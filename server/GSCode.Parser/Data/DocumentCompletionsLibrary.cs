@@ -54,7 +54,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
     /// Recorded macro call sites. Used to detect when the cursor is inside a macro argument
     /// so full function-scope completions are offered rather than the file-scope subset.
     /// </summary>
-    internal List<Pre.MacroCallSite>? MacroCallSites { get; set; }
+    internal List<Pre.MacroCallSite> MacroCallSites { get; } = new();
 
     // Language (Gsc or Csc) for filtering file completions
     private readonly ScriptLanguage _language = language;
@@ -109,7 +109,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
         // If not inside a function block, also check whether the cursor falls inside a recorded
         // macro call site — macro arguments can contain arbitrary expressions and should offer
         // the same full completion set as function-body positions.
-        if (!isInsideFunctionBlock && MacroCallSites is not null)
+        if (!isInsideFunctionBlock && MacroCallSites.Count > 0)
         {
             foreach (var site in MacroCallSites)
             {

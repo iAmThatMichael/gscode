@@ -125,7 +125,7 @@ internal sealed class ParserIntelliSense
         if (mode == ScriptMode.Editor)
         {
             HoverLibrary = new(endLine + 1);
-            Completions = new(Tokens, language, rawPath);
+            Completions = new(Tokens, language, MacroDefinitions, rawPath);
         }
     }
 
@@ -157,7 +157,6 @@ internal sealed class ParserIntelliSense
     {
         if (Completions is null) return;
         Completions.DefinitionsTable = definitionsTable;
-        Completions.MacroDefinitions = MacroDefinitions;
     }
 
     /// <summary>

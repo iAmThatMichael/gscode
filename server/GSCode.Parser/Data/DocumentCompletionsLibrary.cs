@@ -16,17 +16,30 @@ namespace GSCode.Parser.Data;
 /// <summary>
 /// A "dumb" implementation of a completions library, with naive heuristics for completion.
 /// </summary>
-public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, ScriptLanguage language, string? scriptPath = null)
+public sealed class DocumentCompletionsLibrary
 {
+    internal DocumentCompletionsLibrary(
+        DocumentTokensLibrary tokens,
+        ScriptLanguage language,
+        Dictionary<string, (Pre.MacroDefinition Definition, string? SourceDisplay)> macroDefinitions,
+        string? scriptPath = null)
+    {
+        Tokens = tokens;
+        ScriptPath = scriptPath;
+        _language = language;
+        _scriptAnalyserData = ScriptAnalyserData.GetShared(language);
+        _macroDefinitions = macroDefinitions;
+    }
+
     /// <summary>
     /// Library of tokens to quickly lookup a token at a given position.
     /// </summary>
-    public DocumentTokensLibrary Tokens { get; } = tokens;
+    public DocumentTokensLibrary Tokens { get; }
 
     /// <summary>
     /// Path to the current script file (for resolving relative paths).
     /// </summary>
-    public string? ScriptPath { get; } = scriptPath;
+    public string? ScriptPath { get; }
 
     /// <summary>
     /// Definitions table to lookup function and class definitions.
@@ -45,10 +58,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
     /// </summary>
     public ISymbolLocationProvider? WorkspaceSymbols { get; set; }
 
-    /// <summary>
-    /// Macro definitions for completions.
-    /// </summary>
-    internal Dictionary<string, (Pre.MacroDefinition Definition, string? SourceDisplay)>? MacroDefinitions { get; set; }
+    private readonly Dictionary<string, (Pre.MacroDefinition Definition, string? SourceDisplay)> _macroDefinitions;
 
     /// <summary>
     /// Recorded macro call sites. Used to detect when the cursor is inside a macro argument
@@ -57,10 +67,10 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
     internal List<Pre.MacroCallSite> MacroCallSites { get; } = new();
 
     // Language (Gsc or Csc) for filtering file completions
-    private readonly ScriptLanguage _language = language;
+    private readonly ScriptLanguage _language;
 
     // Use shared API instance to avoid redundant allocations
-    private readonly ScriptAnalyserData? _scriptAnalyserData = ScriptAnalyserData.GetShared(language);
+    private readonly ScriptAnalyserData? _scriptAnalyserData;
 
     /// <summary>
     /// Pre-cached unique identifiers from the token stream for fast completions.
@@ -256,15 +266,12 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
                 seen.Add(keyword);
             }
 
-            if (MacroDefinitions is not null)
+            foreach (var kvp in _macroDefinitions)
             {
-                foreach (var kvp in MacroDefinitions)
+                if (seen.Add(kvp.Key))
                 {
-                    if (seen.Add(kvp.Key))
-                    {
-                        var (macroDef, sourceDisplay) = kvp.Value;
-                        fileScopeItems.Add(CreateMacroCompletionItem(kvp.Key, macroDef, sourceDisplay));
-                    }
+                    var (macroDef, sourceDisplay) = kvp.Value;
+                    fileScopeItems.Add(CreateMacroCompletionItem(kvp.Key, macroDef, sourceDisplay));
                 }
             }
 
@@ -825,20 +832,17 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
             }
         }
 
-        // Add macros from MacroDefinitions dictionary
-        if (MacroDefinitions is not null)
+        // Add macros from _macroDefinitions dictionary
+        foreach (var kvp in _macroDefinitions)
         {
-            foreach (var kvp in MacroDefinitions)
-            {
-                string macroName = kvp.Key;
-                var (macroDef, sourceDisplay) = kvp.Value;
+            string macroName = kvp.Key;
+            var (macroDef, sourceDisplay) = kvp.Value;
 
-                if (!seenIdentifiers.Contains(macroName))
-                {
-                    completions.Add(CreateMacroCompletionItem(macroName, macroDef, sourceDisplay));
-                    seenIdentifiers.Add(macroName);
-                    macroCount++;
-                }
+            if (!seenIdentifiers.Contains(macroName))
+            {
+                completions.Add(CreateMacroCompletionItem(macroName, macroDef, sourceDisplay));
+                seenIdentifiers.Add(macroName);
+                macroCount++;
             }
         }
 
@@ -1004,7 +1008,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
             }
 
             // Skip macro names — macros cannot be dot-accessed
-            if (MacroDefinitions is not null && MacroDefinitions.ContainsKey(name))
+            if (_macroDefinitions.ContainsKey(name))
             {
                 continue;
             }

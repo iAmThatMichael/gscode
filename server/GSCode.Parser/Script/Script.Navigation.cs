@@ -292,7 +292,13 @@ public partial class Script
             return null;
 
         if (!TryGetCallInfoByIndex(tokenIdx, out int idIdx, out int activeParam))
-            return null;
+        {
+            // TryFindCallContext walks the post-expansion token stream. Macro call tokens
+            // (name, '(', args, ')') are consumed during preprocessing and replaced by
+            // expansion tokens, so the scan always fails for macro calls. Fall back to
+            // the call site records that were captured before the tokens were consumed.
+            return TryBuildMacroSignatureHelp(position);
+        }
 
         Token? idToken = tokens.GetAt(idIdx);
         var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(idIdx);
@@ -372,6 +378,54 @@ public partial class Script
         }
 
         return signatures;
+    }
+
+    private SignatureHelp? TryBuildMacroSignatureHelp(Position position)
+    {
+        foreach (var site in Sense.MacroCallSites)
+        {
+            if (!site.CallRange.Contains(position))
+                continue;
+
+            if (!Sense.MacroDefinitions.TryGetValue(site.MacroName, out var macroEntry)
+                || macroEntry.Definition.Parameters is not { Count: > 0 })
+                return null;
+
+            int activeMacroParam = 0;
+            foreach (var (commaLine, commaChar) in site.CommaPositions)
+            {
+                if (position.Line > commaLine || (position.Line == commaLine && position.Character > commaChar))
+                    activeMacroParam++;
+                else
+                    break;
+            }
+
+            int macroParamCount = macroEntry.Definition.Parameters!.Count;
+            return new SignatureHelp
+            {
+                ActiveSignature = 0,
+                ActiveParameter = Math.Max(0, Math.Min(activeMacroParam, macroParamCount - 1)),
+                Signatures = new Container<SignatureInformation>(BuildMacroSignature(site.MacroName, macroEntry.Definition))
+            };
+        }
+        return null;
+    }
+
+    private static SignatureInformation BuildMacroSignature(string name, MacroDefinition macro)
+    {
+        string label = $"{name}({string.Join(", ", macro.Parameters!.Select(t => t.Lexeme))})";
+        var paramInfos = macro.Parameters!.Select(t => new ParameterInformation { Label = t.Lexeme });
+
+        StringOrMarkupContent? doc = string.IsNullOrWhiteSpace(macro.Documentation)
+            ? null
+            : new StringOrMarkupContent(new MarkupContent { Kind = MarkupKind.Markdown, Value = macro.Documentation });
+
+        return new SignatureInformation
+        {
+            Label = label,
+            Documentation = doc,
+            Parameters = new Container<ParameterInformation>(paramInfos)
+        };
     }
 
     private static string? ExtractParameterDocFromDoc(string? doc, string paramName, int paramIndex)

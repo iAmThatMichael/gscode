@@ -140,6 +140,24 @@ internal class ScriptMacro : ISenseDefinition
 }
 
 /// <summary>
+/// Records the source location of a parameterised macro call site.
+/// Original call tokens (macro name, '(', arguments, ')') are consumed during preprocessing
+/// and replaced by expansion tokens, making them invisible to post-expansion token scans.
+/// This record preserves the information needed for LSP SignatureHelp.
+/// </summary>
+/// <param name="MacroName">The macro identifier as written in source.</param>
+/// <param name="CallRange">Range from the macro name token to the closing ')'.</param>
+/// <param name="CommaPositions">
+/// Source positions of the commas separating arguments, in order.
+/// Length is always (argCount - 1). Active parameter = number of commas before the cursor.
+/// </param>
+internal sealed record MacroCallSite(
+    string MacroName,
+    TokenRange CallRange,
+    (ushort Line, ushort Char)[] CommaPositions
+);
+
+/// <summary>
 /// Hoverable entry for an #insert directive path to enable navigation and quick info on that line.
 /// </summary>
 /// <param name="RawPath">The raw path text inside the directive</param>

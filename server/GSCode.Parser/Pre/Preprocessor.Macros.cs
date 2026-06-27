@@ -48,7 +48,7 @@ internal ref partial struct Preprocessor
         }
 
         // Get the arguments
-        LinkedList<TokenList?> arguments = MacroArgs(macroToken, macroDefinition.Parameters!);
+        LinkedList<TokenList?> arguments = MacroArgs(macroToken, macroDefinition.Parameters!, out var commaPositions);
 
         // Check for )
         if(!AdvanceIfType(TokenType.CloseParen))
@@ -143,6 +143,15 @@ internal ref partial struct Preprocessor
         // Make sure we're at the beginning, as macros can contain macros.
         CurrentNode = macroToken.Previous!;
 
+        // Record the call site for SignatureHelp — original tokens are consumed above
+        // and no longer in the token stream after CommitTokens is called.
+        Sense.AddMacroCallSite(new MacroCallSite(
+            macroToken.Lexeme,
+            new TokenRange(macroToken.TokenRange.StartLine, macroToken.TokenRange.StartChar,
+                           endAnchorToken.TokenRange.EndLine, endAnchorToken.TokenRange.EndChar),
+            commaPositions
+        ));
+
         // Job done (who knew with args would be so much more complex!)
         // Finally, add the macro reference to IntelliSense
         Sense.AddSenseToken(macroToken.Token, new ScriptMacro(macroToken.Token, macroDefinition, expansion));
@@ -154,12 +163,13 @@ internal ref partial struct Preprocessor
     /// <param name="macroToken"></param>
     /// <param name="parameters"></param>
     /// <returns></returns>
-    private LinkedList<TokenList?> MacroArgs(LinkedToken macroToken, IEnumerable<Token> parameters)
+    private LinkedList<TokenList?> MacroArgs(LinkedToken macroToken, IEnumerable<Token> parameters, out (ushort Line, ushort Char)[] commaPositions)
     {
         int expectedParameterCount = parameters.Count();
 
         // Iterative to avoid stack overflow on pathological macro calls with many arguments.
         LinkedList<TokenList?> result = [];
+        List<(ushort, ushort)>? commas = null;
 
         // Collect the first argument (always present once we're inside the paren).
         result.AddLast(MacroArgExpansion());
@@ -168,6 +178,12 @@ internal ref partial struct Preprocessor
 
         while (ConsumeIfType(TokenType.Comma, out LinkedToken? commaToken))
         {
+            if (Sense.IsEditorMode)
+            {
+                commas ??= new();
+                commas.Add((commaToken!.TokenRange.StartLine, commaToken.TokenRange.StartChar));
+            }
+
             // Too many arguments — report once, keep parsing.
             if (index + 1 > expectedParameterCount && !alreadyErroredAboutArgumentCount)
             {
@@ -185,6 +201,7 @@ internal ref partial struct Preprocessor
             AddError(GSCErrorCodes.TooFewMacroArguments, macroToken.Lexeme, expectedParameterCount);
         }
 
+        commaPositions = commas?.ToArray() ?? [];
         return result;
     }
 

@@ -28,6 +28,14 @@ public readonly record struct TokenRange(ushort StartLine, ushort StartChar, ush
     public static TokenRange FromRange(Range range) => new(
         range.Start.Line, range.Start.Character,
         range.End.Line, range.End.Character);
+
+    public bool Contains(OmniSharp.Extensions.LanguageServer.Protocol.Models.Position position)
+    {
+        int line = position.Line, ch = position.Character;
+        bool afterStart = line > StartLine || (line == StartLine && ch >= StartChar);
+        bool beforeEnd  = line < EndLine   || (line == EndLine   && ch <= EndChar);
+        return afterStart && beforeEnd;
+    }
 }
 
 internal record class Token(TokenType Type, TokenRange TokenRange)

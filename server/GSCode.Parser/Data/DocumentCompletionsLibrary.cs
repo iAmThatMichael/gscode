@@ -50,6 +50,12 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
     /// </summary>
     internal Dictionary<string, (Pre.MacroDefinition Definition, string? SourceDisplay)>? MacroDefinitions { get; set; }
 
+    /// <summary>
+    /// Recorded macro call sites. Used to detect when the cursor is inside a macro argument
+    /// so full function-scope completions are offered rather than the file-scope subset.
+    /// </summary>
+    internal List<Pre.MacroCallSite>? MacroCallSites { get; set; }
+
     // Language (Gsc or Csc) for filtering file completions
     private readonly ScriptLanguage _language = language;
 
@@ -99,6 +105,21 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
 
         // Check if we're inside a function block
         bool isInsideFunctionBlock = IsInsideFunctionBlock(token);
+
+        // If not inside a function block, also check whether the cursor falls inside a recorded
+        // macro call site — macro arguments can contain arbitrary expressions and should offer
+        // the same full completion set as function-body positions.
+        if (!isInsideFunctionBlock && MacroCallSites is not null)
+        {
+            foreach (var site in MacroCallSites)
+            {
+                if (site.CallRange.Contains(position))
+                {
+                    isInsideFunctionBlock = true;
+                    break;
+                }
+            }
+        }
 
         // Check if we're in a directive context (typing after # or on a directive token)
         bool isDirectiveContext = IsDirectiveContext(token, isInsideFunctionBlock);
@@ -250,7 +271,7 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
             Log.Debug("File-scope completions: {Count} ({Keywords} keywords, {Macros} macros)",
                 fileScopeItems.Count, ScriptKeywords.FileScope.Count,
                 fileScopeItems.Count - ScriptKeywords.FileScope.Count);
-            return new CompletionList(fileScopeItems.ToArray());
+            return new CompletionList(fileScopeItems);
         }
 
         // For the moment
@@ -1036,12 +1057,21 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
             detail = macroName;
         }
 
-        // Build documentation showing the macro definition
-        string documentation = $"```gsc\n{macroDef.DefineSnippet}\n```";
-        if (!string.IsNullOrEmpty(macroDef.Documentation))
+        // Build documentation matching the function style: signature, parameters list, then doc comment
+        var docBuilder = new StringBuilder();
+        docBuilder.Append("```gsc\n").Append(macroDef.DefineSnippet).Append("\n```");
+
+        if (macroDef.Parameters is { Count: > 0 })
         {
-            documentation += $"\n\n{macroDef.Documentation}";
+            docBuilder.Append("\n\n**Parameters:**");
+            foreach (var param in macroDef.Parameters)
+                docBuilder.Append("\n- `").Append(param.Lexeme).Append('`');
         }
+
+        if (!string.IsNullOrEmpty(macroDef.Documentation))
+            docBuilder.Append("\n\n").Append(macroDef.Documentation);
+
+        string documentation = docBuilder.ToString();
 
         return new CompletionItem()
         {

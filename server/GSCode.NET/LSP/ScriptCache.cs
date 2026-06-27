@@ -38,9 +38,8 @@ public class ScriptCache
             Position end = change.Range.End;
 
             // Apply incremental change: replace text in the specified range
-            string cachedString = cachedVersion.ToString();
-            int startLineBase = GetBaseCharOfLine(cachedString, start.Line);
-            int endLineBase = GetBaseCharOfLine(cachedString, end.Line);
+            int startLineBase = GetBaseCharOfLine(cachedVersion, start.Line);
+            int endLineBase = GetBaseCharOfLine(cachedVersion, end.Line);
 
             // Validate positions
             if (startLineBase == -1)
@@ -87,6 +86,33 @@ public class ScriptCache
         // Ensure the updated StringBuilder is stored back
         Scripts[documentUri] = cachedVersion;
         return cachedVersion.ToString();
+    }
+
+    private static int GetBaseCharOfLine(StringBuilder sb, int line)
+    {
+        if (line == 0) return 0;
+
+        int pos = 0;
+        int currentLine = 0;
+
+        while (currentLine < line && pos < sb.Length)
+        {
+            int newlinePos = IndexOf(sb, '\n', pos);
+            if (newlinePos == -1) return -1;
+            pos = newlinePos + 1;
+            currentLine++;
+        }
+
+        return currentLine == line ? pos : -1;
+    }
+
+    private static int IndexOf(StringBuilder sb, char ch, int startIndex)
+    {
+        for (int i = startIndex; i < sb.Length; i++)
+        {
+            if (sb[i] == ch) return i;
+        }
+        return -1;
     }
 
     private static int GetBaseCharOfLine(string content, int line)

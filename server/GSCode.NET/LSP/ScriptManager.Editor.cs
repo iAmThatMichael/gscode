@@ -282,10 +282,7 @@ public partial class ScriptManager
     private Script GetEditor(TextDocumentItem document)
     {
         Uri uri = document.Uri.ToUri();
-        // Prefer LSP-supplied languageId when available; fall back to extension.
-        ScriptLanguage language = document.LanguageId is not null
-            ? ScriptLanguageExtensions.FromString(document.LanguageId)
-            : ScriptLanguageExtensions.FromExtension(Path.GetExtension(uri.LocalPath));
+        ScriptLanguage language = ScriptLanguageExtensions.FromExtension(Path.GetExtension(uri.LocalPath));
         return GetEditorByUri(uri, language);
     }
 

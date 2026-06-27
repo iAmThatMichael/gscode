@@ -216,25 +216,41 @@ public sealed class DocumentCompletionsLibrary(DocumentTokensLibrary tokens, Scr
         Log.Debug("Completion at position {Position}: token='{Lexeme}' type={Type}, filter='{Filter}', namespace={Namespace}, insideFunc={InsideFunc}, isDirective={IsDirective}, pathContext={PathContext}, prevToken={PrevType}", 
             position, token.Lexeme, token.Type, filter, namespaceQualifier ?? "(none)", isInsideFunctionBlock, isDirectiveContext, directivePathContext != null, token.Previous?.Type);
 
-        // If NOT inside a function block and NOT typing a directive, only macros are valid.
-        // Keywords, API functions, and identifiers are excluded at file scope.
+        // If NOT inside a function block and NOT typing a directive: file scope.
+        // Directives (#using, #insert, etc.) are valid here too but handled above via isDirectiveContext.
+        // Only file-scope keywords (function declarations and modifiers) and macros are returned here.
         if (!isInsideFunctionBlock && !isDirectiveContext)
         {
-            if (MacroDefinitions is null)
-                return new CompletionList();
-
-            var macroItems = new List<CompletionItem>();
+            var fileScopeItems = new List<CompletionItem>();
             HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
-            foreach (var kvp in MacroDefinitions)
+
+            foreach (string keyword in ScriptKeywords.FileScope)
             {
-                if (seen.Add(kvp.Key))
+                fileScopeItems.Add(new CompletionItem()
                 {
-                    var (macroDef, sourceDisplay) = kvp.Value;
-                    macroItems.Add(CreateMacroCompletionItem(kvp.Key, macroDef, sourceDisplay));
+                    Kind = CompletionItemKind.Keyword,
+                    Label = keyword,
+                    InsertText = keyword
+                });
+                seen.Add(keyword);
+            }
+
+            if (MacroDefinitions is not null)
+            {
+                foreach (var kvp in MacroDefinitions)
+                {
+                    if (seen.Add(kvp.Key))
+                    {
+                        var (macroDef, sourceDisplay) = kvp.Value;
+                        fileScopeItems.Add(CreateMacroCompletionItem(kvp.Key, macroDef, sourceDisplay));
+                    }
                 }
             }
-            Log.Debug("File-scope macro-only completions: {Count}", macroItems.Count);
-            return new CompletionList(macroItems.ToArray());
+
+            Log.Debug("File-scope completions: {Count} ({Keywords} keywords, {Macros} macros)",
+                fileScopeItems.Count, ScriptKeywords.FileScope.Count,
+                fileScopeItems.Count - ScriptKeywords.FileScope.Count);
+            return new CompletionList(fileScopeItems.ToArray());
         }
 
         // For the moment

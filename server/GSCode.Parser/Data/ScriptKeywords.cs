@@ -21,4 +21,12 @@ internal static class ScriptKeywords
         "true", "false", "undefined", "self", "level", "game", "world", "vararg", "anim",
         "var", "const", "function", "private", "autoexec", "constructor", "destructor"
     };
+
+    /// <summary>
+    /// Keywords valid at file scope (outside any function body): function declarations and their modifiers.
+    /// </summary>
+    public static readonly HashSet<string> FileScope = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "function", "autoexec", "private", "constructor", "destructor"
+    };
 }

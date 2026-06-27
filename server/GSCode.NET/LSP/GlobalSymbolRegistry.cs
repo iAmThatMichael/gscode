@@ -33,7 +33,7 @@ public sealed record SymbolDefinition(
 /// This eliminates per-file duplication of symbol metadata and enables efficient cross-file resolution.
 /// Implements ISymbolLocationProvider to allow DefinitionsTable to query the registry.
 /// </summary>
-public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
+public sealed class GlobalSymbolRegistry : ISymbolLocationProvider, IDisposable
 {
     // Canonical symbol definitions indexed by QualifiedSymbolKey - single source of truth
     private readonly ConcurrentDictionary<QualifiedSymbolKey, SymbolDefinition> _symbols = new();
@@ -672,4 +672,6 @@ public sealed class GlobalSymbolRegistry : ISymbolLocationProvider
 
     IReadOnlyList<WorkspaceFunctionInfo> ISymbolLocationProvider.GetFunctionsInNamespace(string ns, string languageId)
         => GetFunctionsInNamespace(ns, languageId);
+
+    public void Dispose() => _lock.Dispose();
 }

@@ -99,4 +99,15 @@ public class GlobalSymbolRegistryTests
         Assert.Empty(registry.GetSymbolsDefinedInFile(@"C:\r\scripts\zm\a.gsc"));
         Assert.DoesNotContain("my_ns", registry.GetAllNamespaces("gsc"));
     }
+
+    [Fact]
+    public void GlobalSymbolRegistry_Dispose_DoesNotThrow()
+    {
+        var registry = new GlobalSymbolRegistry();
+        registry.UpdateSymbolsForFile(@"C:\a\x.gsc",
+            [new SymbolDefinition("ns", "func", ExportedSymbolType.Function, @"C:\a\x.gsc", default)]);
+
+        var ex = Record.Exception(() => registry.Dispose());
+        Assert.Null(ex);
+    }
 }

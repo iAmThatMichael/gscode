@@ -167,8 +167,9 @@ public partial class ScriptManager
         foreach (var def in symbols)
         {
             string? resolvedPath;
-            if (Path.IsPathRooted(def.FilePath) && File.Exists(def.FilePath))
+            if (Path.IsPathRooted(def.FilePath))
             {
+                // Absolute paths are validated at indexing time — no need to re-stat on every query.
                 resolvedPath = def.FilePath;
             }
             else

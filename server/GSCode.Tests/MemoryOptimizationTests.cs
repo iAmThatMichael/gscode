@@ -4,11 +4,13 @@ using Xunit;
 
 namespace GSCode.Tests;
 
+[Collection("NonParallel")]
 public class MemoryOptimizationTests
 {
     [Fact]
     public void StringPool_Clear_RemovesAllEntries()
     {
+        StringPool.Clear();
         StringPool.Intern("test_string_1");
         StringPool.Intern("test_string_2");
         int before = StringPool.Count;
@@ -16,7 +18,7 @@ public class MemoryOptimizationTests
         StringPool.Clear();
 
         Assert.Equal(0, StringPool.Count);
-        Assert.True(before >= 2);
+        Assert.Equal(2, before);
     }
 
     [Fact]

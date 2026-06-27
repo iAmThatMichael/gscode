@@ -5,6 +5,7 @@ using GSCode.Parser;
 using GSCode.Parser.Cache;
 using GSCode.Parser.Data;
 using GSCode.Parser.Lexical;
+using GSCode.Parser.Pre;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using System.Diagnostics;
 using System.IO;
@@ -38,6 +39,13 @@ public partial class ScriptManager
                 Log.Warning("IndexWorkspace skipped: directory not found: {Root}", rootDirectory);
                 return;
             }
+
+            // Release static parser caches accumulated during any previous indexing pass.
+            // Must be called before parallel file tasks start — MacroDefinitionCache.Clear()
+            // is not atomic between its two internal dictionaries, so a concurrent parse
+            // running during the clear can create orphaned cache entries.
+            StringPool.Clear();
+            MacroDefinitionCache.Instance.Clear();
 
             // Load persistent cache from disk
             string cacheFilePath = WorkspaceCacheManager.GetCacheFilePath();

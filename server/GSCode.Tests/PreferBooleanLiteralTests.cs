@@ -103,7 +103,7 @@ public class PreferBooleanLiteralTests
         var languageLibraries = (System.Collections.IDictionary)typeof(ScriptAnalyserData)
             .GetField("_languageLibraries", BindingFlags.NonPublic | BindingFlags.Static)!
             .GetValue(null)!;
-        languageLibraries.Remove("gsc");
+        languageLibraries.Remove(ScriptLanguage.Gsc);
 
         MethodInfo loadLanguageApiData = typeof(ScriptAnalyserData).GetMethod(
             "LoadLanguageApiData",

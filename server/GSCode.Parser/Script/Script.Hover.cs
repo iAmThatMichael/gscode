@@ -53,16 +53,16 @@ public partial class Script
         return null;
     }
 
-    private static bool TryGetQualifiedFunctionToken(Token token, out Token? functionToken)
+    private bool TryGetQualifiedFunctionToken(Token token, out Token? functionToken)
     {
-        Token? next = token.NextNonTrivia();
-        if (next?.Type != TokenType.ScopeResolution)
+        int tokenIdx = Sense.Tokens.IndexOf(token);
+        if (tokenIdx < 0 || !TryGetQualifiedFunctionTokenByIndex(tokenIdx, out int functionTokenIdx))
         {
             functionToken = null;
             return false;
         }
-        functionToken = next.NextNonTrivia();
-        return functionToken?.Type == TokenType.Identifier;
+        functionToken = Sense.Tokens.GetAt(functionTokenIdx);
+        return functionToken is not null;
     }
 
     private Hover? BuildCallSignatureHover(Token? functionToken, int activeParam)

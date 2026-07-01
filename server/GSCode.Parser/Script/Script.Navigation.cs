@@ -229,8 +229,7 @@ public partial class Script
 
         int nextNonWsIdx = Sense.Tokens.NextNonWhitespaceIndex(tokenIdx);
         bool looksLikeCall = nextNonWsIdx >= 0 && Sense.Tokens.GetAt(nextNonWsIdx)!.Type == TokenType.OpenParen;
-        int prevNonTrivIdx = Sense.Tokens.PrevNonTriviaIndex(tokenIdx);
-        bool isQualified = prevNonTrivIdx >= 0 && Sense.Tokens.GetAt(prevNonTrivIdx)!.Type == TokenType.ScopeResolution;
+        bool isQualified = IsQualifiedIdentifierByIndex(tokenIdx);
         bool isAddressOf = IsAddressOfIdentifierByIndex(tokenIdx);
 
         Log.Debug("TryGetFunctionOrClassLocation: looksLikeCall={C} isQualified={Q} isAddressOf={A} hasDefinitionSymbol={D}",

@@ -34,6 +34,22 @@ public partial class Script
     }
 
     /// <summary>
+    /// Index-based: checks if the token at <paramref name="tokenIndex"/> is the right-hand side
+    /// of a namespace-qualified name, i.e. matches the 3-token pattern Identifier :: Identifier
+    /// with this token as the final Identifier. Requires the token immediately before the '::'
+    /// to itself be an Identifier (not just "immediately preceded by '::'"), so a malformed or
+    /// unusual token sequence doesn't get misclassified as qualified.
+    /// </summary>
+    private bool IsQualifiedIdentifierByIndex(int tokenIndex)
+    {
+        var tokens = Sense.Tokens;
+        int prevIdx = tokens.PrevNonTriviaIndex(tokenIndex);
+        return prevIdx >= 0 && tokens.GetAt(prevIdx)!.Type == TokenType.ScopeResolution
+            && tokens.PrevNonTriviaIndex(prevIdx) is int nsPrevIdx && nsPrevIdx >= 0
+            && tokens.GetAt(nsPrevIdx)!.Type == TokenType.Identifier;
+    }
+
+    /// <summary>
     /// Index-based: parse namespace::name or just name from a token at the given index.
     /// </summary>
     private (string? qualifier, string name) ParseNamespaceQualifiedIdentifierByIndex(int tokenIndex)

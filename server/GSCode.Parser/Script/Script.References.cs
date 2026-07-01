@@ -35,10 +35,7 @@ public partial class Script
                 // Recognize call-site or qualified references, or address-of '&name' / '&ns::name'
                 int nextIdx = tokens.NextNonWhitespaceIndex(i);
                 bool looksLikeCall = nextIdx >= 0 && tokens.GetAt(nextIdx)!.Type == TokenType.OpenParen;
-                int prevIdx = tokens.PrevNonTriviaIndex(i);
-                bool isQualified = prevIdx >= 0 && tokens.GetAt(prevIdx)!.Type == TokenType.ScopeResolution
-                    && tokens.PrevNonTriviaIndex(prevIdx) is int nsPrevIdx && nsPrevIdx >= 0
-                    && tokens.GetAt(nsPrevIdx)!.Type == TokenType.Identifier;
+                bool isQualified = IsQualifiedIdentifierByIndex(i);
                 bool isAddressOf = IsAddressOfIdentifierByIndex(i);
                 if (!looksLikeCall && !isQualified && !isAddressOf) continue;
 

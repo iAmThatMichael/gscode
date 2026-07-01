@@ -36,6 +36,6 @@ public class SwitchSemanticTokenTests
         // 'a' in 'switch (a)' is on line index 2, columns 12-13.
         Assert.Contains(tokens, t =>
             t.Range.Start.Line == 2 && t.Range.Start.Character == 12 &&
-            t.SemanticTokenType == "variable");
+            t.SemanticTokenType == "parameter");
     }
 }

@@ -90,6 +90,24 @@ public class DefinitionsTable
         }
     }
 
+    /// <summary>
+    /// Restores an exported function from a workspace cache, merging overloads if a function
+    /// of the same name was already restored (mirrors the merge <see cref="AddFunction"/> performs
+    /// during a live parse, so cache-restored scripts keep the same overload-merge invariant).
+    /// </summary>
+    internal void RestoreExportedFunction(ScrFunction function)
+    {
+        if (ExportedSymbols.TryGetValue(function.Name, out IExportedSymbol? existing) && existing is ScrFunction existingFunc)
+        {
+            existingFunc.Overloads.AddRange(function.Overloads);
+        }
+        else
+        {
+            ExportedFunctions.Add(function);
+            ExportedSymbols[function.Name] = function;
+        }
+    }
+
     internal void AddClass(ScrClass scrClass, ClassDefnNode node)
     {
         LocalScopedClasses.Add((scrClass, node));

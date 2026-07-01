@@ -25,11 +25,11 @@ public partial class Script
             // Restore DefinitionsTable
             DefinitionsTable = new DefinitionsTable(cachedData.CurrentNamespace, GlobalSymbolProvider);
 
-            // Populate ExportedFunctions and ExportedClasses
+            // Populate ExportedFunctions, merging overloads for duplicate names the same way
+            // DefinitionsTable.AddFunction does during a live parse.
             foreach (var func in cachedData.ExportedFunctions)
             {
-                DefinitionsTable.ExportedFunctions.Add(func);
-                DefinitionsTable.ExportedSymbols[func.Name] = func;
+                DefinitionsTable.RestoreExportedFunction(func);
             }
 
             foreach (var cls in cachedData.ExportedClasses)

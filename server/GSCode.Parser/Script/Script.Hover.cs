@@ -24,7 +24,7 @@ public partial class Script
 
         // Priority 0.5: If the cursor is on the owner of a dot-field (e.g. "level" in "level.zombie_spawners"),
         // suppress further lookup — the owner itself isn't a function and would fall through to a bad hover.
-        if (token.Type == TokenType.Identifier && s_trackedOwners.Contains(token.Lexeme))
+        if (token.Type == TokenType.Identifier && GlobalObjectOwners.All.Contains(token.Lexeme))
         {
             int ownerIdx = Sense.Tokens.IndexOf(token);
             int nextIdx = Sense.Tokens.NextNonWhitespaceIndex(ownerIdx);

@@ -520,16 +520,6 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
     }
 
     /// <summary>
-    /// Set of identifier lexemes (lowered) that are tracked as global field owners.
-    /// </summary>
-    internal static readonly HashSet<string> s_trackedOwners = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "level",
-        "world",
-        "self"
-    };
-
-    /// <summary>
     /// Extracts global-object field accesses from the token stream.
     /// Scans for patterns like <c>level.fieldName</c>, <c>world.foo</c>, <c>game["key"]</c> is NOT tracked (array access).
     /// Only dot-access patterns (<c>Identifier → Dot → Identifier</c>) are extracted.
@@ -557,7 +547,7 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
             if (ownerToken is null || ownerToken.Type != TokenType.Identifier)
                 continue;
 
-            if (!s_trackedOwners.Contains(ownerToken.Lexeme))
+            if (!GlobalObjectOwners.All.Contains(ownerToken.Lexeme))
                 continue;
 
             // Look forward to get the field name

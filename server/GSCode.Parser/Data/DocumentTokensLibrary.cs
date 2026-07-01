@@ -142,6 +142,24 @@ public sealed class DocumentTokensLibrary
             }
         }
 
+        // Selection-end compensation: LSP clients sometimes send the end of an active text
+        // selection as the position. That position often lands exactly on the boundary between
+        // the selected token and the following one (e.g. right after an identifier, at the start
+        // of a ';' or '('). When that happens, every caller of GetIndex/Get would otherwise land
+        // on the wrong (non-identifier) token and silently fail. Step back to the preceding
+        // identifier so lookups resolve the same way regardless of whether the client sent the
+        // selection start or end.
+        if (TokenList[index].Type != TokenType.Identifier
+            && TokenList[index].TokenRange.StartLine == location.Line
+            && TokenList[index].TokenRange.StartChar == location.Character)
+        {
+            int prevIdx = PrevNonTriviaIndex(index);
+            if (prevIdx >= 0 && TokenList[prevIdx].Type == TokenType.Identifier)
+            {
+                return prevIdx;
+            }
+        }
+
         return index;
     }
 

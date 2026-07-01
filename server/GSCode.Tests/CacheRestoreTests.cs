@@ -3,6 +3,7 @@ using GSCode.Data.Models;
 using GSCode.Parser;
 using GSCode.Parser.Cache;
 using GSCode.Parser.Data;
+using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using Xunit;
 
@@ -90,5 +91,43 @@ public class CacheRestoreTests
         Assert.Single(script.DefinitionsTable!.ExportedFunctions, f => f.Name == "foo");
         Assert.True(script.DefinitionsTable!.ExportedSymbols.TryGetValue("foo", out var merged));
         Assert.Equal(2, ((ScrFunction)merged!).Overloads.Count);
+    }
+
+    [Fact]
+    public void RestoreFromCache_InternsExportedFunctionNameAndNamespace()
+    {
+        Script script = new(new Uri("file:///test.gsc"), ScriptLanguage.Gsc, mode: ScriptMode.Index);
+
+        // Build the cached function's Name/Namespace from freshly allocated strings so they are
+        // guaranteed not to already be reference-equal to whatever StringPool.Intern returns.
+        string freshName = new(['b', 'a', 'r']);
+        string freshNamespace = new(['t', 'e', 's', 't']);
+        var func = new ScrFunction { Name = freshName, Namespace = freshNamespace };
+
+        var cacheData = new CachedScriptData
+        {
+            ContentHash = 1,
+            LanguageId = "gsc",
+            CachedAt = DateTime.UtcNow,
+            CurrentNamespace = "test",
+            ExportedFunctions = [func],
+            ExportedClasses = [],
+            Dependencies = [],
+            DependencyContentHashes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+            FunctionLocations = [],
+            ClassLocations = [],
+            FunctionDefinitions = [],
+            ClassDefinitions = [],
+            MacroDefinitions = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase),
+            Diagnostics = [],
+            References = [],
+            GlobalFieldAccesses = []
+        };
+
+        script.RestoreFromCache(cacheData, ScriptMode.Index);
+
+        var restored = Assert.Single(script.DefinitionsTable!.ExportedFunctions);
+        Assert.Same(StringPool.Intern(freshName), restored.Name);
+        Assert.Same(StringPool.Intern(freshNamespace), restored.Namespace);
     }
 }

@@ -1,5 +1,6 @@
 using GSCode.Parser.Cache;
 using GSCode.Parser.Data;
+using GSCode.Parser.Lexical;
 using GSCode.Parser.SA;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using Serilog;
@@ -23,12 +24,18 @@ public partial class Script
             Sense = new ParserIntelliSense(endLine: 0, ScriptUri, Language, mode);
 
             // Restore DefinitionsTable
-            DefinitionsTable = new DefinitionsTable(cachedData.CurrentNamespace, GlobalSymbolProvider);
+            DefinitionsTable = new DefinitionsTable(StringPool.Intern(cachedData.CurrentNamespace), GlobalSymbolProvider);
 
             // Populate ExportedFunctions, merging overloads for duplicate names the same way
             // DefinitionsTable.AddFunction does during a live parse.
-            foreach (var func in cachedData.ExportedFunctions)
+            // Intern Name and Namespace so cached scripts share string instances with fresh-parsed
+            // ones — otherwise every deserialized ScrFunction carries its own heap string objects
+            // for identifiers that would have been deduplicated by the lexer during a normal parse.
+            foreach (var rawFunc in cachedData.ExportedFunctions)
             {
+                // Namespace is a settable property; Name is init-only so use a with-expression.
+                var func = rawFunc with { Name = StringPool.Intern(rawFunc.Name) };
+                func.Namespace = StringPool.Intern(func.Namespace);
                 DefinitionsTable.RestoreExportedFunction(func);
             }
 
@@ -88,24 +95,38 @@ public partial class Script
             // have no entries for macros that came from #insert'd GSH files).
             // Also preserve the paths on the script so that a subsequent cache re-save
             // (ExtractCacheData) can round-trip them without zeroing out macro data.
-            foreach (var (macroName, sourceFilePath) in cachedData.MacroDefinitions)
+            // Intern both the macro name and the source file path: the same macro name (e.g.
+            // ANIMTREE) and the same GSH file path appear across many scripts, so sharing one
+            // string instance per unique value avoids hundreds of duplicate heap allocations.
+            if (cachedData.MacroDefinitions.Count > 0)
             {
-                Pre.MacroDefinitionCache.Instance.TrackMacroSource(sourceFilePath, macroName);
+                var internedMacros = new Dictionary<string, string?>(cachedData.MacroDefinitions.Count, StringComparer.OrdinalIgnoreCase);
+                foreach (var (macroName, sourceFilePath) in cachedData.MacroDefinitions)
+                {
+                    string internedName = StringPool.Intern(macroName);
+                    string? internedPath = sourceFilePath is not null ? StringPool.Intern(sourceFilePath) : null;
+                    Pre.MacroDefinitionCache.Instance.TrackMacroSource(internedPath, internedName);
+                    internedMacros[internedName] = internedPath;
+                }
+                _cachedMacroSourcePaths = new System.Collections.ObjectModel.ReadOnlyDictionary<string, string?>(internedMacros);
             }
-            _cachedMacroSourcePaths = cachedData.MacroDefinitions.Count > 0
-                ? new System.Collections.ObjectModel.ReadOnlyDictionary<string, string?>(
-                    new Dictionary<string, string?>(cachedData.MacroDefinitions, StringComparer.OrdinalIgnoreCase))
-                : null;
+            else
+            {
+                _cachedMacroSourcePaths = null;
+            }
 
             _references.Clear();
             foreach (var cachedReference in cachedData.References)
             {
+                // Intern Namespace, Name, ClassName, ScopeId: these are high-frequency identifiers
+                // that repeat across many files. During a fresh parse the lexer interns all tokens;
+                // cache restoration bypasses the lexer so we do it explicitly here.
                 var key = new SymbolKey(
                     cachedReference.Kind,
-                    cachedReference.Namespace,
-                    cachedReference.Name,
-                    cachedReference.ClassName,
-                    cachedReference.ScopeId);
+                    StringPool.Intern(cachedReference.Namespace),
+                    StringPool.Intern(cachedReference.Name),
+                    cachedReference.ClassName is not null ? StringPool.Intern(cachedReference.ClassName) : null,
+                    cachedReference.ScopeId is not null ? StringPool.Intern(cachedReference.ScopeId) : null);
 
                 if (!_references.TryGetValue(key, out var ranges))
                 {
@@ -121,7 +142,7 @@ public partial class Script
             }
 
             _cachedGlobalFieldAccesses = cachedData.GlobalFieldAccesses
-                .Select(field => (field.OwnerName, field.FieldName))
+                .Select(field => (StringPool.Intern(field.OwnerName), StringPool.Intern(field.FieldName)))
                 .ToList();
 
             // Mark as parsed and analysed

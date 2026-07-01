@@ -240,19 +240,5 @@ public partial class Script
         return a.Character.CompareTo(b.Character);
     }
 
-    private static bool TryGetRange(AstNode node, out Range range) => AstTraversal.TryGetRange(node, out range);
-
-    private static IEnumerable<AstNode> EnumerateChildren(AstNode node) => AstTraversal.EnumerateChildren(node);
-
-    private static IEnumerable<SwitchStmtNode> EnumerateSwitches(AstNode node) => AstTraversal.EnumerateSwitches(node);
-
     private static IEnumerable<FunDefnNode> EnumerateFunctions(AstNode node) => AstTraversal.EnumerateFunctions(node);
-
-    private static IEnumerable<FunCallNode> EnumerateCalls(AstNode node) => AstTraversal.EnumerateCalls(node);
-
-    private static IEnumerable<NamespacedMemberNode> EnumerateNamespacedMembers(AstNode node) => AstTraversal.EnumerateNamespacedMembers(node);
-
-    private static IEnumerable<BinaryExprNode> EnumerateBinaryExprs(AstNode node) => AstTraversal.EnumerateBinaryExprs(node);
-
-    private static void CollectIdentifiers(AstNode node, HashSet<string> into) => AstTraversal.CollectIdentifiers(node, into);
 }

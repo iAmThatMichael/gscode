@@ -20,58 +20,56 @@ public partial class Script
         for (int i = 0; i < tokens.Count; i++)
         {
             Token token = tokens.GetAt(i)!;
-            if (token.Type != TokenType.Identifier) continue;
 
-            // Recognize definition identifiers (populated by SignatureAnalyser before this runs)
-            var senseDef = Sense.GetSenseDefinition(token);
-            if (senseDef is ScrFunctionSymbol or ScrClassSymbol)
+            if (token.Type == TokenType.Identifier)
             {
-                var kind = senseDef is ScrFunctionSymbol ? SymbolKindSA.Function : SymbolKindSA.Class;
-                AddRef(new SymbolKey(kind, GetEffectiveNamespace(), token.Lexeme.ToLowerInvariant()), token.Range);
-                continue;
+                // Recognize definition identifiers (populated by SignatureAnalyser before this runs)
+                var senseDef = Sense.GetSenseDefinition(token);
+                if (senseDef is ScrFunctionSymbol or ScrClassSymbol)
+                {
+                    var kind = senseDef is ScrFunctionSymbol ? SymbolKindSA.Function : SymbolKindSA.Class;
+                    AddRef(new SymbolKey(kind, GetEffectiveNamespace(), token.Lexeme.ToLowerInvariant()), token.Range);
+                    continue;
+                }
+
+                // Recognize call-site or qualified references, or address-of '&name' / '&ns::name'
+                int nextIdx = tokens.NextNonWhitespaceIndex(i);
+                bool looksLikeCall = nextIdx >= 0 && tokens.GetAt(nextIdx)!.Type == TokenType.OpenParen;
+                int prevIdx = tokens.PrevNonTriviaIndex(i);
+                bool isQualified = prevIdx >= 0 && tokens.GetAt(prevIdx)!.Type == TokenType.ScopeResolution
+                    && tokens.PrevNonTriviaIndex(prevIdx) is int nsPrevIdx && nsPrevIdx >= 0
+                    && tokens.GetAt(nsPrevIdx)!.Type == TokenType.Identifier;
+                bool isAddressOf = IsAddressOfIdentifierByIndex(i);
+                if (!looksLikeCall && !isQualified && !isAddressOf) continue;
+
+                var (qual, name) = ParseNamespaceQualifiedIdentifierByIndex(i);
+
+                // Skip builtin
+                if (IsBuiltinFunction(name)) continue;
+
+                // Resolve to a namespace
+                string resolvedNamespace = (qual ?? GetEffectiveNamespace()).ToLowerInvariant();
+                // Index as function reference for now (method support can be added later)
+                AddRef(new SymbolKey(SymbolKindSA.Function, resolvedNamespace, name.ToLowerInvariant()), token.Range);
             }
+            else if (token.Type == TokenType.Dot)
+            {
+                // Index dot-field accesses (.foo) as Field symbols keyed by name only.
+                // Owner is intentionally excluded — GSC is dynamically typed and any variable can alias
+                // any object (e.g. x = level; x.foo is the same field as level.foo). This is a pure
+                // token-shape scan (no sense-definition lookup), unlike the identifier branch above,
+                // since ScrFieldSymbol sense tokens aren't populated until the DFA runs after this.
+                int nextIdx = tokens.NextNonWhitespaceIndex(i);
+                if (nextIdx < 0) continue;
+                Token? fieldToken = tokens.GetAt(nextIdx);
+                if (fieldToken is null || fieldToken.Type != TokenType.Identifier) continue;
 
-            // Recognize call-site or qualified references, or address-of '&name' / '&ns::name'
-            int nextIdx = tokens.NextNonWhitespaceIndex(i);
-            bool looksLikeCall = nextIdx >= 0 && tokens.GetAt(nextIdx)!.Type == TokenType.OpenParen;
-            int prevIdx = tokens.PrevNonTriviaIndex(i);
-            bool isQualified = prevIdx >= 0 && tokens.GetAt(prevIdx)!.Type == TokenType.ScopeResolution
-                && tokens.PrevNonTriviaIndex(prevIdx) is int nsPrevIdx && nsPrevIdx >= 0
-                && tokens.GetAt(nsPrevIdx)!.Type == TokenType.Identifier;
-            bool isAddressOf = IsAddressOfIdentifierByIndex(i);
-            if (!looksLikeCall && !isQualified && !isAddressOf) continue;
+                // Exclude call-sites (obj.Method() — these are indexed as Function refs)
+                int afterFieldIdx = tokens.NextNonWhitespaceIndex(nextIdx);
+                if (afterFieldIdx >= 0 && tokens.GetAt(afterFieldIdx)!.Type == TokenType.OpenParen) continue;
 
-            var (qual, name) = ParseNamespaceQualifiedIdentifierByIndex(i);
-
-            // Skip builtin
-            if (IsBuiltinFunction(name)) continue;
-
-            // Resolve to a namespace
-            string resolvedNamespace = (qual ?? GetEffectiveNamespace()).ToLowerInvariant();
-            // Index as function reference for now (method support can be added later)
-            AddRef(new SymbolKey(SymbolKindSA.Function, resolvedNamespace, name.ToLowerInvariant()), token.Range);
-        }
-
-        // Second pass: index dot-field accesses (.foo) as Field symbols keyed by name only.
-        // Owner is intentionally excluded — GSC is dynamically typed and any variable can alias
-        // any object (e.g. x = level; x.foo is the same field as level.foo).
-        // This must be a separate token-scan pass because ScrFieldSymbol sense tokens are not yet
-        // available here — they are populated by the DFA which runs after BuildReferenceIndex.
-        for (int i = 0; i < tokens.Count; i++)
-        {
-            Token token = tokens.GetAt(i)!;
-            if (token.Type != TokenType.Dot) continue;
-
-            int nextIdx = tokens.NextNonWhitespaceIndex(i);
-            if (nextIdx < 0) continue;
-            Token? fieldToken = tokens.GetAt(nextIdx);
-            if (fieldToken is null || fieldToken.Type != TokenType.Identifier) continue;
-
-            // Exclude call-sites (obj.Method() — these are indexed as Function refs)
-            int afterFieldIdx = tokens.NextNonWhitespaceIndex(nextIdx);
-            if (afterFieldIdx >= 0 && tokens.GetAt(afterFieldIdx)!.Type == TokenType.OpenParen) continue;
-
-            AddRef(new SymbolKey(SymbolKindSA.Field, "", fieldToken.Lexeme.ToLowerInvariant()), fieldToken.Range);
+                AddRef(new SymbolKey(SymbolKindSA.Field, "", fieldToken.Lexeme.ToLowerInvariant()), fieldToken.Range);
+            }
         }
 
         void AddRef(SymbolKey key, Range range)
@@ -92,15 +90,15 @@ public partial class Script
     {
         if (RootNode is null) return;
         _functionScopes = EnumerateFunctions(RootNode)
-            .Select(fn => new FunctionScopeInfo(
-                fn.Name?.Lexeme,
-                GetStmtListRange(fn.Body),
-                fn.Parameters.Parameters
-                    .Where(p => p.Name is not null)
-                    .Select(p => (p.Name!.Lexeme, p.Name.Range))
-                    .ToList()))
+            .Select(fn => new FunctionScopeInfo(fn.Name?.Lexeme, GetStmtListRange(fn.Body), GetParamRanges(fn)))
             .ToList();
     }
+
+    private static List<(string Name, Range Range)> GetParamRanges(FunDefnNode fn) =>
+        fn.Parameters.Parameters
+            .Where(p => p.Name is not null)
+            .Select(p => (p.Name!.Lexeme, p.Name.Range))
+            .ToList();
 
     public async Task<IReadOnlyList<Range>> GetLocalVariableReferencesAsync(Position position, bool includeDeclaration, CancellationToken cancellationToken = default)
     {
@@ -115,12 +113,6 @@ public partial class Script
 
         // Find the enclosing function scope
         FunctionScopeInfo? enclosingScope = null;
-
-        static List<(string Name, Range Range)> GetParamRanges(FunDefnNode fn) =>
-            fn.Parameters.Parameters
-                .Where(p => p.Name is not null)
-                .Select(p => (p.Name!.Lexeme, p.Name.Range))
-                .ToList();
 
         if (_functionScopes is not null)
         {

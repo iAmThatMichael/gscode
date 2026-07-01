@@ -304,17 +304,7 @@ public partial class Script
         var (qualifier, name) = ParseNamespaceQualifiedIdentifierByIndex(idIdx);
 
         // Resolve ScrFunction via the same chain as hover: sense definition → global provider → API
-        ScrFunction? function = Sense.GetSenseDefinition(idToken) switch
-        {
-            ScrMethodSymbol ms            => ms.Source,
-            ScrFunctionSymbol fs          => fs.Source,
-            ScrFunctionReferenceSymbol rs => rs.Source,
-            _                             => null
-        };
-
-        string ns = qualifier ?? GetEffectiveNamespace();
-        function ??= GlobalSymbolProvider?.GetFunction(ns, name)
-                  ?? TryGetApi()?.GetApiFunction(name);
+        ScrFunction? function = ResolveFunction(idToken, qualifier, name);
 
         if (function is null)
             return null;

@@ -125,11 +125,6 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
     private string? _scriptFileName;
     private string ScriptFileName => _scriptFileName ??= Path.GetFileNameWithoutExtension(ScriptUri.LocalPath);
 
-    // Common markdown format strings (interned for memory efficiency)
-    private static readonly string s_gscCodeBlockStart = string.Intern("```gsc\n");
-    private static readonly string s_codeBlockEnd = string.Intern("\n```");
-    private static readonly string s_markdownSeparator = string.Intern("\n---\n");
-
     /// <summary>
     /// Gets the effective namespace - either from DefinitionsTable or falls back to script filename.
     /// </summary>
@@ -573,7 +568,7 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
             results.Add((ownerToken.Lexeme.ToLowerInvariant(), fieldToken.Lexeme));
         }
 
-        _cachedGlobalFieldAccesses = results.ToList();
+        _cachedGlobalFieldAccesses = results;
         return results;
     }
 }

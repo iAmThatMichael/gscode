@@ -70,18 +70,7 @@ public partial class Script
         if (functionToken is null) return null;
 
         var (qualifier, funcName) = ParseNamespaceQualifiedIdentifierByIndex(Sense.Tokens.IndexOf(functionToken));
-
-        ScrFunction? function = Sense.GetSenseDefinition(functionToken) switch
-        {
-            ScrMethodSymbol ms            => ms.Source,  // before ScrFunctionSymbol — it's a subtype
-            ScrFunctionSymbol fs          => fs.Source,
-            ScrFunctionReferenceSymbol rs => rs.Source,
-            _                             => null
-        };
-
-        function ??= GlobalSymbolProvider?.GetFunction(qualifier ?? GetEffectiveNamespace(), funcName)
-                  ?? TryGetApi()?.GetApiFunction(funcName);
-
+        ScrFunction? function = ResolveFunction(functionToken, qualifier, funcName);
         if (function is null) return null;
 
         return MakeHover(functionToken.Range, function.GetDocumentationWithActiveParam(activeParam));
@@ -94,13 +83,33 @@ public partial class Script
             ? ParseNamespaceQualifiedIdentifierByIndex(tokenIdx)
             : (null, token.Lexeme);
 
-        string ns = qualifier ?? GetEffectiveNamespace();
-        ScrFunction? function = GlobalSymbolProvider?.GetFunction(ns, name)
-                             ?? TryGetApi()?.GetApiFunction(name);
-
+        ScrFunction? function = ResolveFunction(null, qualifier, name);
         if (function is null) return null;
 
         return MakeHover(token.Range, function.Documentation);
+    }
+
+    /// <summary>
+    /// Resolves a <see cref="ScrFunction"/> for the given identifier via the shared chain:
+    /// sense definition on <paramref name="functionToken"/> (if any) → global symbol provider → built-in API.
+    /// Shared by hover, call-signature hover, and signature-help lookups.
+    /// </summary>
+    private ScrFunction? ResolveFunction(Token? functionToken, string? qualifier, string name)
+    {
+        ScrFunction? function = functionToken is not null
+            ? Sense.GetSenseDefinition(functionToken) switch
+            {
+                ScrMethodSymbol ms            => ms.Source,  // before ScrFunctionSymbol — it's a subtype
+                ScrFunctionSymbol fs          => fs.Source,
+                ScrFunctionReferenceSymbol rs => rs.Source,
+                _                             => null
+            }
+            : null;
+
+        string ns = qualifier ?? GetEffectiveNamespace();
+        return function
+            ?? GlobalSymbolProvider?.GetFunction(ns, name)
+            ?? TryGetApi()?.GetApiFunction(name);
     }
 
     private static Hover MakeHover(Range range, string markdown) => new()

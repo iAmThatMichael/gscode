@@ -58,12 +58,18 @@ internal ref partial struct Preprocessor
             return;
         }
 
-        // Get the file contents — preserve original .gsh token ranges so macro definition
-        // navigation can jump to the exact #define line in the inserted file.
+        // Get the file contents — pass no range override so CloneList preserves each inserted
+        // token's own TokenRange from the .gsh file, rather than stamping every single one of
+        // them with the #insert directive's own path-text range. Passing a range here previously
+        // collapsed every macro (and everything else) from the inserted file onto that one fixed
+        // range, which made Go-to-Definition always jump to the #insert line instead of the real
+        // #define line, and — since MacroDefinition instances are shared globally via
+        // MacroDefinitionCache — "stuck" to whichever host file's #insert range happened to
+        // populate the cache first.
         TokenList? insertTokensResult;
         try
         {
-            insertTokensResult = Sense.GetFileTokens(resolvedInsertPath, path.Range is Range r ? TokenRange.FromRange(r) : null);
+            insertTokensResult = Sense.GetFileTokens(resolvedInsertPath);
         }
         catch(Exception ex)
         {

@@ -66,6 +66,8 @@ internal class DefinitionHandler(
         if (string.IsNullOrEmpty(name))
         {
             sw.Stop();
+            Log.Debug("Definition finished in {ElapsedMs} ms from {DocumentPath} at {Position}: no macro/symbol/qualified-identifier match",
+                sw.ElapsedMilliseconds, documentPath, request.Position);
             return new LocationOrLocationLinks();
         }
 

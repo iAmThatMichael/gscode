@@ -144,12 +144,22 @@ public partial class Script
         {
             int prevIdx = Sense.Tokens.PrevNonTriviaIndex(idx);
             Token? prev = Sense.Tokens.GetAt(prevIdx);
-            if (prev?.Type == TokenType.Identifier)
+
+            // A macro call site is consumed by the preprocessor and replaced by its expansion
+            // tokens, which inherit the macro name's call-site TokenRange but not its Identifier
+            // type (e.g. MEME expanding to `true` leaves a Boolean-typed token here). Without this
+            // branch, a cursor landing on the boundary right after a macro name (e.g. just before
+            // the following ')' or ';') never steps back, so the macro lookup below always misses -
+            // this was the reported "goto fails right after the macro name" bug.
+            if (prev?.Type == TokenType.Identifier || prev?.IsFromPreprocessor == true)
             {
-                Log.Debug("AdjustPositionForSelectionEnd: cursor at start of '{Tok}' ({Type}), stepping back to identifier '{Id}'",
-                    token.Lexeme, token.Type, prev.Lexeme);
+                Log.Debug("AdjustPositionForSelectionEnd: cursor at start of '{Tok}' ({Type}), stepping back to {Kind} '{Id}'",
+                    token.Lexeme, token.Type, prev.IsFromPreprocessor ? "macro expansion" : "identifier", prev.Lexeme);
                 return new Position { Line = prev.TokenRange.StartLine, Character = prev.TokenRange.StartChar };
             }
+
+            Log.Debug("AdjustPositionForSelectionEnd: cursor at start of '{Tok}' ({Type}), previous token '{Prev}' ({PrevType}, preprocessor={IsPre}) not adjustable",
+                token.Lexeme, token.Type, prev?.Lexeme, prev?.Type, prev?.IsFromPreprocessor);
         }
 
         return position;

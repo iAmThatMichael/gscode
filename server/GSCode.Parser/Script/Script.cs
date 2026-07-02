@@ -39,7 +39,8 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
     // Replaced on every ParseAsync so WaitUntilParsedAsync binds to the current parse cycle.
     private volatile TaskCompletionSource _currentParseGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _analysisInitiated = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private readonly TaskCompletionSource _dependenciesReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // Replaced on every ParseAsync so WaitUntilDependenciesReadyAsync binds to the current cycle.
+    private volatile TaskCompletionSource _dependenciesReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private ScriptNode? RootNode { get; set; } = null;
 
@@ -159,6 +160,9 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
         // WaitUntilParsedAsync issued after this point waits on this cycle.
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _currentParseGate = gate;
+        // Re-arm the dependencies gate for this cycle too — otherwise SignalDependenciesReady
+        // from a previous cycle leaves this permanently "ready" for every future cycle.
+        _dependenciesReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         ParsingTask = DoParseAsync(documentText);
         try

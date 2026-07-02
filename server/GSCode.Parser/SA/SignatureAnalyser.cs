@@ -305,6 +305,11 @@ internal ref struct SignatureAnalyser(ScriptNode rootNode, DefinitionsTable defi
         ScrFunction function, string? doc, IEnumerable<string> flags,
         int bodyEndLine = 0, IEnumerable<ScrParameter>? parameters = null, string? parentClass = null)
     {
+        // Keep the ScrFunction's own namespace in sync with whatever qualifier it's being
+        // registered under here — TypeFlowAnalyser reads this back per-function so it merges
+        // analysis data under the namespace active at registration time, not a file-wide snapshot.
+        function.Namespace = ns;
+
         string filePath = nameToken.IsFromPreprocessor && nameToken.InsertSourcePath is string insertPath
             ? insertPath
             : Sense.ScriptPath;

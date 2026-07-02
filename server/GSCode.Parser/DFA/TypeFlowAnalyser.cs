@@ -416,7 +416,7 @@ internal ref partial struct TypeFlowAnalyser(List<Tuple<ScrFunction, ControlFlow
     private void MergeCollectedDataIntoDefinition(ScrFunction function)
     {
         DefinitionsTable!.MergeAnalysisDataIntoDefinition(
-            CurrentNamespace ?? string.Empty,
+            function.Namespace ?? string.Empty,
             function.Name,
             _collectedLocalVariables.ToArray(),
             _fieldAssignmentsCollector.ToArray()

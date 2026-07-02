@@ -145,12 +145,15 @@ internal ref partial struct Preprocessor
 
         // Record the call site for SignatureHelp — original tokens are consumed above
         // and no longer in the token stream after CommitTokens is called.
-        Sense.AddMacroCallSite(new MacroCallSite(
-            macroToken.Lexeme,
-            new TokenRange(macroToken.TokenRange.StartLine, macroToken.TokenRange.StartChar,
-                           endAnchorToken.TokenRange.EndLine, endAnchorToken.TokenRange.EndChar),
-            commaPositions
-        ));
+        if (Sense.IsEditorMode)
+        {
+            Sense.AddMacroCallSite(new MacroCallSite(
+                macroToken.Lexeme,
+                new TokenRange(macroToken.TokenRange.StartLine, macroToken.TokenRange.StartChar,
+                               endAnchorToken.TokenRange.EndLine, endAnchorToken.TokenRange.EndChar),
+                commaPositions
+            ));
+        }
 
         // Job done (who knew with args would be so much more complex!)
         // Finally, add the macro reference to IntelliSense

@@ -33,7 +33,7 @@ public readonly record struct TokenRange(ushort StartLine, ushort StartChar, ush
     {
         int line = position.Line, ch = position.Character;
         bool afterStart = line > StartLine || (line == StartLine && ch >= StartChar);
-        bool beforeEnd  = line < EndLine   || (line == EndLine   && ch <= EndChar);
+        bool beforeEnd  = line < EndLine   || (line == EndLine   && ch < EndChar);
         return afterStart && beforeEnd;
     }
 }

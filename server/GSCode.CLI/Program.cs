@@ -91,10 +91,8 @@ class Program
 
         sw.Stop();
 
-        // Force GC to get accurate post-index memory
-        GC.Collect(2, GCCollectionMode.Aggressive, true, true);
-        GC.WaitForPendingFinalizers();
-        GC.Collect(2, GCCollectionMode.Aggressive, true, true);
+        // IndexWorkspaceAsync already forces an aggressive GC on completion, so working set
+        // here reflects steady-state post-index memory.
         process.Refresh();
         long memAfter = process.WorkingSet64;
 

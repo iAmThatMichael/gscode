@@ -249,6 +249,15 @@ public partial class ScriptManager
             // way, so without this they leak one SemaphoreSlim per file for the server lifetime.
             foreach (var kv in AllScripts)
                 CleanupLocksForUri(kv.Key);
+
+            // A full workspace index churns through tens of thousands of short-lived token/AST
+            // objects, promoting a lot of garbage into gen2 before the transient buffers above
+            // are released. Force a blocking compacting collection now, while the server is
+            // otherwise idle, so the working set reflects steady-state usage rather than the
+            // indexing peak.
+            GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
         }
     }
 

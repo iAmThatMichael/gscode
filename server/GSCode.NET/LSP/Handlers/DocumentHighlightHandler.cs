@@ -48,8 +48,8 @@ internal class DocumentHighlightHandler(
         if (qid is null)
             return new DocumentHighlightContainer();
 
-        string ns = qid.Value.qualifier ?? (script.DefinitionsTable?.CurrentNamespace ?? string.Empty);
-        string name = qid.Value.name;
+        string ns = (qid.Value.qualifier ?? (script.DefinitionsTable?.CurrentNamespace ?? string.Empty)).ToLowerInvariant();
+        string name = qid.Value.name.ToLowerInvariant();
 
         Range? declarationRange = script.DefinitionsTable?.GetFunctionLocation(ns, name)?.Range.ToRange()
             ?? script.DefinitionsTable?.GetClassLocation(ns, name)?.Range.ToRange()

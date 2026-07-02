@@ -284,6 +284,7 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
         }
         if (Sense is not null)
         {
+            _insertPaths.Clear();
             foreach (var region in Sense.InsertRegions)
             {
                 if (region.ResolvedPath is string resolved && !_insertPaths.Contains(resolved, StringComparer.OrdinalIgnoreCase))

@@ -171,12 +171,24 @@ public partial class ScriptManager
             _workspaceCacheDirty = true;
         }
 
+        var previousInsertPaths = script.InsertPaths.ToList();
+
         await script.ParseAsync(content);
 
-        // Register/refresh this script as a consumer of its #insert files.
+        // Register/refresh this script as a consumer of its #insert files, and drop stale
+        // registrations for paths no longer referenced after this edit (Script.InsertPaths only
+        // reflects the current parse, so anything missing here was removed by the user).
         // Also evict each insert file's cached token list so the next parse of any
         // consumer re-reads from disk (handles the case where the insert file itself changed).
-        foreach (string insertPath in script.InsertPaths)
+        var currentInsertPaths = script.InsertPaths;
+        foreach (string staleInsertPath in previousInsertPaths)
+        {
+            if (currentInsertPaths.Contains(staleInsertPath, StringComparer.OrdinalIgnoreCase))
+                continue;
+            if (_insertDependents.TryGetValue(staleInsertPath, out var staleConsumers))
+                staleConsumers.TryRemove(documentUri, out _);
+        }
+        foreach (string insertPath in currentInsertPaths)
         {
             _insertDependents
                 .GetOrAdd(insertPath, _ => new ConcurrentDictionary<Uri, byte>(UriComparer.OrdinalIgnoreCase))

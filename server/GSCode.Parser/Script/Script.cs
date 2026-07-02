@@ -228,6 +228,7 @@ public partial class Script(Uri ScriptUri, ScriptLanguage language, ISymbolLocat
 
             // Create a dummy IntelliSense container so we can provide an error to the IDE.
             Sense = new(0, ScriptUri, Language, mode);
+            Sense.AddIdeDiagnostic(RangeHelper.From(0, 0, 0, 1), GSCErrorCodes.UnhandledLexError, ex.GetType().Name);
 
             return Task.CompletedTask;
         }
